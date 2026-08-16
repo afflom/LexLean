@@ -352,6 +352,40 @@ fn has_unsolved(term: &Term, metas: &Metas) -> bool {
     }
 }
 
+/// The first numeral whose expected type stays an unsolved metavariable.
+fn unsolved_numeral(term: &Term, metas: &Metas) -> Option<String> {
+    match term {
+        Term::NatLiteral {
+            decimal,
+            expected_type,
+        } => {
+            if has_unsolved(expected_type, metas) {
+                Some(decimal.clone())
+            } else {
+                None
+            }
+        }
+        Term::Local(_) | Term::Sort(_) | Term::Global(..) => None,
+        Term::App {
+            function,
+            explicit_args,
+            ..
+        } => unsolved_numeral(function, metas)
+            .or_else(|| explicit_args.iter().find_map(|arg| unsolved_numeral(arg, metas))),
+        Term::Pi { binders, body } | Term::Lambda { binders, body } => binders
+            .iter()
+            .find_map(|binder| unsolved_numeral(&binder.ty, metas))
+            .or_else(|| unsolved_numeral(body, metas)),
+        Term::Let {
+            binder,
+            value,
+            body,
+        } => unsolved_numeral(&binder.ty, metas)
+            .or_else(|| unsolved_numeral(value, metas))
+            .or_else(|| unsolved_numeral(body, metas)),
+    }
+}
+
 fn universe_unsolved(universe: &Universe, metas: &Metas) -> bool {
     match universe {
         Universe::Var(name) => {
@@ -1639,6 +1673,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         let candidates = self.candidates(ast)?;
         let candidate_count = candidates.len();
         let mut survivors: Vec<(String, ElabTerm)> = Vec::new();
+        let mut untyped_numeral: Option<String> = None;
         for mut candidate in candidates {
             if let Some(expected_ty) = expected {
                 if !unify(&candidate.ty, expected_ty, &mut candidate.metas) {
@@ -1650,6 +1685,9 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 &candidate.metas,
             );
             if has_unsolved(&term, &candidate.metas) {
+                if untyped_numeral.is_none() {
+                    untyped_numeral = unsolved_numeral(&term, &candidate.metas);
+                }
                 continue;
             }
             let ty =
@@ -1690,7 +1728,14 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             .with_span(self.span_of(ast.atoms()))),
             0 => Err(Diagnostic::new(
                 code!("LLT4001"),
-                "no interpretation satisfies the declared signatures and expected types",
+                match untyped_numeral {
+                    // §15.5: a numeral has no default type; name it.
+                    Some(decimal) => format!(
+                        "the numeral `{decimal}` receives no expected type from an operator, relation, binder, definition signature, or declaration statement (§15.5)"
+                    ),
+                    None => "no interpretation satisfies the declared signatures and expected types"
+                        .to_owned(),
+                },
             )
             .with_span(self.span_of(ast.atoms()))),
             _ => Err(crate::elaborate::ambiguity_diagnostic(

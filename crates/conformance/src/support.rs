@@ -799,9 +799,34 @@ induction_lean_name = "{lean}.rec"
         "(pi ((implicit a (sort prop)) (implicit b (sort prop)) (explicit left (local a)) (explicit right (local b))) (app (const test.corpus::conj) (local a) (local b)))",
         "And.intro",
     );
+    let combine = format!(
+        r#"spec = "lexlean/entry/1"
+id = "combine"
+category = "function"
+signature = "(pi ((explicit a {nat}) (explicit b {nat})) {nat})"
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "combine"
+
+[[form]]
+id = "combine"
+channel = "math"
+surface = "combine"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name combine) (paren (seq (slot 0) (space) (slot 1))))"
+"#
+    );
     vec![
         ("zeroadd.toml", zeroadd),
         ("addcomm.toml", addcomm),
+        ("combine.toml", combine),
         ("even.toml", even),
         ("double.toml", double),
         ("disj.toml", disj),
@@ -834,6 +859,19 @@ For every natural number \(n\), \(n\) is even holds exactly when there exists a 
 \noaxioms
 For every natural number \(n\), the double of \(n\) is defined as \(n + n\).
 \end{termdefinition}
+
+\begin{termdefinition}{combine}{test.corpus::combine}
+\noaxioms
+For every natural number \(a\); natural number \(b\), \(combine(a, b)\) is defined as \(a + b\).
+\end{termdefinition}
+
+\begin{theorem}{nested-call}
+\noaxioms
+For every natural number \(a\) and natural number \(b\), \(succ(a) + combine((b + 0), a) = combine(b, a) + succ(a)\).
+\begin{proof}
+Close the goal with \(addcomm(succ(a), combine((b + 0), a))\).
+\end{proof}
+\end{theorem}
 
 \begin{theorem}{add-zero}
 \noaxioms

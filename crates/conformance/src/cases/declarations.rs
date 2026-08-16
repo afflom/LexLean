@@ -6,15 +6,74 @@ use crate::support::{self, P};
 
 pub(crate) fn run(id: &str) {
     match id {
-        // §15.7 rule 9: one nonrecursive sort-valued def, entry-linked.
+        // §15.7 rule 9: one nonrecursive sort-valued def, entry-linked; an
+        // ambiguous type phrase is rejected, and formatting retains the
+        // qualified selector that disambiguates (C7, D2).
         "DF-01" => {
             let project = support::defs_project();
             project.check_ok();
             let lean = support::lean_text(&support::rendered(&project), "Main");
             assert!(
-                lean.contains("def count : Type :=\n  Nat"),
+                lean.contains("public def count : Type :=\n  Nat\n"),
                 "a type definition is a sort-valued def: {lean}"
             );
+            let ambiguous = support::defs_project();
+            ambiguous.add_package(
+                "lexicons/test-dupnat",
+                "test.dupnat",
+                &["lexlean.core@1.0.0"],
+                &[("nat2.toml", DUP_NAT_ENTRY)],
+            );
+            ambiguous.edit(
+                "src/Main.lex.tex",
+                "\\useglossary{test.defs@1.0.0}",
+                "\\useglossary{test.defs@1.0.0}\n\\useglossary{test.dupnat@1.0.0}",
+            );
+            ambiguous.edit(
+                "src/Main.lex.tex",
+                "A count is defined as \\(ℕ\\).",
+                "A count is defined as natural number.",
+            );
+            ambiguous.relock();
+            let error = ambiguous.check_fails_with("LLP2002");
+            let diagnostic = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLP2002")
+                .expect("matched");
+            assert!(
+                diagnostic.message.contains("lexlean.std.nat::nat")
+                    && diagnostic.message.contains("test.dupnat::nat2"),
+                "the definition ambiguity names both candidates: {}",
+                diagnostic.message
+            );
+            // With explicit selectors the module checks, and canonical
+            // formatting keeps every selector the bare surface would not
+            // resolve uniquely.
+            ambiguous.write(
+                "src/Main.lex.tex",
+                &support::DEFS_MODULE
+                    .replace(
+                        "\\useglossary{test.defs@1.0.0}",
+                        "\\useglossary{test.defs@1.0.0}\n\\useglossary{test.dupnat@1.0.0}",
+                    )
+                    .replace(
+                        "A count is defined as \\(ℕ\\).",
+                        "A count is defined as \\(\\lexeme{lexlean.std.nat::nat}\\).",
+                    )
+                    .replace("natural number \\(", "\\(\\lexeme{lexlean.std.nat::nat}\\) \\("),
+            );
+            let checked = support::checked_project(&ambiguous);
+            let canonical =
+                lexlean::fmt::canonical_source(&checked.modules["Main"], &checked.closure)
+                    .expect("formats");
+            assert!(
+                canonical.contains("A count is defined as \\(\\lexeme{lexlean.std.nat::nat}\\).")
+                    && canonical.contains("For every \\(\\lexeme{lexlean.std.nat::nat}\\) \\(n\\), \\(double(n)\\) is defined as \\(n + n\\)."),
+                "formatting retains the disambiguating selectors: {canonical}"
+            );
+            ambiguous.write("src/Main.lex.tex", &canonical);
+            ambiguous.check_ok();
             let checked = support::checked_project(&project);
             let declaration = checked.modules["Main"]
                 .document
@@ -29,34 +88,95 @@ pub(crate) fn run(id: &str) {
                 DeclBody::TheoremLike { .. } => panic!("count is a definition"),
             }
         }
-        // §15.7: an explicitly typed nonrecursive term def.
+        // §15.7: an explicitly typed nonrecursive term def, through a call
+        // self head or a noun-of self head, with `;`-separated binders,
+        // Lean-verified in the corpus and reproduced by the formatter.
         "DF-02" => {
             let project = support::defs_project();
             let lean = support::lean_text(&support::rendered(&project), "Main");
             assert!(
-                lean.contains("def double"),
-                "the term definition emits a def: {lean}"
+                lean.contains("public def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0\n"),
+                "the term definition emits an explicitly typed def: {lean}"
             );
-            let line = lean
-                .lines()
-                .find(|line| line.contains("def double"))
-                .expect("double's line");
+            let fixture = support::verified_corpus();
+            assert_eq!(fixture.attestation["status"], "verified");
+            assert_eq!(
+                support::corpus_declaration_lean("double"),
+                "public def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0"
+            );
+            assert_eq!(
+                support::corpus_declaration_lean("combine"),
+                "public def combine (llv0 : Nat) (llv1 : Nat) : Nat :=\n  Nat.add llv0 llv1"
+            );
+            let checked = support::checked_project(&fixture.project);
+            let canonical =
+                lexlean::fmt::canonical_source(&checked.modules["Main"], &checked.closure)
+                    .expect("formats");
             assert!(
-                line.contains(": Nat :="),
-                "the def carries its explicit result type: {line}"
+                canonical.contains("For every natural number \\(n\\), the double of \\(n\\) is defined as \\(n + n\\).")
+                    && canonical.contains("For every natural number \\(a\\); natural number \\(b\\), \\(combine(a, b)\\) is defined as \\(a + b\\).")
+                    && canonical.contains("For every natural number \\(n\\), the double of \\(n\\) is even."),
+                "noun-of self heads, `;` binder lists, and noun-of arguments format canonically: {canonical}"
+            );
+            // `and` between definition binders is not the §15.4 BINDER-LIST
+            // separator; a noun-of head with the wrong argument fails rule 4.
+            let anded = support::corpus_project();
+            anded.edit(
+                "src/Main.lex.tex",
+                "natural number \\(a\\); natural number \\(b\\), \\(combine(a, b)\\)",
+                "natural number \\(a\\) and natural number \\(b\\), \\(combine(a, b)\\)",
+            );
+            anded.check_fails_with("LLF5001");
+            let wrong = support::corpus_project();
+            wrong.edit(
+                "src/Main.lex.tex",
+                "the double of \\(n\\) is defined as",
+                "the double of \\(m\\) is defined as",
+            );
+            let error = wrong.check_fails_with("LLF5001");
+            assert!(
+                error.diagnostics.iter().all(|d| d.primary.is_some()),
+                "self-head diagnostics carry spans: {error}"
             );
         }
-        // §15.7 rule 10: a Prop-valued predicate def.
+        // §15.7 rule 10: a Prop-valued predicate def, through a constant
+        // or a text predicate-frame self head (S10), Lean-verified.
         "DF-03" => {
             let project = support::defs_project();
             let lean = support::lean_text(&support::rendered(&project), "Main");
-            let line = lean
-                .lines()
-                .find(|line| line.contains("def good"))
-                .expect("good's line");
             assert!(
-                line.contains(": Prop :="),
-                "a predicate def returns Prop: {line}"
+                lean.contains("public def good : Prop :=\n  Exists (fun llv0 => Eq llv0 llv0)\n"),
+                "a predicate def returns Prop: {lean}"
+            );
+            let fixture = support::verified_corpus();
+            assert_eq!(fixture.attestation["status"], "verified");
+            assert_eq!(
+                support::corpus_declaration_lean("even"),
+                "public def even (llv0 : Nat) : Prop :=\n  Exists (fun llv1 => Eq llv0 (Nat.add llv1 llv1))"
+            );
+            assert_eq!(
+                support::corpus_declaration_lean("double_even"),
+                "public theorem double_even (llv0 : Nat) : LexLeanExample.Main.even (LexLeanExample.Main.double llv0) := by\n  refine ⟨llv0, ?_⟩\n  rfl"
+            );
+            let checked = support::checked_project(&fixture.project);
+            let canonical =
+                lexlean::fmt::canonical_source(&checked.modules["Main"], &checked.closure)
+                    .expect("formats");
+            assert!(
+                canonical.contains("For every natural number \\(n\\), \\(n\\) is even holds exactly when there exists a natural number \\(k\\) such that \\(n = k + k\\)."),
+                "the predicate-frame self head formats canonically: {canonical}"
+            );
+            // The self head must be the frame over the declared binder.
+            let wrong = support::corpus_project();
+            wrong.edit(
+                "src/Main.lex.tex",
+                "\\(n\\) is even holds exactly when",
+                "\\(k\\) is even holds exactly when",
+            );
+            let error = wrong.check_fails_with("LLF5001");
+            assert!(
+                error.diagnostics.iter().all(|d| d.primary.is_some()),
+                "self-head diagnostics carry spans: {error}"
             );
         }
         // §15.7 rules 6-8: no self reference, mutual cycle, or forward use.
@@ -137,6 +257,15 @@ pub(crate) fn run(id: &str) {
                 "For every natural number \\(n\\), \\(double(m)\\)",
             );
             renamed.check_fails_with("LLF5001");
+            // Rule 4 holds without a `For every` prefix: a function entry
+            // defined as a constant declares too few binders (C16).
+            let constant = support::defs_project();
+            constant.edit(
+                "src/Main.lex.tex",
+                "For every natural number \\(n\\), \\(double(n)\\) is defined as \\(n + n\\).",
+                "\\(double\\) is defined as \\(0\\).",
+            );
+            constant.check_fails_with("LLT4004");
         }
         // §15.9: exactly one explicit axiom policy everywhere.
         "DF-06" => {
@@ -261,3 +390,35 @@ pub(crate) fn run(id: &str) {
         other => panic!("no declarations case is wired for {other}"),
     }
 }
+
+/// A second type-noun with the text surface `natural number` and the math
+/// surface `ℕ`, so bare surfaces resolve to two visible entries.
+const DUP_NAT_ENTRY: &str = r#"spec = "lexlean/entry/1"
+id = "nat2"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Int"
+
+[[form]]
+id = "natural-number"
+channel = "text"
+surface = "natural number"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+
+[[form]]
+id = "blackboard"
+channel = "math"
+surface = "ℕ"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (token mathbb) (group (token blackboard-n)))"
+"#;
