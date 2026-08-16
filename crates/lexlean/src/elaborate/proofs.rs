@@ -1325,7 +1325,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                             BinderMode::Explicit => {
                                 let ty = instantiated
                                     .binder_type(ordinal)
-                                    .map(|ty| subst(&ty, &map));
+                                    .map(|ty| beta_head(&subst(&ty, &map)));
                                 field_types[field_index] = ty;
                                 map.insert(*meta, Term::Local(field_ids[field_index]));
                                 field_index += 1;
@@ -1521,6 +1521,31 @@ impl<'a, 'b> ProofElab<'a, 'b> {
             start: start_term.term,
             steps: ir_steps,
         })
+    }
+}
+
+/// Beta-reduce a head application of a lambda (a constructor field typed
+/// by an instantiated predicate, e.g. `Exists.intro`'s proof field
+/// `p w` with `p := fun x => P x`), so branch locals see `P w`.
+fn beta_head(term: &Term) -> Term {
+    let mut current = term.clone();
+    loop {
+        let Term::App {
+            function,
+            explicit_args,
+            ..
+        } = &current
+        else {
+            return current;
+        };
+        if !matches!(&**function, Term::Lambda { .. }) || explicit_args.is_empty() {
+            return current;
+        }
+        let mut reduced = (**function).clone();
+        for argument in explicit_args {
+            reduced = beta1(&reduced, argument);
+        }
+        current = reduced;
     }
 }
 

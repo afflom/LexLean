@@ -118,6 +118,18 @@ pub(crate) fn run(id: &str) {
                     && canonical.contains("For every natural number \\(n\\), the double of \\(n\\) is even."),
                 "noun-of self heads, `;` binder lists, and noun-of arguments format canonically: {canonical}"
             );
+            // The canonical source of the whole corpus is itself a valid,
+            // canonical module (§23.5).
+            let reformatted = support::corpus_project();
+            reformatted.write("src/Main.lex.tex", &canonical);
+            reformatted.check_ok();
+            let again = support::checked_project(&reformatted);
+            assert_eq!(
+                lexlean::fmt::canonical_source(&again.modules["Main"], &again.closure)
+                    .expect("formats"),
+                canonical,
+                "canonical formatting is idempotent over the corpus"
+            );
             // `and` between definition binders is not the §15.4 BINDER-LIST
             // separator; a noun-of head with the wrong argument fails rule 4.
             let anded = support::corpus_project();
