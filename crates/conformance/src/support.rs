@@ -261,25 +261,34 @@ pub fn env_lock() -> MutexGuard<'static, ()> {
 /// Run `body` with environment overrides, restoring the previous values.
 /// `None` removes the variable.
 pub fn with_env<T>(pairs: &[(&str, Option<&str>)], body: impl FnOnce() -> T) -> T {
+    /// Restores the saved values on drop, so a panicking body (a failed
+    /// assertion) cannot leave a temporary value in the process
+    /// environment for every later test.
+    struct Restore(Vec<(String, Option<String>)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            for (key, value) in self.0.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(&key, value),
+                    None => std::env::remove_var(&key),
+                }
+            }
+        }
+    }
     let _guard = env_lock();
-    let saved: Vec<(String, Option<String>)> = pairs
-        .iter()
-        .map(|(key, _)| ((*key).to_owned(), std::env::var(key).ok()))
-        .collect();
+    let _restore = Restore(
+        pairs
+            .iter()
+            .map(|(key, _)| ((*key).to_owned(), std::env::var(key).ok()))
+            .collect(),
+    );
     for (key, value) in pairs {
         match value {
             Some(value) => std::env::set_var(key, value),
             None => std::env::remove_var(key),
         }
     }
-    let out = body();
-    for (key, value) in saved {
-        match value {
-            Some(value) => std::env::set_var(&key, value),
-            None => std::env::remove_var(&key),
-        }
-    }
-    out
+    body()
 }
 
 /// The one shared verified run of the literal example, computed lazily.
@@ -827,7 +836,7 @@ pub fn lake_wrapper(glob_fragment: &str, injected: &str, stream: &str, replace: 
     let redirect = if stream == "stderr" { " >&2" } else { "" };
     let tail = if replace { "exit 0" } else { "" };
     format!(
-        "#!/bin/sh\nreal=\"$(dirname \"$(readlink -f \"$(dirname \"$0\")/lean\")\")/lake\"\nif [ \"$1\" = \"env\" ] && [ \"$2\" = \"lean\" ]; then\n  case \"$3\" in\n    {glob_fragment})\n      printf '%s\\n' '{injected}'{redirect}\n      {tail}\n      ;;\n  esac\nfi\nexec \"$real\" \"$@\"\n"
+        "#!/bin/sh\nreal=\"$(dirname \"$(readlink -f \"$(dirname \"$0\")/lean\")\")/lake\"\nif [ \"$1\" = \"env\" ] && [ \"$2\" = \"lean\" ]; then\n  for argument in \"$@\"; do\n    case \"$argument\" in\n      {glob_fragment})\n        printf '%s\\n' '{injected}'{redirect}\n        {tail}\n        ;;\n    esac\n  done\nfi\nexec \"$real\" \"$@\"\n"
     )
 }
 

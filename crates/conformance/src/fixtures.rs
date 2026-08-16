@@ -419,12 +419,17 @@ pub fn observe(case: &Case) -> Result<Observed, String> {
         }
         Ok(())
     };
+    // Both paths hold the environment lock: a fixture without its own
+    // toolchain must not observe another test's temporary `ELAN_HOME`.
     match &fake_home {
         Some(home) => {
             let home_text = home.path().to_string_lossy().into_owned();
             support::with_env(&[("ELAN_HOME", Some(&home_text))], run_all)?;
         }
-        None => run_all()?,
+        None => {
+            let _guard = support::env_lock();
+            run_all()?;
+        }
     }
     let (invocation, exit, stdout) = final_result.ok_or("a fixture has an invocation")?;
     let normalized = normalize_attestation(&stdout.replace(&root_text, "$PROJECT"));

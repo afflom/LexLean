@@ -16,6 +16,9 @@ mod spec_links;
 /// A gate failure, reported with the rule it broke.
 pub type Fail = Box<dyn std::error::Error>;
 
+/// Generated files as , sorted by path.
+type Files = Vec<(String, Vec<u8>)>;
+
 fn main() -> ExitCode {
     let task = std::env::args().nth(1).unwrap_or_else(|| "help".to_owned());
     let write = std::env::args().any(|argument| argument == "--write");
@@ -267,7 +270,7 @@ fn compare_tree(
 /// Copy an example into a fresh temporary directory, run a real `build`,
 /// and return the published `.lexlean/build/<id>/` tree as
 /// `(relative, bytes)` plus the temporary root (kept alive by the caller).
-fn published_build(dir: &Path) -> Result<(tempfile::TempDir, Vec<(String, Vec<u8>)>), Fail> {
+fn published_build(dir: &Path) -> Result<(tempfile::TempDir, Files), Fail> {
     let temp = tempfile::Builder::new()
         .prefix("lexlean-build-")
         .tempdir()?;

@@ -248,7 +248,10 @@ mod tests {
             ),
             (
                 "authorities.toml",
-                &["spec = \"lexlean/authorities/1\"", "checksum = \"none\""],
+                &[
+                    "spec = \"lexlean/authorities/1\"",
+                    "\nchecksum = \"none\"\n",
+                ],
             ),
             (
                 "errors.toml",
@@ -259,9 +262,13 @@ mod tests {
             let text = std::fs::read_to_string(dir.join(file)).expect("model file");
             for anchor in anchors {
                 assert!(text.contains(anchor), "{file}: anchor {anchor}");
-                let planted = text.replacen(anchor, &format!("{anchor}\nsurprise = 1"), 1);
+                let planted = text.replacen(anchor, &format!("{anchor}\nsurprise = 1\n"), 1);
                 let outcome: Result<toml::Value, _> = toml::from_str(&planted);
-                assert!(outcome.is_ok(), "the planted TOML itself parses");
+                assert!(
+                    outcome.is_ok(),
+                    "{file}: the planted TOML itself parses: {:?}",
+                    outcome.err()
+                );
                 let typed = match file {
                     "ids.toml" => toml::from_str::<Ids>(&planted).map(|_| ()),
                     "ledger.toml" => toml::from_str::<Ledger>(&planted).map(|_| ()),

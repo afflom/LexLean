@@ -160,8 +160,8 @@ fn the_meta_gate_is_falsifiable() {
     let drifted = text
         .replacen("@RP-01 @build", "@build @RP-01", 1)
         .replacen(
-            "Scenario: The repository, crate, executable,",
-            "Scenario: The repository, crate, binary,",
+            "Scenario: The repository is derived from the pinned UOR template commit",
+            "Scenario: The repository is derived from the chosen UOR template commit",
             1,
         )
         .replacen("    Given ", "    Given (pending) ", 1);

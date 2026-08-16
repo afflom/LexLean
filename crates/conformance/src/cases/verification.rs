@@ -183,7 +183,7 @@ pub(crate) fn run(id: &str) {
             let warning = support::fake_toolchain(&[(
                 "lake",
                 &support::lake_wrapper(
-                    "*/modules/*.lean",
+                    "*/lean-src/*.lean",
                     "warning: fixture-planted warning on a successful compilation",
                     "stderr",
                     false,
@@ -371,7 +371,7 @@ pub(crate) fn run(id: &str) {
             .expect("parses");
             let row = &exact["declarations"][0];
             assert_eq!(row["policy"]["kind"].as_str(), Some("exact"));
-            assert_eq!(row["result"].as_str(), Some("success"), "{row}");
+            assert_eq!(row["result"].as_str(), Some("ok"), "{row}");
             let allowed: Vec<&str> = row["policy"]["axioms"]
                 .as_array()
                 .expect("allowed set")
@@ -575,16 +575,17 @@ pub(crate) fn run(id: &str) {
                     leftovers.is_empty(),
                     "{stage} failure left staging or verified files: {leftovers:?}"
                 );
-                for entry in std::fs::read_dir(lexlean_root.join("verified").as_std_path())
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                {
-                    panic!(
-                        "{stage} failure left {} under .lexlean/verified",
-                        entry.file_name().to_string_lossy()
-                    );
-                }
+                let residue: Vec<String> =
+                    std::fs::read_dir(lexlean_root.join("verified").as_std_path())
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .collect();
+                assert!(
+                    residue.is_empty(),
+                    "{stage} failure left {residue:?} under .lexlean/verified"
+                );
             }
         }
         // §5.4: imported-theorem axioms stay subject to the policy.
@@ -599,24 +600,49 @@ pub(crate) fn run(id: &str) {
                 );
             }
         }
-        // §22.2: workspace hashes must match the lock; deps must be local.
+        // §22.2, §10.4: workspace files must match the lock, and every
+        // Lake manifest dependency must be locally available; verification
+        // never fetches.
         "VR-17" => {
-            let project = P::example();
-            project.edit(
+            let _guard = support::env_lock();
+            // A drifted workspace file without relocking is a stale lock.
+            let drifted = P::example();
+            drifted.edit(
                 "lakefile.toml",
                 "name = \"nat_add_zero_host\"",
                 "name = \"renamed_host\"",
             );
-            let error = project
+            let error = drifted
                 .engine()
                 .verify(VerifyRequest {
                     selection: Selection::Entrypoints,
                 })
                 .err()
-                .expect("a drifted workspace fails preflight");
+                .expect("a drifted workspace fails before Lean runs");
+            support::expect_code(&error, "LLC0102");
+
+            // A locked manifest naming a dependency that is not materialized
+            // fails the Lake preflight with LLV7007 and publishes nothing.
+            let unavailable = P::example();
+            unavailable.write(
+                "lake-manifest.json",
+                "{\"version\": \"1.2.0\",\n \"packagesDir\": \".lake/packages\",\n \"packages\": [{\"type\": \"path\", \"name\": \"absent_dep\", \"dir\": \"vendor/absent_dep\", \"inherited\": false, \"manifestFile\": \"lake-manifest.json\"}],\n \"name\": \"nat_add_zero_host\",\n \"lakeDir\": \".lake\",\n \"fixedToolchain\": false}\n",
+            );
+            unavailable.relock();
+            let error = unavailable
+                .engine()
+                .verify(VerifyRequest {
+                    selection: Selection::Entrypoints,
+                })
+                .err()
+                .expect("an unavailable locked dependency fails preflight");
             support::expect_code(&error, "LLV7007");
             assert!(
-                support::file_set(&project.root.join(".lexlean/verified")).is_empty(),
+                format!("{error}").contains("absent_dep"),
+                "the diagnostic names the dependency: {error}"
+            );
+            assert!(
+                support::file_set(&unavailable.root.join(".lexlean/verified")).is_empty(),
                 "preflight failure publishes nothing"
             );
         }
