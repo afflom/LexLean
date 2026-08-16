@@ -38,9 +38,21 @@ fn security(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(code!("LLS8001"), message)
 }
 
-fn utf8_path(path: &std::path::Path) -> Result<Utf8PathBuf, Diagnostic> {
-    Utf8PathBuf::from_path_buf(path.to_path_buf())
-        .map_err(|bad| security(format!("non-UTF-8 path: {}", bad.display())))
+/// A non-UTF-8 path is outside language 1.0 and an environment failure
+/// (§8.3), never a security violation.
+pub fn non_utf8_path(path: &std::path::Path) -> Diagnostic {
+    Diagnostic::new(
+        code!("LLV7008"),
+        format!(
+            "non-UTF-8 path in the environment: {}",
+            path.to_string_lossy()
+        ),
+    )
+}
+
+/// Convert a host path to UTF-8 or report the §8.3 environment diagnostic.
+pub fn utf8_path(path: &std::path::Path) -> Result<Utf8PathBuf, Diagnostic> {
+    Utf8PathBuf::from_path_buf(path.to_path_buf()).map_err(|bad| non_utf8_path(&bad))
 }
 
 /// Search the working directory and its parents for the first regular
@@ -48,12 +60,16 @@ fn utf8_path(path: &std::path::Path) -> Result<Utf8PathBuf, Diagnostic> {
 /// stops at the filesystem root.
 pub fn discover(start: &Utf8Path) -> Result<Utf8PathBuf, LexLeanError> {
     let mut current = Some(start.to_path_buf());
+    let mut depth = 0usize;
     while let Some(directory) = current {
         let candidate = directory.join("lexlean.toml");
         if let Ok(metadata) = std::fs::symlink_metadata(&candidate) {
             if metadata.file_type().is_symlink() {
+                // Named relative to the working directory, never absolutely
+                // (§20.6, §23.7).
+                let shown = format!("{}lexlean.toml", "../".repeat(depth));
                 return Err(LexLeanError::from_diagnostic(security(format!(
-                    "{candidate}: a symlinked lexlean.toml is rejected"
+                    "`{shown}`: a symlinked lexlean.toml candidate is rejected"
                 ))));
             }
             if metadata.is_file() {
@@ -61,25 +77,46 @@ pub fn discover(start: &Utf8Path) -> Result<Utf8PathBuf, LexLeanError> {
             }
         }
         current = directory.parent().map(Utf8Path::to_path_buf);
+        depth = depth.saturating_add(1);
     }
     Err(LexLeanError::from_diagnostic(Diagnostic::new(
         code!("LLC0101"),
-        format!("no lexlean.toml found from {start} upward"),
+        "no lexlean.toml found in the working directory or any parent; pass --project or run inside a project",
     )))
+}
+
+/// What a confined path must denote once every component is checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Expect {
+    /// A regular file.
+    File,
+    /// A directory.
+    Directory,
+    /// Anything, or nothing yet: only the symlink walk applies, and a
+    /// missing suffix of components is tolerated (paths about to be
+    /// created, such as the build root or the lock file).
+    Creatable,
 }
 
 impl Project {
     /// Load a project from its configuration file path.
     pub fn load(config_path: &Utf8Path) -> Result<Self, LexLeanError> {
+        // Messages name the configuration as the user gave it when that is
+        // relative, and by file name otherwise (§20.6: no absolute paths).
+        let shown: String = if config_path.is_absolute() {
+            config_path.file_name().unwrap_or("lexlean.toml").to_owned()
+        } else {
+            config_path.to_string()
+        };
         let metadata = std::fs::symlink_metadata(config_path).map_err(|io_error| {
             LexLeanError::from_diagnostic(Diagnostic::new(
                 code!("LLC0101"),
-                format!("{config_path}: {io_error}"),
+                format!("{shown}: {io_error}"),
             ))
         })?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
             return Err(LexLeanError::from_diagnostic(security(format!(
-                "{config_path}: the project configuration must be a regular file"
+                "{shown}: the project configuration must be a regular file"
             ))));
         }
         let parent = config_path
@@ -87,7 +124,7 @@ impl Project {
             .ok_or_else(|| {
                 LexLeanError::from_diagnostic(Diagnostic::new(
                     code!("LLC0101"),
-                    format!("{config_path} has no parent directory"),
+                    format!("{shown} has no parent directory"),
                 ))
             })?
             .to_path_buf();
@@ -100,7 +137,7 @@ impl Project {
         let root_std = std::fs::canonicalize(parent.as_std_path()).map_err(|io_error| {
             LexLeanError::from_diagnostic(Diagnostic::new(
                 code!("LLC0101"),
-                format!("{parent}: {io_error}"),
+                format!("the directory of {shown}: {io_error}"),
             ))
         })?;
         let root = utf8_path(&root_std).map_err(LexLeanError::from_diagnostic)?;
@@ -108,7 +145,7 @@ impl Project {
         let config_bytes = std::fs::read(config_path).map_err(|io_error| {
             LexLeanError::from_diagnostic(Diagnostic::new(
                 code!("LLC0101"),
-                format!("{config_path}: {io_error}"),
+                format!("{shown}: {io_error}"),
             ))
         })?;
         let config =
@@ -120,16 +157,22 @@ impl Project {
             config,
             config_bytes,
         };
-        // The build root must resolve within the project and must not be a
-        // symlink (§10.1).
-        let build_root = project.root.join(&project.config.build_root);
-        if let Ok(metadata) = std::fs::symlink_metadata(&build_root) {
-            if metadata.file_type().is_symlink() {
-                return Err(LexLeanError::from_diagnostic(security(format!(
-                    "{}: the build root must not be a symlink",
-                    project.config.build_root
-                ))));
-            }
+        // The build root must resolve within the project and no component
+        // of it may be a symlink (§10.1, §25.1); the same holds for the
+        // lock file path and the Lake workspace directory.
+        let build_root = project.config.build_root.clone();
+        project
+            .confined(&build_root, Expect::Creatable)
+            .map_err(LexLeanError::from_diagnostic)?;
+        let lockfile = project.config.lockfile.clone();
+        project
+            .confined(&lockfile, Expect::Creatable)
+            .map_err(LexLeanError::from_diagnostic)?;
+        if project.config.lean_workspace != "." {
+            let workspace = project.config.lean_workspace.clone();
+            project
+                .confined(&workspace, Expect::Creatable)
+                .map_err(LexLeanError::from_diagnostic)?;
         }
         Ok(project)
     }
@@ -140,28 +183,96 @@ impl Project {
         self.root.join(relative)
     }
 
-    /// Verify a project-relative path denotes a regular file with no
-    /// symlink component under the project root, and return its absolute
-    /// path (§25.1).
-    pub fn confined_file(&self, relative: &str) -> Result<Utf8PathBuf, Diagnostic> {
+    /// The project-relative rendering of a path for diagnostics (§23.7):
+    /// the root prefix removed when the path lies inside the project,
+    /// otherwise the path unchanged.
+    #[must_use]
+    pub fn display(&self, path: &Utf8Path) -> String {
+        match path.strip_prefix(&self.root) {
+            Ok(inside) if inside.as_str().is_empty() => ".".to_owned(),
+            Ok(inside) => inside.to_string(),
+            Err(_) => path.to_string(),
+        }
+    }
+
+    /// The project-relative rendering of a host path.
+    #[must_use]
+    pub fn display_std(&self, path: &std::path::Path) -> String {
+        match Utf8Path::from_path(path) {
+            Some(utf8) => self.display(utf8),
+            None => path.to_string_lossy().into_owned(),
+        }
+    }
+
+    /// Walk every component of a project-relative path with
+    /// `symlink_metadata`, rejecting symlinks and (for the last component)
+    /// the wrong kind. Diagnostics name project-relative paths.
+    fn confined(&self, relative: &str, expect: Expect) -> Result<Utf8PathBuf, Diagnostic> {
         if !crate::config::is_project_relative(relative) {
             return Err(security(format!("`{relative}` escapes the project root")));
         }
         let mut current = self.root.clone();
+        let mut walked = String::new();
         for segment in relative.split('/') {
             current.push(segment);
-            let metadata = std::fs::symlink_metadata(&current)
-                .map_err(|io_error| security(format!("{current}: {io_error}")))?;
-            if metadata.file_type().is_symlink() {
-                return Err(security(format!("{current}: symlinks are rejected")));
+            if !walked.is_empty() {
+                walked.push('/');
+            }
+            walked.push_str(segment);
+            match std::fs::symlink_metadata(&current) {
+                Ok(metadata) => {
+                    if metadata.file_type().is_symlink() {
+                        return Err(security(format!(
+                            "`{walked}`: symlinks are rejected in confined paths"
+                        )));
+                    }
+                }
+                Err(io_error) if io_error.kind() == std::io::ErrorKind::NotFound => {
+                    return match expect {
+                        // Nothing below a missing component can be a
+                        // symlink yet; the full path is what the caller
+                        // is about to create.
+                        Expect::Creatable => Ok(self.root.join(relative)),
+                        Expect::File | Expect::Directory => {
+                            Err(security(format!("`{walked}`: {io_error}")))
+                        }
+                    };
+                }
+                Err(io_error) => return Err(security(format!("`{walked}`: {io_error}"))),
             }
         }
         let metadata = std::fs::symlink_metadata(&current)
-            .map_err(|io_error| security(format!("{current}: {io_error}")))?;
-        if !metadata.is_file() {
-            return Err(security(format!("{current}: expected a regular file")));
+            .map_err(|io_error| security(format!("`{relative}`: {io_error}")))?;
+        match expect {
+            Expect::File if !metadata.is_file() => {
+                Err(security(format!("`{relative}`: expected a regular file")))
+            }
+            Expect::Directory if !metadata.is_dir() => {
+                Err(security(format!("`{relative}`: expected a directory")))
+            }
+            _ => Ok(current),
         }
-        Ok(current)
+    }
+
+    /// Verify a project-relative path denotes a regular file with no
+    /// symlink component under the project root, and return its absolute
+    /// path (§25.1).
+    pub fn confined_file(&self, relative: &str) -> Result<Utf8PathBuf, Diagnostic> {
+        self.confined(relative, Expect::File)
+    }
+
+    /// Verify a project-relative path denotes a directory with no symlink
+    /// component under the project root, and return its absolute path
+    /// (§25.1).
+    pub fn confined_dir(&self, relative: &str) -> Result<Utf8PathBuf, Diagnostic> {
+        self.confined(relative, Expect::Directory)
+    }
+
+    /// Verify that every existing component of a project-relative path is
+    /// a nonsymlink; a missing suffix is tolerated because the path is
+    /// about to be created (the build root, the lock file).
+    pub fn confined_creatable(&self, relative: &str) -> Result<Utf8PathBuf, Diagnostic> {
+        self.confined(relative, Expect::Creatable)
     }
 
     /// The module name for a source path relative to one of the configured
@@ -204,7 +315,13 @@ impl Project {
         let mut modules: BTreeMap<String, String> = BTreeMap::new();
         let mut identities: Vec<(same_file::Handle, String)> = Vec::new();
         for root in &self.config.source_roots {
-            let absolute_root = self.root.join(root);
+            let absolute_root = match self.confined(root, Expect::Creatable) {
+                Ok(absolute) => absolute,
+                Err(diagnostic) => {
+                    diagnostics.push(diagnostic);
+                    continue;
+                }
+            };
             if !absolute_root.exists() {
                 continue;
             }
@@ -215,15 +332,15 @@ impl Project {
                 let entry = match entry {
                     Ok(entry) => entry,
                     Err(walk_error) => {
-                        diagnostics.push(security(format!("{root}: {walk_error}")));
+                        diagnostics.push(security(format!("`{root}`: {walk_error}")));
                         continue;
                     }
                 };
                 let file_type = entry.file_type();
                 if file_type.is_symlink() {
                     diagnostics.push(security(format!(
-                        "{}: symlinks are rejected in source roots",
-                        entry.path().display()
+                        "`{}`: symlinks are rejected in source roots",
+                        self.display_std(entry.path())
                     )));
                     continue;
                 }
@@ -240,10 +357,7 @@ impl Project {
                 if !path.as_str().ends_with(".lex.tex") {
                     continue;
                 }
-                let relative = path
-                    .strip_prefix(&self.root)
-                    .map(Utf8Path::to_string)
-                    .unwrap_or_else(|_| path.to_string());
+                let relative = self.display(&path);
                 match same_file::Handle::from_path(path.as_std_path()) {
                     Ok(handle) => {
                         if let Some((_, existing)) = identities
@@ -259,7 +373,7 @@ impl Project {
                         identities.push((handle, relative.clone()));
                     }
                     Err(io_error) => {
-                        diagnostics.push(security(format!("{relative}: {io_error}")));
+                        diagnostics.push(security(format!("`{relative}`: {io_error}")));
                         continue;
                     }
                 }
@@ -298,6 +412,40 @@ impl Project {
         } else {
             Err(diagnostics)
         }
+    }
+
+    /// Normalize one explicit input to a project-relative path: absolute
+    /// inputs canonicalize under the root; relative inputs drop any number
+    /// of leading `./` prefixes and are then required to be
+    /// project-relative in the §10.1 sense.
+    fn input_relative(&self, input: &Utf8Path) -> Result<String, Diagnostic> {
+        if input.is_absolute() {
+            let canonical = std::fs::canonicalize(input.as_std_path())
+                .map_err(|io_error| {
+                    Diagnostic::new(code!("LLC0002"), format!("`{input}`: {io_error}"))
+                })
+                .and_then(|absolute| utf8_path(&absolute))?;
+            return canonical
+                .strip_prefix(&self.root)
+                .map(Utf8Path::to_string)
+                .map_err(|_| {
+                    Diagnostic::new(
+                        code!("LLC0002"),
+                        format!("`{input}` does not resolve inside the project"),
+                    )
+                });
+        }
+        let mut text = input.as_str();
+        while let Some(rest) = text.strip_prefix("./") {
+            text = rest;
+        }
+        if !crate::config::is_project_relative(text) {
+            return Err(Diagnostic::new(
+                code!("LLC0002"),
+                format!("`{input}` is not a project-relative or absolute input path"),
+            ));
+        }
+        Ok(text.to_owned())
     }
 
     /// Resolve a selection to `module name -> project-relative path`
@@ -342,31 +490,27 @@ impl Project {
                 }
                 let mut selected = BTreeMap::new();
                 let mut diagnostics = Vec::new();
+                let mut seen_relative: BTreeMap<String, Utf8PathBuf> = BTreeMap::new();
                 for input in files {
-                    // Inputs are project-relative or absolute paths that
-                    // resolve beneath a configured source root.
-                    let relative = if input.is_absolute() {
-                        match std::fs::canonicalize(input.as_std_path())
-                            .ok()
-                            .and_then(|absolute| utf8_path(&absolute).ok())
-                            .and_then(|absolute| {
-                                absolute
-                                    .strip_prefix(&self.root)
-                                    .map(Utf8Path::to_string)
-                                    .ok()
-                            }) {
-                            Some(relative) => relative,
-                            None => {
-                                diagnostics.push(Diagnostic::new(
-                                    code!("LLC0002"),
-                                    format!("`{input}` does not resolve inside the project"),
-                                ));
-                                continue;
-                            }
+                    let relative = match self.input_relative(input) {
+                        Ok(relative) => relative,
+                        Err(diagnostic) => {
+                            diagnostics.push(diagnostic);
+                            continue;
                         }
-                    } else {
-                        input.to_string()
                     };
+                    // Two spellings of one input are a duplicate selection
+                    // (§23.3), never silently collapsed.
+                    if let Some(earlier) = seen_relative.get(&relative) {
+                        diagnostics.push(Diagnostic::new(
+                            code!("LLC0002"),
+                            format!(
+                                "`{input}` and `{earlier}` select the same module file `{relative}` twice"
+                            ),
+                        ));
+                        continue;
+                    }
+                    seen_relative.insert(relative.clone(), input.clone());
                     match self.module_name_for(&relative) {
                         Ok(module) => {
                             if all.get(&module) == Some(&relative) {

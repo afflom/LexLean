@@ -15,8 +15,40 @@ fn mismatch(message: impl Into<String>) -> Diagnostic {
 /// Check the recorded workspace pins against the current files and the
 /// availability of every Lake manifest dependency (VR-17).
 pub fn preflight(project: &Project, lock: &Lock) -> Result<(), Diagnostic> {
+    let workspace_relative = |name: &str| {
+        if project.config.lean_workspace == "." {
+            name.to_owned()
+        } else {
+            format!("{}/{name}", project.config.lean_workspace)
+        }
+    };
+    // The project `lean-toolchain` must carry the exact pinned string
+    // (§8.2, §10.4); a hash match against a lock is not enough on its own.
+    let toolchain_relative = workspace_relative("lean-toolchain");
+    let toolchain_bytes = project
+        .confined_file(&toolchain_relative)
+        .and_then(|absolute| {
+            std::fs::read(absolute.as_std_path()).map_err(|io_error| {
+                Diagnostic::new(
+                    code!("LLV7001"),
+                    format!("{toolchain_relative}: {io_error}"),
+                )
+            })
+        })?;
+    let toolchain_text = String::from_utf8_lossy(&toolchain_bytes);
+    if toolchain_text.trim() != crate::LEAN_TOOLCHAIN {
+        return Err(Diagnostic::new(
+            code!("LLV7001"),
+            format!(
+                "{toolchain_relative} pins `{}`, not the exact language-1.0 toolchain `{}`",
+                toolchain_text.trim(),
+                crate::LEAN_TOOLCHAIN
+            ),
+        ));
+    }
     for (path, recorded) in &lock.workspace_files {
-        let absolute = project.absolute(path);
+        // Pinned files are confined: no symlink component (§25.1).
+        let absolute = project.confined_file(path)?;
         let bytes = std::fs::read(absolute.as_std_path())
             .map_err(|io_error| mismatch(format!("{path}: {io_error}")))?;
         let observed = Sha256Digest::of(&bytes);
@@ -30,13 +62,10 @@ pub fn preflight(project: &Project, lock: &Lock) -> Result<(), Diagnostic> {
 
     // Manifest dependencies must be locally available (§10.4). The Lake
     // manifest lists materialized packages under `.lake/packages/<name>`.
-    let manifest_relative = if project.config.lean_workspace == "." {
-        "lake-manifest.json".to_owned()
-    } else {
-        format!("{}/lake-manifest.json", project.config.lean_workspace)
-    };
+    let manifest_relative = workspace_relative("lake-manifest.json");
     let manifest_path = project.absolute(&manifest_relative);
-    if manifest_path.as_std_path().is_file() {
+    if std::fs::symlink_metadata(manifest_path.as_std_path()).is_ok() {
+        let manifest_path = project.confined_file(&manifest_relative)?;
         let bytes = std::fs::read(manifest_path.as_std_path())
             .map_err(|io_error| mismatch(format!("{manifest_relative}: {io_error}")))?;
         let parsed: serde_json::Value = serde_json::from_slice(&bytes)
@@ -88,7 +117,8 @@ pub fn reject_module_conflicts(
             return Err(Diagnostic::new(
                 code!("LLV7001"),
                 format!(
-                    "a preexisting module `{module}` at {candidate} conflicts with a generated module"
+                    "a preexisting module `{module}` at {} conflicts with a generated module",
+                    project.display(&candidate)
                 ),
             ));
         }

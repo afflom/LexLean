@@ -628,3 +628,30 @@ pub fn tex_text(build: &lexlean::api::RenderedBuild, module: &str) -> String {
         .tex_text
         .clone()
 }
+
+// ---- WS-C (config / CLI / security) helpers ----
+
+/// The explicit resource policy of a fixture project, for driving the
+/// child runner directly.
+#[must_use]
+pub fn limits_of(project: &P) -> lexlean::config::Limits {
+    lexlean::project::Project::load(&project.root.join("lexlean.toml"))
+        .expect("project loads")
+        .config
+        .limits
+}
+
+/// Create a symbolic link on any supported host (§8.3): Unix has one
+/// symlink kind; Windows distinguishes directory and file links.
+pub fn symlink_any(target: impl AsRef<Path>, link: impl AsRef<Path>) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).expect("symlink");
+    #[cfg(windows)]
+    {
+        if target.as_ref().is_dir() {
+            std::os::windows::fs::symlink_dir(target, link).expect("symlink");
+        } else {
+            std::os::windows::fs::symlink_file(target, link).expect("symlink");
+        }
+    }
+}

@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use crate::artifact::content_id::Sha256Digest;
 use crate::code;
-use crate::config::LexiconSource;
+use crate::config::{toml_string, LexiconSource};
 use crate::diagnostic::Diagnostic;
 use crate::lexicon::package::{load_package, toml_comment_at, LexiconPackage, PackageRef};
 use crate::project::Project;
@@ -34,13 +34,23 @@ pub struct LockPackage {
     pub imports: Vec<String>,
 }
 
-/// A locked PDF provider record (§11.1).
+/// A locked PDF provider record (§11.1): it mirrors the configured
+/// provider (program, argument vectors, output pattern, hashes) and records
+/// the hash of every declared resource.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockPdf {
+    /// The configured project-relative executable.
+    pub program: String,
     /// The configured executable hash.
     pub program_sha256: Sha256Digest,
+    /// The configured version probe argv.
+    pub version_argv: Vec<String>,
     /// The configured version-output hash.
     pub version_stdout_sha256: Sha256Digest,
+    /// The configured compile argv.
+    pub compile_argv: Vec<String>,
+    /// The configured output pattern.
+    pub output: String,
     /// Hashes of every declared resource, sorted by path.
     pub resources: Vec<(String, Sha256Digest)>,
 }
@@ -60,19 +70,9 @@ pub struct Lock {
     pub pdf: Option<LockPdf>,
 }
 
-fn toml_string(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
-    for scalar in value.chars() {
-        match scalar {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
+fn toml_array(values: &[String]) -> String {
+    let items: Vec<String> = values.iter().map(|value| toml_string(value)).collect();
+    format!("[{}]", items.join(", "))
 }
 
 impl Lock {
@@ -127,14 +127,24 @@ impl Lock {
         }
         if let Some(pdf) = &self.pdf {
             out.push_str("\n[pdf]\n");
+            out.push_str(&format!("program = {}\n", toml_string(&pdf.program)));
             out.push_str(&format!(
                 "program_sha256 = {}\n",
                 toml_string(&pdf.program_sha256.to_hex())
             ));
             out.push_str(&format!(
+                "version_argv = {}\n",
+                toml_array(&pdf.version_argv)
+            ));
+            out.push_str(&format!(
                 "version_stdout_sha256 = {}\n",
                 toml_string(&pdf.version_stdout_sha256.to_hex())
             ));
+            out.push_str(&format!(
+                "compile_argv = {}\n",
+                toml_array(&pdf.compile_argv)
+            ));
+            out.push_str(&format!("output = {}\n", toml_string(&pdf.output)));
             let mut resources = pdf.resources.clone();
             resources.sort_by(|a, b| a.0.cmp(&b.0));
             for (path, sha256) in &resources {
@@ -185,8 +195,12 @@ struct RawLockPackage {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawLockPdf {
+    program: String,
     program_sha256: String,
+    version_argv: Vec<String>,
     version_stdout_sha256: String,
+    compile_argv: Vec<String>,
+    output: String,
     #[serde(rename = "resource", default)]
     resources: Vec<RawWorkspaceFile>,
 }
@@ -283,6 +297,10 @@ pub fn parse_lock(path: &str, bytes: &[u8]) -> Result<Lock, Vec<Diagnostic>> {
         });
     }
     let pdf = raw.pdf.as_ref().map(|raw_pdf| LockPdf {
+        program: raw_pdf.program.clone(),
+        version_argv: raw_pdf.version_argv.clone(),
+        compile_argv: raw_pdf.compile_argv.clone(),
+        output: raw_pdf.output.clone(),
         program_sha256: hex(
             "pdf.program_sha256",
             &raw_pdf.program_sha256,
@@ -318,34 +336,88 @@ pub fn parse_lock(path: &str, bytes: &[u8]) -> Result<Lock, Vec<Diagnostic>> {
     }
 }
 
-/// Collect the participating files of a path package: `lexicon.toml` and
-/// regular files under `entries/`, rejecting symlinks, special files, and
-/// non-UTF-8 paths (§11.5, §25.1).
-pub fn collect_package_files(root: &Utf8Path) -> Result<Vec<(String, Vec<u8>)>, Vec<Diagnostic>> {
+fn security(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::new(code!("LLS8001"), message)
+}
+
+fn resolution(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::new(code!("LLR3001"), message)
+}
+
+/// Walk `relative` beneath `base` with `symlink_metadata`, rejecting any
+/// symlink component and requiring the final component to be a directory.
+/// `display_base` names the base in diagnostics (project-relative).
+fn confined_dir_under(
+    base: &Utf8Path,
+    relative: &str,
+    display_base: &str,
+) -> Result<Utf8PathBuf, Diagnostic> {
+    if !crate::config::is_project_relative(relative) {
+        return Err(security(format!(
+            "`{relative}` is not a relative path beneath `{display_base}`"
+        )));
+    }
+    let mut current = base.to_path_buf();
+    let mut walked = display_base.to_owned();
+    for segment in relative.split('/') {
+        current.push(segment);
+        walked.push('/');
+        walked.push_str(segment);
+        let metadata = std::fs::symlink_metadata(&current)
+            .map_err(|io_error| resolution(format!("`{walked}`: {io_error}")))?;
+        if metadata.file_type().is_symlink() {
+            return Err(security(format!(
+                "`{walked}`: symlinks are rejected in lexicon package paths"
+            )));
+        }
+    }
+    let metadata = std::fs::symlink_metadata(&current)
+        .map_err(|io_error| resolution(format!("`{walked}`: {io_error}")))?;
+    if !metadata.is_dir() {
+        return Err(security(format!("`{walked}`: expected a directory")));
+    }
+    Ok(current)
+}
+
+/// Collect the participating files of a lexicon package rooted at the
+/// already-confined directory `root`: `lexicon.toml` and regular files
+/// under `entries/`, rejecting symlinks, special files, and non-UTF-8 paths
+/// (§11.5, §25.1). `display_root` names the package root in diagnostics.
+pub fn collect_package_files(
+    root: &Utf8Path,
+    display_root: &str,
+) -> Result<Vec<(String, Vec<u8>)>, Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let display = |absolute: &std::path::Path| -> String {
+        match absolute.strip_prefix(root.as_std_path()) {
+            Ok(inside) => format!("{display_root}/{}", inside.to_string_lossy()),
+            Err(_) => absolute.to_string_lossy().into_owned(),
+        }
+    };
     let manifest = root.join("lexicon.toml");
     match std::fs::symlink_metadata(&manifest) {
         Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
             match std::fs::read(&manifest) {
                 Ok(bytes) => files.push(("lexicon.toml".to_owned(), bytes)),
-                Err(io_error) => diagnostics.push(Diagnostic::new(
-                    code!("LLR3001"),
-                    format!("{manifest}: {io_error}"),
-                )),
+                Err(io_error) => {
+                    diagnostics.push(resolution(format!(
+                        "{display_root}/lexicon.toml: {io_error}"
+                    )));
+                }
             }
         }
-        Ok(_) => diagnostics.push(Diagnostic::new(
-            code!("LLS8001"),
-            format!("{manifest}: must be a regular nonsymlink file"),
-        )),
-        Err(io_error) => diagnostics.push(Diagnostic::new(
-            code!("LLR3001"),
-            format!("{manifest}: {io_error}"),
-        )),
+        Ok(_) => diagnostics.push(security(format!(
+            "{display_root}/lexicon.toml: must be a regular nonsymlink file"
+        ))),
+        Err(io_error) => {
+            diagnostics.push(resolution(format!(
+                "{display_root}/lexicon.toml: {io_error}"
+            )));
+        }
     }
     let entries = root.join("entries");
-    if entries.exists() {
+    if std::fs::symlink_metadata(entries.as_std_path()).is_ok() {
         for entry in walkdir::WalkDir::new(entries.as_std_path())
             .follow_links(false)
             .sort_by_file_name()
@@ -353,36 +425,30 @@ pub fn collect_package_files(root: &Utf8Path) -> Result<Vec<(String, Vec<u8>)>, 
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(walk_error) => {
-                    diagnostics.push(Diagnostic::new(
-                        code!("LLR3001"),
-                        format!("{entries}: {walk_error}"),
-                    ));
+                    diagnostics.push(resolution(format!("{display_root}/entries: {walk_error}")));
                     continue;
                 }
             };
             let file_type = entry.file_type();
             if file_type.is_symlink() {
-                diagnostics.push(Diagnostic::new(
-                    code!("LLS8001"),
-                    format!("{}: symlinks are rejected", entry.path().display()),
-                ));
+                diagnostics.push(security(format!(
+                    "{}: symlinks are rejected",
+                    display(entry.path())
+                )));
                 continue;
             }
             if file_type.is_dir() {
                 continue;
             }
             if !file_type.is_file() {
-                diagnostics.push(Diagnostic::new(
-                    code!("LLS8001"),
-                    format!("{}: special files are rejected", entry.path().display()),
-                ));
+                diagnostics.push(security(format!(
+                    "{}: special files are rejected",
+                    display(entry.path())
+                )));
                 continue;
             }
             let Ok(path) = Utf8PathBuf::from_path_buf(entry.path().to_path_buf()) else {
-                diagnostics.push(Diagnostic::new(
-                    code!("LLS8001"),
-                    format!("{}: non-UTF-8 path", entry.path().display()),
-                ));
+                diagnostics.push(crate::project::non_utf8_path(entry.path()));
                 continue;
             };
             let relative = path
@@ -391,10 +457,9 @@ pub fn collect_package_files(root: &Utf8Path) -> Result<Vec<(String, Vec<u8>)>, 
                 .unwrap_or_else(|_| path.to_string());
             match std::fs::read(&path) {
                 Ok(bytes) => files.push((relative, bytes)),
-                Err(io_error) => diagnostics.push(Diagnostic::new(
-                    code!("LLR3001"),
-                    format!("{path}: {io_error}"),
-                )),
+                Err(io_error) => {
+                    diagnostics.push(resolution(format!("{}: {io_error}", display(entry.path()))))
+                }
             }
         }
     }
@@ -426,7 +491,6 @@ pub fn resolve_packages(
     let mut rows = Vec::new();
 
     let bootstrap = crate::lexicon::load_bootstrap().map_err(|d| vec![d])?;
-    let semantics_hex = crate::compiler_semantics_id();
 
     // Builtins: always core, plus every configured builtin source.
     let mut builtin_ids: Vec<String> = vec!["lexlean.core".to_owned()];
@@ -443,10 +507,7 @@ pub fn resolve_packages(
             .iter()
             .find(|candidate| candidate.id == *id)
         else {
-            diagnostics.push(Diagnostic::new(
-                code!("LLR3001"),
-                format!("`{id}` is not a builtin package"),
-            ));
+            diagnostics.push(resolution(format!("`{id}` is not a builtin package")));
             continue;
         };
         match crate::lexicon::load_builtin_package(row) {
@@ -465,25 +526,37 @@ pub fn resolve_packages(
             }
             Err(mut package_diagnostics) => diagnostics.append(&mut package_diagnostics),
         }
-        let _ = semantics_hex;
     }
 
     for source in &project.config.lexicon_sources {
         match source {
             LexiconSource::Builtin { .. } => {}
             LexiconSource::Path { package: id, path } => {
-                let root = project.root.join(path);
-                match collect_package_files(&root) {
+                // A missing package root is a resolution failure; a present
+                // one has every component checked (§25.1).
+                if std::fs::symlink_metadata(project.absolute(path).as_std_path())
+                    .is_err_and(|io_error| io_error.kind() == std::io::ErrorKind::NotFound)
+                {
+                    diagnostics.push(resolution(format!(
+                        "lexicon_source `{id}`: the path package `{path}` does not exist"
+                    )));
+                    continue;
+                }
+                let root = match project.confined_dir(path) {
+                    Ok(root) => root,
+                    Err(diagnostic) => {
+                        diagnostics.push(diagnostic);
+                        continue;
+                    }
+                };
+                match collect_package_files(&root, path) {
                     Ok(files) => match load_package(path, &files, None) {
                         Ok(package) => {
                             if package.id != *id {
-                                diagnostics.push(Diagnostic::new(
-                                    code!("LLR3001"),
-                                    format!(
-                                        "`{path}` contains `{}`, not the configured `{id}`",
-                                        package.id
-                                    ),
-                                ));
+                                diagnostics.push(resolution(format!(
+                                    "`{path}` contains `{}`, not the configured `{id}`",
+                                    package.id
+                                )));
                                 continue;
                             }
                             rows.push(LockPackage {
@@ -512,7 +585,7 @@ pub fn resolve_packages(
                 subdirectory,
             } => {
                 match resolve_git_package(project, id, url, revision, subdirectory, allow_network) {
-                    Ok((package, cache_relative)) => {
+                    Ok(package) => {
                         rows.push(LockPackage {
                             id: package.id.clone(),
                             version: package.version.clone(),
@@ -524,7 +597,6 @@ pub fn resolve_packages(
                             imports: package.imports.iter().map(ToString::to_string).collect(),
                         });
                         packages.push(package);
-                        let _ = cache_relative;
                     }
                     Err(mut git_diagnostics) => diagnostics.append(&mut git_diagnostics),
                 }
@@ -539,8 +611,14 @@ pub fn resolve_packages(
     }
 }
 
+/// The project-relative cache directory for one exact commit (§11.4).
+fn git_cache_relative(project: &Project, revision: &str) -> String {
+    format!("{}/cache/git/{revision}", project.config.build_root)
+}
+
 /// Resolve one Git package from the cache, acquiring it over HTTPS only
-/// when `allow_network` (§11.4, §25.3).
+/// when `allow_network` (§11.4, §25.3). Cached candidates are revalidated
+/// (confined, re-digested, identity-checked) before use.
 fn resolve_git_package(
     project: &Project,
     id: &str,
@@ -548,35 +626,25 @@ fn resolve_git_package(
     revision: &str,
     subdirectory: &str,
     allow_network: bool,
-) -> Result<(LexiconPackage, String), Vec<Diagnostic>> {
-    let cache_base = project
-        .root
-        .join(&project.config.build_root)
-        .join("cache")
-        .join("git")
-        .join(revision);
-    // The cache key includes the tree digest; scan existing candidates and
-    // revalidate before use.
-    if cache_base.exists() {
-        for entry in std::fs::read_dir(cache_base.as_std_path())
+) -> Result<LexiconPackage, Vec<Diagnostic>> {
+    let cache_relative = git_cache_relative(project, revision);
+    if let Ok(cache_base) = project.confined_dir(&cache_relative) {
+        let mut names: Vec<String> = std::fs::read_dir(cache_base.as_std_path())
             .into_iter()
             .flatten()
             .flatten()
-        {
-            let Ok(candidate) = Utf8PathBuf::from_path_buf(entry.path()) else {
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .collect();
+        names.sort();
+        for name in names {
+            let candidate_relative = format!("{cache_relative}/{name}");
+            let Ok(candidate) = project.confined_dir(&candidate_relative) else {
                 continue;
             };
-            if let Ok(files) = collect_package_files(&candidate) {
-                if let Ok(package) = load_package(candidate.as_str(), &files, None) {
-                    if package.id == id
-                        && candidate.file_name() == Some(package.tree_sha256.to_hex().as_str())
-                    {
-                        let relative = format!(
-                            "{}/cache/git/{revision}/{}",
-                            project.config.build_root,
-                            package.tree_sha256.to_hex()
-                        );
-                        return Ok((package, relative));
+            if let Ok(files) = collect_package_files(&candidate, &candidate_relative) {
+                if let Ok(package) = load_package(&candidate_relative, &files, None) {
+                    if package.id == id && name == package.tree_sha256.to_hex() {
+                        return Ok(package);
                     }
                 }
             }
@@ -592,69 +660,173 @@ fn resolve_git_package(
             ),
         )]);
     }
-    acquire_git_package(project, id, url, revision, subdirectory, &cache_base)
+    acquire_git_package(project, id, url, revision, subdirectory)
 }
 
-fn git_failure(step: &str, detail: impl std::fmt::Display) -> Vec<Diagnostic> {
+/// A Git acquisition failure in the environment (§23.6 exit 3): the
+/// executable cannot be run or the exact commit cannot be fetched.
+fn git_environment(step: &str, detail: impl std::fmt::Display) -> Vec<Diagnostic> {
     vec![Diagnostic::new(
-        code!("LLR3001"),
+        code!("LLV7009"),
         format!("git acquisition failed at {step}: {detail}"),
     )]
 }
 
+/// Does a `.gitattributes` text enable the LFS filter for any pattern?
+/// Attribute lines are `pattern attr...`; the attribute token is exactly
+/// `filter=lfs`.
+fn gitattributes_enable_lfs(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.split('#').next().unwrap_or("");
+        line.split_whitespace()
+            .skip(1)
+            .any(|token| token == "filter=lfs")
+    })
+}
+
+/// The Git LFS pointer-file signature (§11.4): a pointer begins with the
+/// spec version line.
+const LFS_POINTER_PREFIX: &[u8] = b"version https://git-lfs.github.com/spec/";
+
+/// Scan the whole checkout for submodule, LFS, and nested-repository
+/// indirection (§11.4): `.gitmodules` anywhere, an LFS-enabling
+/// `.gitattributes` anywhere, an LFS pointer file under the package, or a
+/// `.git` entry beneath the checkout root.
+fn reject_git_indirection(
+    id: &str,
+    checkout: &Utf8Path,
+    package_root: &Utf8Path,
+) -> Result<(), Vec<Diagnostic>> {
+    let reject = |what: &str, at: &std::path::Path| -> Vec<Diagnostic> {
+        vec![resolution(format!(
+            "git package `{id}`: {what} are rejected (found at {})",
+            at.strip_prefix(checkout.as_std_path())
+                .unwrap_or(at)
+                .to_string_lossy()
+        ))]
+    };
+    for entry in walkdir::WalkDir::new(checkout.as_std_path())
+        .follow_links(false)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|entry| {
+            // The checkout's own repository metadata is skipped; a nested
+            // `.git` deeper down is exactly what must be found.
+            !(entry.depth() == 1 && entry.file_name() == ".git")
+        })
+    {
+        let entry = entry.map_err(|walk_error| git_environment("scan", walk_error))?;
+        let name = entry.file_name().to_string_lossy();
+        if name == ".git" {
+            return Err(reject("nested repositories", entry.path()));
+        }
+        if name == ".gitmodules" {
+            return Err(reject("submodules", entry.path()));
+        }
+        if name == ".gitattributes" && entry.file_type().is_file() {
+            if let Ok(text) = std::fs::read_to_string(entry.path()) {
+                if gitattributes_enable_lfs(&text) {
+                    return Err(reject("LFS indirection", entry.path()));
+                }
+            }
+        }
+        if entry.file_type().is_file() && entry.path().starts_with(package_root.as_std_path()) {
+            let mut head = vec![0u8; LFS_POINTER_PREFIX.len()];
+            if let Ok(mut file) = std::fs::File::open(entry.path()) {
+                use std::io::Read;
+                let mut filled = 0usize;
+                while filled < head.len() {
+                    match file.read(&mut head[filled..]) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => filled = filled.saturating_add(read),
+                    }
+                }
+                if filled == head.len() && head == LFS_POINTER_PREFIX {
+                    return Err(reject("LFS pointer files", entry.path()));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
 fn acquire_git_package(
     project: &Project,
     id: &str,
     url: &str,
     revision: &str,
     subdirectory: &str,
-    cache_base: &Utf8Path,
-) -> Result<(LexiconPackage, String), Vec<Diagnostic>> {
-    let staging = tempfile::tempdir_in(
-        project
-            .root
-            .join(&project.config.build_root)
-            .as_std_path()
-            .parent()
-            .unwrap_or_else(|| project.root.as_std_path()),
-    );
-    let staging = match staging {
-        Ok(dir) => dir,
-        Err(io_error) => {
-            // The build root may not exist yet; fall back to it after
-            // creating it.
-            let base = project.root.join(&project.config.build_root);
-            if std::fs::create_dir_all(base.as_std_path()).is_err() {
-                return Err(git_failure("staging", io_error));
-            }
-            tempfile::tempdir_in(base.as_std_path())
-                .map_err(|nested| git_failure("staging", nested))?
-        }
-    };
-    let checkout = staging.path().join("checkout");
-    std::fs::create_dir_all(&checkout).map_err(|io_error| git_failure("staging", io_error))?;
+) -> Result<LexiconPackage, Vec<Diagnostic>> {
+    use crate::verify::child::{resolve_on_path, ChildSpec, Normalizer};
 
-    // Direct executable and argument-vector invocation, no shell (§25.2),
-    // prompts disabled (§25.3).
-    let run_git = |arguments: &[&str]| -> Result<(), Vec<Diagnostic>> {
-        let output = std::process::Command::new("git")
-            .args(arguments)
-            .current_dir(&checkout)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("NO_COLOR", "1")
-            .env("LANG", "C.UTF-8")
-            .env("LC_ALL", "C.UTF-8")
-            .output()
-            .map_err(|io_error| git_failure("spawn", io_error))?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(git_failure(
-                arguments.first().copied().unwrap_or("git"),
-                String::from_utf8_lossy(&output.stderr),
-            ))
-        }
-    };
+    // The build root is created first and every staging byte lands under
+    // it, never in the project root (§25.6).
+    let build_root = project
+        .confined_creatable(&project.config.build_root)
+        .map_err(|d| vec![d])?;
+    std::fs::create_dir_all(build_root.as_std_path())
+        .map_err(|io_error| git_environment("staging", io_error))?;
+    let staging = tempfile::Builder::new()
+        .prefix(".staging-git-")
+        .tempdir_in(build_root.as_std_path())
+        .map_err(|io_error| git_environment("staging", io_error))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(staging.path(), std::fs::Permissions::from_mode(0o700));
+    }
+    let staging_utf8 = Utf8PathBuf::from_path_buf(staging.path().to_path_buf())
+        .map_err(|bad| vec![crate::project::non_utf8_path(&bad)])?;
+    let checkout = staging_utf8.join("checkout");
+    std::fs::create_dir_all(checkout.as_std_path())
+        .map_err(|io_error| git_environment("staging", io_error))?;
+
+    // Explicit executable resolution, recorded by digest (§25.2), through
+    // the shared child runner: cleared allow-list environment, prompts
+    // disabled, no askpass helper, no SSH command, checked limits.
+    let git = resolve_on_path("git").map_err(|_| {
+        git_environment(
+            "resolve",
+            "no `git` executable is available on PATH; `lock --allow-network` needs one",
+        )
+    })?;
+    let git_sha256 = Sha256Digest::of(
+        &std::fs::read(git.as_std_path())
+            .map_err(|io_error| git_environment("resolve", io_error))?,
+    );
+    let git_bin = git
+        .parent()
+        .map(Utf8Path::to_path_buf)
+        .unwrap_or_else(|| project.root.clone());
+    let normalizer = Normalizer::new(&staging_utf8, &project.root, &project.root, &staging_utf8);
+    let limits = project.config.limits;
+    let run_git =
+        |arguments: &[&str]| -> Result<crate::verify::child::ChildRecord, Vec<Diagnostic>> {
+            let record = crate::verify::child::run(
+                &ChildSpec {
+                    tool: "git",
+                    module: Some(format!("lock:{id}")),
+                    program: &git,
+                    executable_sha256: git_sha256,
+                    argv: arguments.iter().map(|a| (*a).to_owned()).collect(),
+                    cwd: &checkout,
+                    extra_env: vec![("GIT_ASKPASS".to_owned(), String::new())],
+                    toolchain_bin: &git_bin,
+                },
+                &limits,
+                &normalizer,
+            )
+            .map_err(|d| vec![d])?;
+            if record.exit_code == 0 {
+                Ok(record)
+            } else {
+                Err(git_environment(
+                    arguments.first().copied().unwrap_or("git"),
+                    format!("exit {}: {}", record.exit_code, record.stderr.trim_end()),
+                ))
+            }
+        };
     run_git(&["init", "--quiet", "."])?;
     run_git(&["remote", "add", "origin", url])?;
     if run_git(&["fetch", "--quiet", "--depth", "1", "origin", revision]).is_err() {
@@ -663,68 +835,101 @@ fn acquire_git_package(
     }
     run_git(&["checkout", "--quiet", "--detach", revision])?;
 
-    let package_root = Utf8PathBuf::from_path_buf(checkout.join(subdirectory))
-        .map_err(|bad| git_failure("subdirectory", bad.display()))?;
-    // Reject submodules, LFS indirection, and nested repositories (§11.4).
-    if checkout.join(".gitmodules").exists() || package_root.join(".gitmodules").exists() {
-        return Err(vec![Diagnostic::new(
-            code!("LLR3001"),
-            format!("git package `{id}`: submodules are rejected"),
-        )]);
+    // Submodules are gitlinks (mode 160000) in the index (§11.4).
+    let index = run_git(&["ls-files", "-s"])?;
+    if index.stdout.lines().any(|line| line.starts_with("160000 ")) {
+        return Err(vec![resolution(format!(
+            "git package `{id}`: submodules are rejected (a gitlink entry is in the index)"
+        ))]);
     }
-    for attributes in [
-        checkout.join(".gitattributes"),
-        package_root.join(".gitattributes").into_std_path_buf(),
-    ] {
-        if let Ok(text) = std::fs::read_to_string(&attributes) {
-            if text.contains("filter=lfs") {
-                return Err(vec![Diagnostic::new(
-                    code!("LLR3001"),
-                    format!("git package `{id}`: LFS indirection is rejected"),
-                )]);
-            }
-        }
-    }
-    if package_root.join(".git").exists() {
-        return Err(vec![Diagnostic::new(
-            code!("LLR3001"),
-            format!("git package `{id}`: nested repositories are rejected"),
-        )]);
+    let package_root =
+        confined_dir_under(&checkout, subdirectory, "checkout").map_err(|d| vec![d])?;
+    reject_git_indirection(id, &checkout, &package_root)?;
+
+    let display_root = format!("git:{id}");
+    let files = collect_package_files(&package_root, &display_root)?;
+    let package = load_package(&display_root, &files, None)?;
+    if package.id != id {
+        return Err(vec![resolution(format!(
+            "git source contains `{}`, not the configured `{id}`",
+            package.id
+        ))]);
     }
 
-    let files = collect_package_files(&package_root)?;
-    let package = load_package(&format!("git:{id}"), &files, None)?;
-    if package.id != id {
-        return Err(vec![Diagnostic::new(
-            code!("LLR3001"),
-            format!(
-                "git source contains `{}`, not the configured `{id}`",
-                package.id
-            ),
-        )]);
+    // The cache directory is staged beside its final location and renamed
+    // into place, so a reader never observes a partial package (§21.8).
+    let cache_relative = git_cache_relative(project, revision);
+    let cache_base = project
+        .confined_creatable(&cache_relative)
+        .map_err(|d| vec![d])?;
+    std::fs::create_dir_all(cache_base.as_std_path())
+        .map_err(|io_error| git_environment("cache", io_error))?;
+    let cache_staging = tempfile::Builder::new()
+        .prefix(".staging-")
+        .tempdir_in(cache_base.as_std_path())
+        .map_err(|io_error| git_environment("cache", io_error))?;
+    for (relative, bytes) in &files {
+        let destination = cache_staging.path().join(relative);
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|io_error| git_environment("cache", io_error))?;
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination)
+            .map_err(|io_error| git_environment("cache", io_error))?;
+        use std::io::Write;
+        file.write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|io_error| git_environment("cache", io_error))?;
     }
     let cache_dir = cache_base.join(package.tree_sha256.to_hex());
-    std::fs::create_dir_all(cache_dir.as_std_path())
-        .map_err(|io_error| git_failure("cache", io_error))?;
-    for (relative, bytes) in &files {
-        let destination = cache_dir.join(relative);
-        if let Some(parent) = destination.parent() {
-            std::fs::create_dir_all(parent.as_std_path())
-                .map_err(|io_error| git_failure("cache", io_error))?;
+    let staged = cache_staging.keep();
+    if let Err(io_error) = std::fs::rename(&staged, cache_dir.as_std_path()) {
+        let _ = std::fs::remove_dir_all(&staged);
+        // A concurrent acquisition may have published the same content;
+        // that is only acceptable when it validates.
+        let cache_dir_relative = format!("{cache_relative}/{}", package.tree_sha256.to_hex());
+        let existing = project.confined_dir(&cache_dir_relative).and_then(|dir| {
+            collect_package_files(&dir, &cache_dir_relative).map_err(|mut d| {
+                d.pop()
+                    .unwrap_or_else(|| resolution("cache validation failed"))
+            })
+        });
+        match existing {
+            Ok(existing_files) if existing_files == files => {}
+            _ => return Err(git_environment("cache", io_error)),
         }
-        std::fs::write(destination.as_std_path(), bytes)
-            .map_err(|io_error| git_failure("cache", io_error))?;
     }
-    let relative = format!(
-        "{}/cache/git/{revision}/{}",
-        project.config.build_root,
-        package.tree_sha256.to_hex()
-    );
-    Ok((package, relative))
+    Ok(package)
 }
 
-/// Compute the workspace pin rows (§10.4): `lean-toolchain`, exactly one
-/// Lake configuration, and `lake-manifest.json` when present.
+/// Read one workspace pin candidate: `Ok(None)` when absent, the bytes when
+/// it is a confined regular file, and a diagnostic for a symlink or
+/// special file (§25.1).
+fn pin_candidate(project: &Project, relative: &str) -> Result<Option<Vec<u8>>, Diagnostic> {
+    match std::fs::symlink_metadata(project.absolute(relative).as_std_path()) {
+        Err(io_error) if io_error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(io_error) => Err(Diagnostic::new(
+            code!("LLC0101"),
+            format!("{relative}: {io_error}"),
+        )),
+        Ok(_) => {
+            let absolute = project.confined_file(relative)?;
+            std::fs::read(absolute.as_std_path())
+                .map(Some)
+                .map_err(|io_error| {
+                    Diagnostic::new(code!("LLC0101"), format!("{relative}: {io_error}"))
+                })
+        }
+    }
+}
+
+/// Compute the workspace pin rows (§10.4): `lean-toolchain` (whose trimmed
+/// content must be the exact pinned string), exactly one Lake
+/// configuration, and `lake-manifest.json` when present. Every pinned file
+/// is confined: no symlink component (§25.1).
 pub fn workspace_pins(project: &Project) -> Result<Vec<(String, Sha256Digest)>, Vec<Diagnostic>> {
     let workspace_relative = |name: &str| {
         if project.config.lean_workspace == "." {
@@ -739,7 +944,20 @@ pub fn workspace_pins(project: &Project) -> Result<Vec<(String, Sha256Digest)>, 
     let toolchain_relative = workspace_relative("lean-toolchain");
     match project.confined_file(&toolchain_relative) {
         Ok(absolute) => match std::fs::read(absolute.as_std_path()) {
-            Ok(bytes) => rows.push((toolchain_relative.clone(), Sha256Digest::of(&bytes))),
+            Ok(bytes) => {
+                let content = String::from_utf8_lossy(&bytes);
+                if content.trim() != crate::LEAN_TOOLCHAIN {
+                    diagnostics.push(Diagnostic::new(
+                        code!("LLC0101"),
+                        format!(
+                            "{toolchain_relative} pins `{}`, not the exact language-1.0 toolchain `{}`",
+                            content.trim(),
+                            crate::LEAN_TOOLCHAIN
+                        ),
+                    ));
+                }
+                rows.push((toolchain_relative.clone(), Sha256Digest::of(&bytes)));
+            }
             Err(io_error) => diagnostics.push(Diagnostic::new(
                 code!("LLC0101"),
                 format!("{toolchain_relative}: {io_error}"),
@@ -750,42 +968,27 @@ pub fn workspace_pins(project: &Project) -> Result<Vec<(String, Sha256Digest)>, 
 
     let lakefile_toml = workspace_relative("lakefile.toml");
     let lakefile_lean = workspace_relative("lakefile.lean");
-    let has_toml = project.absolute(&lakefile_toml).is_file();
-    let has_lean = project.absolute(&lakefile_lean).is_file();
-    match (has_toml, has_lean) {
-        (true, true) => diagnostics.push(Diagnostic::new(
+    let toml_bytes = pin_candidate(project, &lakefile_toml);
+    let lean_bytes = pin_candidate(project, &lakefile_lean);
+    match (toml_bytes, lean_bytes) {
+        (Err(diagnostic), _) | (_, Err(diagnostic)) => diagnostics.push(diagnostic),
+        (Ok(Some(_)), Ok(Some(_))) => diagnostics.push(Diagnostic::new(
             code!("LLC0101"),
             "the Lake workspace must contain exactly one Lake configuration; both lakefile.toml and lakefile.lean exist",
         )),
-        (false, false) => diagnostics.push(Diagnostic::new(
+        (Ok(None), Ok(None)) => diagnostics.push(Diagnostic::new(
             code!("LLC0101"),
             "the Lake workspace has no lakefile.toml or lakefile.lean",
         )),
-        (true, false) => match std::fs::read(project.absolute(&lakefile_toml).as_std_path()) {
-            Ok(bytes) => rows.push((lakefile_toml, Sha256Digest::of(&bytes))),
-            Err(io_error) => diagnostics.push(Diagnostic::new(
-                code!("LLC0101"),
-                format!("{lakefile_toml}: {io_error}"),
-            )),
-        },
-        (false, true) => match std::fs::read(project.absolute(&lakefile_lean).as_std_path()) {
-            Ok(bytes) => rows.push((lakefile_lean, Sha256Digest::of(&bytes))),
-            Err(io_error) => diagnostics.push(Diagnostic::new(
-                code!("LLC0101"),
-                format!("{lakefile_lean}: {io_error}"),
-            )),
-        },
+        (Ok(Some(bytes)), Ok(None)) => rows.push((lakefile_toml, Sha256Digest::of(&bytes))),
+        (Ok(None), Ok(Some(bytes))) => rows.push((lakefile_lean, Sha256Digest::of(&bytes))),
     }
 
     let manifest = workspace_relative("lake-manifest.json");
-    if project.absolute(&manifest).is_file() {
-        match std::fs::read(project.absolute(&manifest).as_std_path()) {
-            Ok(bytes) => rows.push((manifest, Sha256Digest::of(&bytes))),
-            Err(io_error) => diagnostics.push(Diagnostic::new(
-                code!("LLC0101"),
-                format!("{manifest}: {io_error}"),
-            )),
-        }
+    match pin_candidate(project, &manifest) {
+        Ok(Some(bytes)) => rows.push((manifest, Sha256Digest::of(&bytes))),
+        Ok(None) => {}
+        Err(diagnostic) => diagnostics.push(diagnostic),
     }
     if diagnostics.is_empty() {
         Ok(rows)
@@ -813,13 +1016,10 @@ pub fn compute_lock(
         for import in &package.imports {
             match loaded.get(import.package.as_str()) {
                 Some(target) if target.version == import.version => {}
-                _ => diagnostics.push(Diagnostic::new(
-                    code!("LLR3001"),
-                    format!(
-                        "{}: transitive import `{import}` is not part of the configured closure",
-                        package.id
-                    ),
-                )),
+                _ => diagnostics.push(resolution(format!(
+                    "{}: transitive import `{import}` is not part of the configured closure",
+                    package.id
+                ))),
             }
         }
     }
@@ -849,8 +1049,12 @@ pub fn compute_lock(
             })
             .collect();
         LockPdf {
+            program: provider.program.clone(),
             program_sha256: provider.program_sha256,
+            version_argv: provider.version_argv.clone(),
             version_stdout_sha256: provider.version_stdout_sha256,
+            compile_argv: provider.compile_argv.clone(),
+            output: provider.output.clone(),
             resources,
         }
     });
@@ -869,19 +1073,25 @@ pub fn compute_lock(
     ))
 }
 
+/// Read the committed lock bytes through the confined lock path (§25.1):
+/// no symlink component, a regular file.
+pub fn read_lock_bytes(project: &Project) -> Result<Vec<u8>, Diagnostic> {
+    let lock_path = project.confined_file(&project.config.lockfile)?;
+    std::fs::read(lock_path.as_std_path()).map_err(|io_error| {
+        lock_error(format!(
+            "{}: {io_error}; run `lexlean lock`",
+            project.config.lockfile
+        ))
+    })
+}
+
 /// Read the committed lock and require it to be current: canonical bytes,
 /// matching compiler semantics, matching project configuration, and
 /// matching package digests (§11, CF-10).
 pub fn read_current_lock(
     project: &Project,
 ) -> Result<(Lock, Vec<LexiconPackage>), Vec<Diagnostic>> {
-    let lock_path = project.absolute(&project.config.lockfile);
-    let bytes = std::fs::read(lock_path.as_std_path()).map_err(|io_error| {
-        vec![lock_error(format!(
-            "{}: {io_error}; run `lexlean lock`",
-            project.config.lockfile
-        ))]
-    })?;
+    let bytes = read_lock_bytes(project).map_err(|d| vec![d])?;
     let committed = parse_lock(&project.config.lockfile, &bytes)?;
     let (expected, packages) = compute_lock(project, false)?;
     if expected.canonical_bytes() != bytes {

@@ -167,3 +167,95 @@ fn process_normalization_is_exact() {
     let normalized = normalizer.normalize(b"/stage/x\r\n/proj/y ok\n/tool/bin z\n\n\n");
     assert_eq!(normalized, "$STAGING/x\n$PROJECT/y ok\n$TOOLCHAIN/bin z\n");
 }
+
+/// §22.7: after prefix replacement, any remaining rooted path is
+/// unexpected; placeholders and URL schemes are not paths.
+#[test]
+fn unexpected_absolute_path_detector_is_exact() {
+    use lexlean::verify::child::first_unexpected_absolute_path as detect;
+    for clean in [
+        "",
+        "ok\n",
+        "$STAGING/x $PROJECT/y $TOOLCHAIN/bin $HOME/z $LAKE_WORKSPACE/w",
+        "see https://example.invalid/path and file://host/x",
+        "ratio 1/2 and a / b and /- comment -/",
+        "'Foo.bar' depends on axioms: [propext]",
+        "the C: drive is not a path without a separator",
+        "x=$STAGING/y,$PROJECT/z",
+    ] {
+        assert_eq!(detect(clean), None, "{clean:?} is clean");
+    }
+    for (dirty, token) in [
+        ("/home/user/x", "/home/user/x"),
+        (
+            "error at /tmp/lexlean-abc/y.lean:1:2",
+            "/tmp/lexlean-abc/y.lean:1:2",
+        ),
+        ("path \"/workspaces/lex/a\" here", "/workspaces/lex/a"),
+        ("(/Users/me/z)", "/Users/me/z"),
+        ("[/var/lib]", "/var/lib"),
+        ("C:\\Users\\me\\x", "C:\\Users\\me\\x"),
+        ("at D:/work/y.lean", "D:/work/y.lean"),
+        ("x=/opt/lean", "/opt/lean"),
+        ("/.hidden", "/.hidden"),
+        ("/_x", "/_x"),
+    ] {
+        let found = detect(dirty).unwrap_or_else(|| panic!("{dirty:?} is dirty"));
+        assert_eq!(found.1, token, "{dirty:?}");
+    }
+    let normalizer = lexlean::verify::child::Normalizer::new(
+        camino::Utf8Path::new("/stage"),
+        camino::Utf8Path::new("/proj"),
+        camino::Utf8Path::new("/proj/lake"),
+        camino::Utf8Path::new("/tool"),
+    );
+    assert!(!normalizer.has_unexpected_absolute_path("$STAGING/a\n"));
+    assert!(normalizer.has_unexpected_absolute_path("$STAGING/a /elsewhere/b\n"));
+}
+
+/// §8.3, §24.5: a non-UTF-8 argument or working directory is the
+/// registered environment diagnostic (exit 3), never a panic, in both
+/// output modes.
+#[cfg(unix)]
+#[test]
+fn non_utf8_argv_and_cwd_are_environment_diagnostics() {
+    use std::os::unix::ffi::OsStrExt;
+    let binary = env!("CARGO_BIN_EXE_lexlean");
+    let bad = std::ffi::OsStr::from_bytes(b"src/Bad\xff.lex.tex");
+    let output = std::process::Command::new(binary)
+        .args(["--color", "never", "check"])
+        .arg(bad)
+        .output()
+        .expect("runs");
+    assert_eq!(output.status.code(), Some(3), "environment class");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.starts_with("error[LLV7008]"), "{stderr}");
+    assert!(output.stdout.is_empty());
+    let output = std::process::Command::new(binary)
+        .args(["--diagnostic-format", "json", "check"])
+        .arg(bad)
+        .output()
+        .expect("runs");
+    assert_eq!(output.status.code(), Some(3));
+    assert!(output.stderr.is_empty(), "JSON mode keeps stderr empty");
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(value["command"], "check");
+    assert_eq!(value["exit_code"], 3);
+    assert_eq!(value["diagnostics"][0]["code"], "LLV7008");
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let bad_dir = temp.path().join(std::ffi::OsStr::from_bytes(b"cwd\xff"));
+    std::fs::create_dir(&bad_dir).expect("mkdir");
+    let output = std::process::Command::new(binary)
+        .args(["--color", "never", "check"])
+        .current_dir(&bad_dir)
+        .output()
+        .expect("runs");
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "a non-UTF-8 cwd is an environment failure"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.starts_with("error[LLV7008]"), "{stderr}");
+}

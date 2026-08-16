@@ -291,3 +291,21 @@ Class: `language`. Exit code: 1.
 Lake workspace lock or dependency availability mismatch.
 
 Class: `environment`. Exit code: 3.
+
+## `LLV7008` --- Non-UTF-8 path or argument in the environment
+
+A host path, working directory, or command-line argument is not valid UTF-8; non-UTF-8 project paths are outside language 1.0 (§8.3).
+
+Class: `environment`. Exit code: 3.
+
+## `LLV7009` --- Git acquisition environment failure
+
+During `lock --allow-network`, the git executable could not be resolved or run, or the exact configured commit could not be fetched or checked out from the HTTPS remote.
+
+Class: `environment`. Exit code: 3.
+
+## `LLV7010` --- Host filesystem or platform failure
+
+A host filesystem or platform operation under the project (creating, writing, renaming, or locking a file) failed for a reason outside the project's control.
+
+Class: `environment`. Exit code: 3.

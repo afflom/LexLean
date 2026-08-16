@@ -335,3 +335,24 @@ class = "environment"
 exit = 3
 title = "Lake workspace lock or dependency availability mismatch"
 statement = "Lake workspace lock or dependency availability mismatch."
+
+[[error]]
+code = "LLV7008"
+class = "environment"
+exit = 3
+title = "Non-UTF-8 path or argument in the environment"
+statement = "A host path, working directory, or command-line argument is not valid UTF-8; non-UTF-8 project paths are outside language 1.0 (§8.3)."
+
+[[error]]
+code = "LLV7009"
+class = "environment"
+exit = 3
+title = "Git acquisition environment failure"
+statement = "During `lock --allow-network`, the git executable could not be resolved or run, or the exact configured commit could not be fetched or checked out from the HTTPS remote."
+
+[[error]]
+code = "LLV7010"
+class = "environment"
+exit = 3
+title = "Host filesystem or platform failure"
+statement = "A host filesystem or platform operation under the project (creating, writing, renaming, or locking a file) failed for a reason outside the project's control."

@@ -7,7 +7,7 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::artifact::canonical_json::Json;
 use crate::artifact::content_id::Sha256Digest;
@@ -111,17 +111,64 @@ impl Normalizer {
     }
 
     /// Does normalized output still contain an unexpected absolute path
-    /// (§22.7)? Successful output carrying one fails attestation
-    /// construction.
+    /// (§22.7)? After the ordered prefix replacement, every remaining
+    /// `/`-rooted path (`/` at a token boundary followed by a path segment)
+    /// or drive-rooted Windows path (`X:\` or `X:/` at a token boundary)
+    /// is unexpected. `$PLACEHOLDER`-prefixed forms and URL schemes
+    /// (`scheme://host`) are not rooted paths. Successful output carrying
+    /// one fails attestation construction.
     #[must_use]
     pub fn has_unexpected_absolute_path(&self, text: &str) -> bool {
-        for marker in ["/home/", "/Users/", "/tmp/", "/workspaces/"] {
-            if text.contains(marker) {
-                return true;
-            }
-        }
-        false
+        first_unexpected_absolute_path(text).is_some()
     }
+}
+
+/// A character that can begin a path segment after the root separator.
+fn starts_segment(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '.'
+}
+
+/// A character that separates tokens, so a following `/` starts a rooted
+/// path rather than continuing one.
+fn is_token_boundary(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(
+            c,
+            '"' | '\'' | '`' | '(' | '[' | '{' | '<' | ',' | ';' | '='
+        )
+}
+
+/// The first unexpected absolute path in normalized text, when any: the
+/// byte offset and the offending token.
+#[must_use]
+pub fn first_unexpected_absolute_path(text: &str) -> Option<(usize, String)> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    for (index, &(offset, c)) in chars.iter().enumerate() {
+        let previous = index.checked_sub(1).map(|i| chars[i].1);
+        let at_boundary = previous.is_none_or(is_token_boundary);
+        let next = chars.get(index.saturating_add(1)).map(|pair| pair.1);
+        let rooted_posix = c == '/' && at_boundary && next.is_some_and(starts_segment);
+        let rooted_windows = c.is_ascii_alphabetic()
+            && at_boundary
+            && next == Some(':')
+            && chars
+                .get(index.saturating_add(2))
+                .is_some_and(|pair| pair.1 == '/' || pair.1 == '\\')
+            && chars
+                .get(index.saturating_add(3))
+                .is_some_and(|pair| starts_segment(pair.1));
+        if rooted_posix || rooted_windows {
+            let token: String = text[offset..]
+                .chars()
+                .take_while(|c| {
+                    !c.is_whitespace()
+                        && !matches!(c, '"' | '\'' | '`' | ')' | ']' | '}' | '>' | ',' | ';')
+                })
+                .collect();
+            return Some((offset, token));
+        }
+    }
+    None
 }
 
 /// One recorded child process (§22.3).
@@ -196,8 +243,48 @@ pub struct ChildSpec<'a> {
     pub toolchain_bin: &'a Utf8Path,
 }
 
+/// Locate an executable by name on the current `PATH` (§25.2): the
+/// resolution is explicit and recorded, never left to the child.
+pub fn resolve_on_path(name: &str) -> Result<Utf8PathBuf, Diagnostic> {
+    let path_value = std::env::var_os("PATH").unwrap_or_default();
+    for directory in std::env::split_paths(&path_value) {
+        if directory.as_os_str().is_empty() {
+            continue;
+        }
+        let candidate = directory.join(name);
+        let Ok(metadata) = std::fs::metadata(&candidate) else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o111 == 0 {
+                continue;
+            }
+        }
+        return Utf8PathBuf::from_path_buf(candidate).map_err(|bad| {
+            Diagnostic::new(
+                code!("LLV7008"),
+                format!(
+                    "non-UTF-8 path in the environment: {}",
+                    bad.to_string_lossy()
+                ),
+            )
+        });
+    }
+    Err(Diagnostic::new(
+        code!("LLV7001"),
+        format!("no `{name}` executable is available on PATH"),
+    ))
+}
+
 /// Run one child under the allow-list environment (§25.4), the timeout,
-/// and the output cap (§25.5).
+/// and the output cap (§25.5). Every arithmetic step over the configured
+/// limits is checked; a limit failure is `LLS8002` naming the limit, the
+/// configured value, the observed value, and the tool.
 pub fn run(
     spec: &ChildSpec<'_>,
     limits: &Limits,
@@ -228,16 +315,29 @@ pub fn run(
         command.env(key, value);
     }
     let mut child = command.spawn().map_err(|io_error| {
-        Diagnostic::new(code!("LLV7001"), format!("{}: {io_error}", spec.program))
+        Diagnostic::new(
+            code!("LLV7001"),
+            format!("{}: cannot start `{}`: {io_error}", spec.tool, spec.program),
+        )
     })?;
-    let cap = usize::try_from(limits.max_child_output_bytes).unwrap_or(usize::MAX);
-    let mut stdout_pipe = child.stdout.take().expect("stdout piped");
-    let mut stderr_pipe = child.stderr.take().expect("stderr piped");
+    let cap = limits.max_child_output_bytes;
+    // Read one byte past the cap so an overflow is observed as `> cap`
+    // without ever buffering unbounded output.
+    let read_limit = cap.saturating_add(1);
+    let (Some(mut stdout_pipe), Some(mut stderr_pipe)) = (child.stdout.take(), child.stderr.take())
+    else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(Diagnostic::new(
+            code!("LLI9001"),
+            format!("{}: the child pipes were not attached", spec.tool),
+        ));
+    };
     let stdout_reader = std::thread::spawn(move || {
         let mut buffer = Vec::new();
         let _ = stdout_pipe
             .by_ref()
-            .take(cap as u64 + 1)
+            .take(read_limit)
             .read_to_end(&mut buffer);
         buffer
     });
@@ -245,23 +345,30 @@ pub fn run(
         let mut buffer = Vec::new();
         let _ = stderr_pipe
             .by_ref()
-            .take(cap as u64 + 1)
+            .take(read_limit)
             .read_to_end(&mut buffer);
         buffer
     });
-    let deadline = Instant::now() + Duration::from_millis(limits.child_timeout_ms);
+    let started = Instant::now();
+    let timeout = Duration::from_millis(limits.child_timeout_ms);
+    let deadline = started.checked_add(timeout);
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {
-                if Instant::now() >= deadline {
+                let now = Instant::now();
+                if deadline.is_none_or(|deadline| now >= deadline) {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let elapsed_ms = now.saturating_duration_since(started).as_millis();
                     return Err(Diagnostic::new(
                         code!("LLS8002"),
                         format!(
-                            "child_timeout_ms exceeded: configured {}",
-                            limits.child_timeout_ms
+                            "child_timeout_ms exceeded by `{}` in phase {}: configured {}, observed {} ms",
+                            spec.tool,
+                            spec.module.as_deref().unwrap_or("verify"),
+                            limits.child_timeout_ms,
+                            elapsed_ms
                         ),
                     ));
                 }
@@ -277,11 +384,20 @@ pub fn run(
     };
     let stdout_bytes = stdout_reader.join().unwrap_or_default();
     let stderr_bytes = stderr_reader.join().unwrap_or_default();
-    if stdout_bytes.len() > cap || stderr_bytes.len() > cap {
+    let stdout_len = u64::try_from(stdout_bytes.len()).unwrap_or(u64::MAX);
+    let stderr_len = u64::try_from(stderr_bytes.len()).unwrap_or(u64::MAX);
+    if stdout_len > cap || stderr_len > cap {
+        let (stream, observed) = if stdout_len > cap {
+            ("stdout", stdout_len)
+        } else {
+            ("stderr", stderr_len)
+        };
         return Err(Diagnostic::new(
             code!("LLS8002"),
             format!(
-                "max_child_output_bytes exceeded: configured {}",
+                "max_child_output_bytes exceeded by `{}` on {stream} in phase {}: configured {}, observed at least {observed} bytes",
+                spec.tool,
+                spec.module.as_deref().unwrap_or("verify"),
                 limits.max_child_output_bytes
             ),
         ));

@@ -143,7 +143,7 @@ struct RawProject {
     lockfile: String,
     lean_workspace: String,
     lean_toolchain: String,
-    #[serde(rename = "lexicon_source", default)]
+    #[serde(rename = "lexicon_source")]
     lexicon_sources: Vec<RawLexiconSource>,
     limits: Limits,
     pdf: Option<RawPdf>,
@@ -191,7 +191,16 @@ pub fn is_project_relative(text: &str) -> bool {
             .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
-fn is_name(text: &str) -> bool {
+/// Is one project-relative path equal to, inside, or containing the other?
+fn path_overlaps(a: &str, b: &str) -> bool {
+    a == b
+        || a.strip_prefix(b).is_some_and(|rest| rest.starts_with('/'))
+        || b.strip_prefix(a).is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// A project name (§10.1): `[a-z][a-z0-9-]{0,62}`.
+#[must_use]
+pub fn is_project_name(text: &str) -> bool {
     let bytes = text.as_bytes();
     (1..=63).contains(&bytes.len())
         && bytes[0].is_ascii_lowercase()
@@ -228,6 +237,24 @@ pub fn parse_project(path: &str, bytes: &[u8]) -> Result<ProjectConfig, Vec<Diag
     let Ok(text) = std::str::from_utf8(bytes) else {
         return Err(vec![config_error(path, "lexlean.toml is not UTF-8")]);
     };
+    // UTF-8, NFC, LF-terminated (§10.1): a CR anywhere, a non-NFC scalar,
+    // or a missing final LF is a configuration error, not a formatting
+    // suggestion.
+    if text.contains('\r') {
+        diagnostics.push(config_error(
+            path,
+            "lexlean.toml must use LF line endings; a carriage return was found",
+        ));
+    }
+    if !unicode_normalization::is_nfc(text) {
+        diagnostics.push(config_error(path, "lexlean.toml must be NFC-normalized"));
+    }
+    if !text.is_empty() && !text.ends_with('\n') {
+        diagnostics.push(config_error(
+            path,
+            "lexlean.toml must end with exactly one final LF",
+        ));
+    }
     if let Some(at) = toml_comment_at(text) {
         diagnostics.push(config_error(
             path,
@@ -262,7 +289,7 @@ pub fn parse_project(path: &str, bytes: &[u8]) -> Result<ProjectConfig, Vec<Diag
             .with_span(Span::whole_file(path)),
         );
     }
-    if !is_name(&raw.name) {
+    if !is_project_name(&raw.name) {
         diagnostics.push(config_error(
             path,
             format!("`{}` is not a valid project name", raw.name),
@@ -337,6 +364,59 @@ pub fn parse_project(path: &str, bytes: &[u8]) -> Result<ProjectConfig, Vec<Diag
                 raw.lean_workspace
             ),
         ));
+    }
+    // The lock file, the configuration, the entrypoints, and the build
+    // root are distinct project files (§10): the lock cannot be the
+    // configuration or a module, and the build root cannot contain or be
+    // contained by a source root.
+    if raw.lockfile == path || raw.lockfile == "lexlean.toml" {
+        diagnostics.push(config_error(
+            path,
+            format!(
+                "lockfile: `{}` is the project configuration file itself",
+                raw.lockfile
+            ),
+        ));
+    }
+    if raw.entrypoints.contains(&raw.lockfile) {
+        diagnostics.push(config_error(
+            path,
+            format!(
+                "lockfile: `{}` is also a configured entrypoint",
+                raw.lockfile
+            ),
+        ));
+    }
+    if raw.build_root == raw.lockfile {
+        diagnostics.push(config_error(
+            path,
+            format!(
+                "build_root: `{}` is also the configured lockfile",
+                raw.build_root
+            ),
+        ));
+    }
+    if is_project_relative(&raw.build_root) {
+        for root in &raw.source_roots {
+            if path_overlaps(&raw.build_root, root) {
+                diagnostics.push(config_error(
+                    path,
+                    format!(
+                        "build_root `{}` and source root `{root}` overlap; the build root must be disjoint from every source root",
+                        raw.build_root
+                    ),
+                ));
+            }
+        }
+        if path_overlaps(&raw.build_root, &raw.lockfile) {
+            diagnostics.push(config_error(
+                path,
+                format!(
+                    "lockfile `{}` lies inside the build root `{}`",
+                    raw.lockfile, raw.build_root
+                ),
+            ));
+        }
     }
     for (name, value) in raw.limits.rows() {
         if value == 0 {
@@ -603,14 +683,19 @@ pub fn parse_project(path: &str, bytes: &[u8]) -> Result<ProjectConfig, Vec<Diag
     }
 }
 
-fn toml_string(value: &str) -> String {
+/// A TOML basic string: quotes and backslashes escaped, every control
+/// scalar (U+0000..U+001F and U+007F) written as a four-hex-digit `\u` escape.
+#[must_use]
+pub fn toml_string(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
     for scalar in value.chars() {
         match scalar {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c if (c as u32) < 0x20 || c as u32 == 0x7F => {
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
             c => out.push(c),
         }
     }

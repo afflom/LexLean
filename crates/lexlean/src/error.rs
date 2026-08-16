@@ -122,3 +122,38 @@ impl std::error::Error for LexLeanError {
             .map(|e| e as &(dyn std::error::Error + 'static))
     }
 }
+
+impl LexLeanError {
+    /// Enforce `limits.max_diagnostics` (§10.2, §25.5): when more
+    /// diagnostics were collected than the configured limit, keep the first
+    /// `max` in canonical order and append one `LLS8002` diagnostic that
+    /// names the limit, the configured value, the observed count, and the
+    /// phase. The class follows the most severe retained diagnostic, so an
+    /// exceeded limit is a limit violation as §23.6 requires.
+    #[must_use]
+    pub fn bounded(mut self, max: u64, phase: &str) -> Self {
+        let observed = self.diagnostics.len();
+        let Ok(observed_u64) = u64::try_from(observed) else {
+            return self;
+        };
+        if observed_u64 <= max {
+            return self;
+        }
+        let keep = usize::try_from(max).unwrap_or(usize::MAX);
+        crate::diagnostic::sort_canonical(&mut self.diagnostics);
+        self.diagnostics.truncate(keep);
+        self.diagnostics.push(Diagnostic::new(
+            crate::code!("LLS8002"),
+            format!(
+                "max_diagnostics exceeded in phase {phase}: configured {max}, observed {observed}; the first {keep} diagnostics are reported"
+            ),
+        ));
+        self.class = self
+            .diagnostics
+            .iter()
+            .map(|d| d.code.class())
+            .max_by_key(|c| c.exit_code())
+            .unwrap_or(self.class);
+        self
+    }
+}

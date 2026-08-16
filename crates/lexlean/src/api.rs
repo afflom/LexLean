@@ -341,35 +341,43 @@ pub fn render_build(
     })
 }
 
-/// Acquire the project mutation lock at `.lexlean/.lock` (§21.8).
-fn acquire_lock(project: &Project) -> Result<std::fs::File, LexLeanError> {
+/// A host filesystem or platform failure under the project (§23.6 exit 3):
+/// never a language error and never blamed on the input.
+fn host_failure(message: impl Into<String>) -> LexLeanError {
+    LexLeanError::from_diagnostic(Diagnostic::new(code!("LLV7010"), message))
+}
+
+/// The held project mutation lock (§21.8). Dropping it releases the lock.
+pub(crate) struct MutationGuard {
+    _file: std::fs::File,
+}
+
+/// Acquire the project mutation lock at `<build_root>/.lock` (§21.8). The
+/// build root's components are checked for symlinks first (§25.1).
+fn acquire_lock(project: &Project) -> Result<MutationGuard, LexLeanError> {
     use fs4::fs_std::FileExt;
-    let build_root = project.root.join(&project.config.build_root);
+    let build_root = project
+        .confined_creatable(&project.config.build_root)
+        .map_err(LexLeanError::from_diagnostic)?;
     std::fs::create_dir_all(build_root.as_std_path()).map_err(|io_error| {
-        LexLeanError::from_diagnostic(Diagnostic::new(
-            code!("LLS8001"),
-            format!("{build_root}: {io_error}"),
+        host_failure(format!(
+            "{}: cannot create the build root: {io_error}",
+            project.config.build_root
         ))
     })?;
-    let lock_path = build_root.join(".lock");
+    let lock_relative = format!("{}/.lock", project.config.build_root);
+    let lock_path = project
+        .confined_creatable(&lock_relative)
+        .map_err(LexLeanError::from_diagnostic)?;
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .open(lock_path.as_std_path())
-        .map_err(|io_error| {
-            LexLeanError::from_diagnostic(Diagnostic::new(
-                code!("LLS8001"),
-                format!("{lock_path}: {io_error}"),
-            ))
-        })?;
-    file.lock_exclusive().map_err(|io_error| {
-        LexLeanError::from_diagnostic(Diagnostic::new(
-            code!("LLS8001"),
-            format!("{lock_path}: {io_error}"),
-        ))
-    })?;
-    Ok(file)
+        .map_err(|io_error| host_failure(format!("{lock_relative}: {io_error}")))?;
+    file.lock_exclusive()
+        .map_err(|io_error| host_failure(format!("{lock_relative}: {io_error}")))?;
+    Ok(MutationGuard { _file: file })
 }
 
 /// Publish a rendered build atomically at its content-addressed path
@@ -378,18 +386,36 @@ pub fn publish_build(
     project: &Project,
     build: &RenderedBuild,
 ) -> Result<Utf8PathBuf, LexLeanError> {
-    let _guard = acquire_lock(project)?;
-    let build_root = project.root.join(&project.config.build_root).join("build");
+    let guard = acquire_lock(project)?;
+    publish_build_locked(project, build, &guard)
+}
+
+/// [`publish_build`] under an already-held mutation lock, so a caller such
+/// as `verify` holds one lock across build publication and verification.
+fn publish_build_locked(
+    project: &Project,
+    build: &RenderedBuild,
+    _guard: &MutationGuard,
+) -> Result<Utf8PathBuf, LexLeanError> {
+    let build_root_relative = format!("{}/build", project.config.build_root);
+    let build_root = project
+        .confined_creatable(&build_root_relative)
+        .map_err(LexLeanError::from_diagnostic)?;
     std::fs::create_dir_all(build_root.as_std_path()).map_err(|io_error| {
         LexLeanError::from_diagnostic(Diagnostic::new(
             code!("LLB6003"),
-            format!("{build_root}: {io_error}"),
+            format!("{build_root_relative}: {io_error}"),
         ))
     })?;
+    let target_relative = format!("{build_root_relative}/{}", build.build_id.to_hex());
     let target = build_root.join(build.build_id.to_hex());
-    if target.as_std_path().exists() {
+    if std::fs::symlink_metadata(target.as_std_path()).is_ok() {
         // Existing content-addressed output is reused only after every
-        // file validates against the new manifest (§21.8).
+        // file validates against the new manifest (§21.8); a symlinked
+        // output is never followed (§25.1).
+        project
+            .confined_dir(&target_relative)
+            .map_err(LexLeanError::from_diagnostic)?;
         for (relative, bytes) in &build.files {
             let existing = std::fs::read(target.join(relative).as_std_path());
             match existing {
@@ -398,7 +424,7 @@ pub fn publish_build(
                     return Err(LexLeanError::from_diagnostic(Diagnostic::new(
                         code!("LLB6003"),
                         format!(
-                            "existing build directory {target} does not validate against the manifest; refusing to overwrite unexplained bytes"
+                            "existing build directory {target_relative} does not validate against the manifest; refusing to overwrite unexplained bytes"
                         ),
                     )));
                 }
@@ -454,10 +480,46 @@ pub fn publish_build(
         let _ = std::fs::remove_dir_all(&staged);
         LexLeanError::from_diagnostic(Diagnostic::new(
             code!("LLB6003"),
-            format!("publishing {target}: {io_error}"),
+            format!("publishing {target_relative}: {io_error}"),
         ))
     })?;
     Ok(target)
+}
+
+/// Copy a directory tree (regular files and directories only; symlinks
+/// and special files are skipped because every consumer rejects them
+/// anyway) for the formatter's scratch project.
+fn copy_tree(from: &Utf8Path, to: &Utf8Path, shown: &str) -> Result<(), LexLeanError> {
+    for entry in walkdir::WalkDir::new(from.as_std_path())
+        .follow_links(false)
+        .sort_by_file_name()
+    {
+        let entry = entry.map_err(|walk_error| {
+            host_failure(format!(
+                "fmt staging {shown}: {}",
+                walk_error
+                    .io_error()
+                    .map_or_else(|| "walk failure".to_owned(), ToString::to_string)
+            ))
+        })?;
+        let relative = entry.path().strip_prefix(from.as_std_path()).map_err(|_| {
+            host_failure(format!("fmt staging {shown}: a walked entry left its root"))
+        })?;
+        let destination = to.as_std_path().join(relative);
+        let file_type = entry.file_type();
+        if file_type.is_dir() {
+            std::fs::create_dir_all(&destination)
+                .map_err(|io_error| host_failure(format!("fmt staging {shown}: {io_error}")))?;
+        } else if file_type.is_file() {
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|io_error| host_failure(format!("fmt staging {shown}: {io_error}")))?;
+            }
+            std::fs::copy(entry.path(), &destination)
+                .map_err(|io_error| host_failure(format!("fmt staging {shown}: {io_error}")))?;
+        }
+    }
+    Ok(())
 }
 
 impl Engine {
@@ -474,25 +536,41 @@ impl Engine {
         &self.project
     }
 
+    /// Enforce `limits.max_diagnostics` on a failure (§10.2).
+    fn bound<T>(&self, phase: &str, result: Result<T, LexLeanError>) -> Result<T, LexLeanError> {
+        result.map_err(|error| error.bounded(self.project.config.limits.max_diagnostics, phase))
+    }
+
     /// Update or check the lock (§23.4).
     pub fn lock(&self, request: LockRequest) -> Result<LockResult, LexLeanError> {
+        self.bound("lock", self.lock_inner(request))
+    }
+
+    fn lock_inner(&self, request: LockRequest) -> Result<LockResult, LexLeanError> {
         if request.check_only && request.allow_network {
             return Err(LexLeanError::from_diagnostic(Diagnostic::new(
                 code!("LLC0001"),
                 "--check and --allow-network are mutually exclusive",
             )));
         }
-        let (lock, _packages) = compute_lock(&self.project, request.allow_network)
-            .map_err(LexLeanError::from_diagnostics)?;
-        let bytes = lock.canonical_bytes();
-        let lock_path = self.project.absolute(&self.project.config.lockfile);
         if request.check_only {
-            let existing = std::fs::read(lock_path.as_std_path()).map_err(|io_error| {
-                LexLeanError::from_diagnostic(Diagnostic::new(
-                    code!("LLC0102"),
-                    format!("{}: {io_error}", self.project.config.lockfile),
-                ))
-            })?;
+            // `lock --check` requires canonical bytes of both the lock and
+            // the configuration (§10.1, §11.1); nothing is written.
+            let canonical_config = self.project.config.canonical_toml();
+            if self.project.config_bytes != canonical_config.as_bytes() {
+                return Err(LexLeanError::from_diagnostic(Diagnostic::new(
+                    code!("LLC0101"),
+                    format!(
+                        "{} is not in canonical serialization; `lock --check` requires canonical configuration bytes (§10.1)",
+                        self.project.config_name
+                    ),
+                )));
+            }
+            let (lock, _packages) =
+                compute_lock(&self.project, false).map_err(LexLeanError::from_diagnostics)?;
+            let bytes = lock.canonical_bytes();
+            let existing = crate::lock::read_lock_bytes(&self.project)
+                .map_err(LexLeanError::from_diagnostic)?;
             if existing != bytes {
                 return Err(LexLeanError::from_diagnostic(Diagnostic::new(
                     code!("LLC0102"),
@@ -507,40 +585,47 @@ impl Engine {
                 written: false,
             });
         }
+        // The whole update, acquisition included, runs under the mutation
+        // lock (§21.8).
         let _guard = acquire_lock(&self.project)?;
-        if std::fs::read(lock_path.as_std_path()).is_ok_and(|existing| existing == bytes) {
-            return Ok(LockResult {
-                bytes,
-                written: false,
-            });
+        let (lock, _packages) = compute_lock(&self.project, request.allow_network)
+            .map_err(LexLeanError::from_diagnostics)?;
+        let bytes = lock.canonical_bytes();
+        let lock_path = self
+            .project
+            .confined_creatable(&self.project.config.lockfile)
+            .map_err(LexLeanError::from_diagnostic)?;
+        if std::fs::symlink_metadata(lock_path.as_std_path()).is_ok() {
+            let existing = crate::lock::read_lock_bytes(&self.project)
+                .map_err(LexLeanError::from_diagnostic)?;
+            if existing == bytes {
+                return Ok(LockResult {
+                    bytes,
+                    written: false,
+                });
+            }
         }
-        // Atomic write beside the target.
+        // Atomic write beside the target with ordinary file permissions.
         let parent = lock_path
             .parent()
             .map(Utf8Path::to_path_buf)
             .unwrap_or_else(|| self.project.root.clone());
-        let mut temp =
-            tempfile::NamedTempFile::new_in(parent.as_std_path()).map_err(|io_error| {
-                LexLeanError::from_diagnostic(Diagnostic::new(
-                    code!("LLB6003"),
-                    format!("lock staging: {io_error}"),
-                ))
-            })?;
+        let lockfile = &self.project.config.lockfile;
+        let mut temp = tempfile::NamedTempFile::new_in(parent.as_std_path())
+            .map_err(|io_error| host_failure(format!("{lockfile}: staging: {io_error}")))?;
         use std::io::Write;
         temp.write_all(&bytes)
             .and_then(|()| temp.as_file().sync_all())
-            .map_err(|io_error| {
-                LexLeanError::from_diagnostic(Diagnostic::new(
-                    code!("LLB6003"),
-                    format!("lock staging: {io_error}"),
-                ))
-            })?;
+            .map_err(|io_error| host_failure(format!("{lockfile}: staging: {io_error}")))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o644))
+                .map_err(|io_error| host_failure(format!("{lockfile}: staging: {io_error}")))?;
+        }
         temp.persist(lock_path.as_std_path())
             .map_err(|persist_error| {
-                LexLeanError::from_diagnostic(Diagnostic::new(
-                    code!("LLB6003"),
-                    format!("lock publish: {persist_error}"),
-                ))
+                host_failure(format!("{lockfile}: publish: {}", persist_error.error))
             })?;
         Ok(LockResult {
             bytes,
@@ -559,6 +644,13 @@ impl Engine {
     pub fn check(
         &self,
         request: CheckRequest,
+    ) -> Result<ProjectResultSet<CheckedUnit>, LexLeanError> {
+        self.bound("check", self.check_inner(&request))
+    }
+
+    fn check_inner(
+        &self,
+        request: &CheckRequest,
     ) -> Result<ProjectResultSet<CheckedUnit>, LexLeanError> {
         let (checked, _lock) = self.checked(&request.selection)?;
         Ok(ProjectResultSet {
@@ -589,6 +681,13 @@ impl Engine {
         &self,
         request: BuildRequest,
     ) -> Result<ProjectResultSet<BuiltUnit>, LexLeanError> {
+        self.bound("build", self.build_inner(&request))
+    }
+
+    fn build_inner(
+        &self,
+        request: &BuildRequest,
+    ) -> Result<ProjectResultSet<BuiltUnit>, LexLeanError> {
         let (checked, _lock) = self.checked(&request.selection)?;
         let rendered = render_build(&self.project, &checked)?;
         publish_build(&self.project, &rendered)?;
@@ -616,10 +715,18 @@ impl Engine {
 
     /// Verify a selection through the complete fixed pipeline (§22).
     pub fn verify(&self, request: VerifyRequest) -> Result<VerifiedProject, LexLeanError> {
+        self.bound("verify", self.verify_inner(&request))
+    }
+
+    fn verify_inner(&self, request: &VerifyRequest) -> Result<VerifiedProject, LexLeanError> {
         let (checked, lock) = self.checked(&request.selection)?;
         let rendered = render_build(&self.project, &checked)?;
-        publish_build(&self.project, &rendered)?;
+        // One mutation lock spans build publication, every verification
+        // stage, and the verified-set publication (§21.8).
+        let guard = acquire_lock(&self.project)?;
+        publish_build_locked(&self.project, &rendered, &guard)?;
         let outcome = crate::verify::run(&self.project, &lock, &checked, &rendered)?;
+        drop(guard);
         Ok(VerifiedProject {
             source_id: checked.source_id,
             semantic_id: checked.semantic_id,
@@ -643,19 +750,34 @@ impl Engine {
     }
 
     /// Format a selection canonically, or exact-byte compare (§23.5). The
-    /// formatter proves linked-IR preservation before any rewrite.
+    /// formatter proves linked-IR preservation on the in-memory canonical
+    /// text before any source file is touched, then rewrites each file
+    /// atomically under the mutation lock.
     pub fn format(&self, request: FormatRequest) -> Result<FormatResultSet, LexLeanError> {
-        // Formatting normalizes NFC (§12.1); check on already-canonical
-        // sources shares the check pipeline.
-        let (checked, _lock) = self.checked(&request.selection)?;
-        let mut units = BTreeMap::new();
-        let mut rewrites: Vec<(Utf8PathBuf, String)> = Vec::new();
-        for (name, module) in &checked.modules {
-            let canonical = crate::fmt::canonical_source(module, &checked.closure)
+        self.bound("fmt", self.format_inner(&request))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn format_inner(&self, request: &FormatRequest) -> Result<FormatResultSet, LexLeanError> {
+        let raw_bytes = |relative: &str| -> Result<Vec<u8>, LexLeanError> {
+            let path = self
+                .project
+                .confined_file(relative)
                 .map_err(LexLeanError::from_diagnostic)?;
-            let already = canonical == module.normalized;
-            if request.check_only {
-                if !already {
+            std::fs::read(path.as_std_path())
+                .map_err(|io_error| host_failure(format!("{relative}: {io_error}")))
+        };
+        if request.check_only {
+            // Exact-byte comparison against the file as it is on disk (§23.5):
+            // a CRLF or otherwise noncanonical file is not canonical even
+            // when its normalized text is.
+            let (checked, _lock) = self.checked(&request.selection)?;
+            let mut units = BTreeMap::new();
+            for (name, module) in &checked.modules {
+                let canonical = crate::fmt::canonical_source(module, &checked.closure)
+                    .map_err(LexLeanError::from_diagnostic)?;
+                let raw = raw_bytes(&module.document.source_path)?;
+                if raw != canonical.as_bytes() {
                     return Err(LexLeanError::from_diagnostic(Diagnostic::new(
                         code!("LLL1003"),
                         format!(
@@ -664,75 +786,263 @@ impl Engine {
                         ),
                     )));
                 }
-            } else if !already {
-                // Prove IR preservation: re-check the canonical text in a
-                // scratch copy of this module before rewriting (§23.5).
-                rewrites.push((
-                    self.project.absolute(&module.document.source_path),
-                    canonical.clone(),
-                ));
+                units.insert(name.clone(), true);
+            }
+            return Ok(FormatResultSet { units });
+        }
+
+        // Every rewrite happens under the mutation lock (§21.8), and the
+        // proof of IR preservation precedes the first write: the project is
+        // copied to a scratch root under the build root, every module there
+        // is NFC/LF-normalized (the part of formatting that precedes
+        // parsing, §23.5), and the scratch copy is checked twice: once as
+        // normalized (the "before" IR) and once with the canonical text (the
+        // "after" IR).
+        let _guard = acquire_lock(&self.project)?;
+        let build_root = self
+            .project
+            .confined_creatable(&self.project.config.build_root)
+            .map_err(LexLeanError::from_diagnostic)?;
+        let staging = tempfile::Builder::new()
+            .prefix(".staging-fmt-")
+            .tempdir_in(build_root.as_std_path())
+            .map_err(|io_error| host_failure(format!("fmt staging: {io_error}")))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ =
+                std::fs::set_permissions(staging.path(), std::fs::Permissions::from_mode(0o700));
+        }
+        let scratch = crate::project::utf8_path(staging.path())
+            .map(|path| path.join("project"))
+            .map_err(LexLeanError::from_diagnostic)?;
+        self.scratch_project_copy(&scratch)?;
+        let scratch_engine = Self::load(&scratch.join(&self.project.config_name))?;
+        for relative in scratch_engine
+            .project
+            .all_modules()
+            .map_err(LexLeanError::from_diagnostics)?
+            .values()
+        {
+            let path = scratch.join(relative);
+            let bytes = std::fs::read(path.as_std_path())
+                .map_err(|io_error| host_failure(format!("fmt staging {relative}: {io_error}")))?;
+            let normalized = crate::source::normalize::normalize(relative, &bytes, true)
+                .map_err(LexLeanError::from_diagnostics)?;
+            std::fs::write(path.as_std_path(), normalized.text)
+                .map_err(|io_error| host_failure(format!("fmt staging {relative}: {io_error}")))?;
+        }
+        let (before, _lock) = scratch_engine.checked(&request.selection)?;
+        let mut units = BTreeMap::new();
+        let mut rewrites: Vec<(String, String)> = Vec::new();
+        for (name, module) in &before.modules {
+            let canonical = crate::fmt::canonical_source(module, &before.closure)
+                .map_err(LexLeanError::from_diagnostic)?;
+            let raw = raw_bytes(&module.document.source_path)?;
+            let already = raw == canonical.as_bytes();
+            if !already {
+                rewrites.push((module.document.source_path.clone(), canonical));
             }
             units.insert(name.clone(), already);
         }
-        if !request.check_only && !rewrites.is_empty() {
-            for (path, canonical) in &rewrites {
-                std::fs::write(path.as_std_path(), canonical).map_err(|io_error| {
-                    LexLeanError::from_diagnostic(Diagnostic::new(
-                        code!("LLB6003"),
-                        format!("{path}: {io_error}"),
-                    ))
-                })?;
-            }
-            // The formatter compares pre- and post-render canonical IR and
-            // fails if they differ (§23.5).
-            let recheck = self.checked(&request.selection);
-            match recheck {
-                Ok((after, _)) => {
-                    let before_json = checked.linked.to_json().to_canonical_string();
-                    let after_json = after.linked.to_json().to_canonical_string();
-                    if before_json != after_json {
+        if rewrites.is_empty() {
+            return Ok(FormatResultSet { units });
+        }
+        for (relative, canonical) in &rewrites {
+            std::fs::write(scratch.join(relative).as_std_path(), canonical)
+                .map_err(|io_error| host_failure(format!("fmt staging {relative}: {io_error}")))?;
+        }
+        match scratch_engine.checked(&request.selection) {
+            Ok((after, _)) => {
+                let before_json = before.linked.to_json().to_canonical_string();
+                let after_json = after.linked.to_json().to_canonical_string();
+                if before_json != after_json {
+                    return Err(LexLeanError::from_diagnostic(Diagnostic::new(
+                        code!("LLI9001"),
+                        "phase fmt: formatting did not preserve linked IR; no file was rewritten",
+                    )));
+                }
+                // The canonical text must itself be a fixed point.
+                for (name, module) in &after.modules {
+                    let again = crate::fmt::canonical_source(module, &after.closure)
+                        .map_err(LexLeanError::from_diagnostic)?;
+                    if again != module.normalized {
                         return Err(LexLeanError::from_diagnostic(Diagnostic::new(
                             code!("LLI9001"),
-                            "phase fmt: formatting did not preserve linked IR",
+                            format!(
+                                "phase fmt: the canonical text of `{name}` is not a formatting fixed point; no file was rewritten"
+                            ),
                         )));
                     }
                 }
-                Err(error) => {
-                    return Err(LexLeanError::from_diagnostic(
-                        Diagnostic::new(
-                            code!("LLI9001"),
-                            "phase fmt: the canonical rewrite does not re-check",
-                        )
-                        .with_note(format!("{error}")),
-                    ));
-                }
             }
+            Err(error) => {
+                return Err(LexLeanError::from_diagnostic(
+                    Diagnostic::new(
+                        code!("LLI9001"),
+                        "phase fmt: the canonical rewrite does not re-check; no file was rewritten",
+                    )
+                    .with_note(format!("{error}")),
+                ));
+            }
+        }
+        drop(scratch_engine);
+        drop(staging);
+
+        // Proven: rewrite each file through a sibling temporary and rename.
+        for (relative, canonical) in &rewrites {
+            let path = self
+                .project
+                .confined_file(relative)
+                .map_err(LexLeanError::from_diagnostic)?;
+            let parent = path
+                .parent()
+                .map(Utf8Path::to_path_buf)
+                .unwrap_or_else(|| self.project.root.clone());
+            let mut temp = tempfile::NamedTempFile::new_in(parent.as_std_path())
+                .map_err(|io_error| host_failure(format!("{relative}: staging: {io_error}")))?;
+            use std::io::Write;
+            temp.write_all(canonical.as_bytes())
+                .and_then(|()| temp.as_file().sync_all())
+                .map_err(|io_error| host_failure(format!("{relative}: staging: {io_error}")))?;
+            if let Ok(metadata) = std::fs::metadata(path.as_std_path()) {
+                let _ = std::fs::set_permissions(temp.path(), metadata.permissions());
+            }
+            temp.persist(path.as_std_path()).map_err(|persist_error| {
+                host_failure(format!("{relative}: publish: {}", persist_error.error))
+            })?;
         }
         Ok(FormatResultSet { units })
     }
 
-    /// Remove the configured build root (§23.4): only after verifying it is
-    /// a nonsymlink directory inside the project.
-    pub(crate) fn clean(&self) -> Result<(), LexLeanError> {
-        let build_root = self.project.root.join(&self.project.config.build_root);
-        match std::fs::symlink_metadata(build_root.as_std_path()) {
-            Ok(metadata) => {
-                if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                    return Err(LexLeanError::from_diagnostic(Diagnostic::new(
-                        code!("LLS8001"),
-                        format!("{build_root}: the build root must be a nonsymlink directory"),
-                    )));
+    /// Copy the inputs of a check (configuration, lock, workspace pins,
+    /// source roots, path packages, the Git cache, PDF resources) into a
+    /// scratch root so the canonical text can be re-checked without
+    /// touching the user's files.
+    fn scratch_project_copy(&self, scratch: &Utf8Path) -> Result<(), LexLeanError> {
+        let config = &self.project.config;
+        std::fs::create_dir_all(scratch.as_std_path())
+            .map_err(|io_error| host_failure(format!("fmt staging: {io_error}")))?;
+        let copy_file = |relative: &str| -> Result<(), LexLeanError> {
+            let source = self.project.absolute(relative);
+            if std::fs::symlink_metadata(source.as_std_path())
+                .is_ok_and(|metadata| metadata.is_file())
+            {
+                let destination = scratch.join(relative);
+                if let Some(parent) = destination.parent() {
+                    std::fs::create_dir_all(parent.as_std_path())
+                        .map_err(|io_error| host_failure(format!("{relative}: {io_error}")))?;
                 }
-                std::fs::remove_dir_all(build_root.as_std_path()).map_err(|io_error| {
+                std::fs::copy(source.as_std_path(), destination.as_std_path())
+                    .map_err(|io_error| host_failure(format!("{relative}: {io_error}")))?;
+            }
+            Ok(())
+        };
+        let copy_dir = |relative: &str| -> Result<(), LexLeanError> {
+            let source = self.project.absolute(relative);
+            if std::fs::symlink_metadata(source.as_std_path())
+                .is_ok_and(|metadata| metadata.is_dir())
+            {
+                copy_tree(&source, &scratch.join(relative), relative)?;
+            }
+            Ok(())
+        };
+        copy_file(&self.project.config_name)?;
+        copy_file(&config.lockfile)?;
+        let workspace = |name: &str| {
+            if config.lean_workspace == "." {
+                name.to_owned()
+            } else {
+                format!("{}/{name}", config.lean_workspace)
+            }
+        };
+        for pin in [
+            "lean-toolchain",
+            "lakefile.toml",
+            "lakefile.lean",
+            "lake-manifest.json",
+        ] {
+            copy_file(&workspace(pin))?;
+        }
+        for root in &config.source_roots {
+            copy_dir(root)?;
+        }
+        for source in &config.lexicon_sources {
+            if let crate::config::LexiconSource::Path { path, .. } = source {
+                copy_dir(path)?;
+            }
+        }
+        copy_dir(&format!("{}/cache", config.build_root))?;
+        if let Some(pdf) = &config.pdf {
+            for resource in &pdf.resources {
+                copy_file(resource)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove the configured build root (§23.4): only after verifying it is
+    /// a nonsymlink directory inside the project whose path has no symlink
+    /// component. An absent build root is reported as such.
+    pub(crate) fn clean(&self) -> Result<CleanResult, LexLeanError> {
+        let relative = &self.project.config.build_root;
+        match std::fs::symlink_metadata(self.project.absolute(relative).as_std_path()) {
+            Err(io_error) if io_error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(CleanResult::Absent)
+            }
+            Err(io_error) => Err(LexLeanError::from_diagnostic(Diagnostic::new(
+                code!("LLS8001"),
+                format!("{relative}: {io_error}"),
+            ))),
+            Ok(_) => {
+                let build_root = self
+                    .project
+                    .confined_dir(relative)
+                    .map_err(LexLeanError::from_diagnostic)?;
+                let removal_failure = |io_error: std::io::Error| {
                     LexLeanError::from_diagnostic(Diagnostic::new(
                         code!("LLS8001"),
-                        format!("{build_root}: {io_error}"),
+                        format!("{relative}: {io_error}"),
                     ))
-                })
+                };
+                // Everything but the mutation lock file goes under the
+                // lock (§21.8), so no concurrent build publishes into a
+                // directory being torn down; the lock file and the now
+                // empty root are removed once the lock is released, which
+                // keeps the removal portable to hosts that refuse to
+                // delete an open file.
+                {
+                    let _guard = acquire_lock(&self.project)?;
+                    for entry in std::fs::read_dir(build_root.as_std_path())
+                        .map_err(removal_failure)?
+                    {
+                        let entry = entry.map_err(removal_failure)?;
+                        if entry.file_name() == ".lock" {
+                            continue;
+                        }
+                        let path = entry.path();
+                        let file_type = entry.file_type().map_err(removal_failure)?;
+                        if file_type.is_dir() {
+                            std::fs::remove_dir_all(&path).map_err(removal_failure)?;
+                        } else {
+                            std::fs::remove_file(&path).map_err(removal_failure)?;
+                        }
+                    }
+                }
+                std::fs::remove_dir_all(build_root.as_std_path()).map_err(removal_failure)?;
+                Ok(CleanResult::Removed)
             }
-            Err(_) => Ok(()),
         }
     }
+}
+
+/// The outcome of `clean`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CleanResult {
+    /// The build root was removed.
+    Removed,
+    /// There was no build root to remove.
+    Absent,
 }
 
 /// Parse a lock file without a project, for tooling.
@@ -740,7 +1050,23 @@ pub fn parse_lock_bytes(path: &str, bytes: &[u8]) -> Result<Lock, Vec<Diagnostic
     parse_lock(path, bytes)
 }
 
-/// The canonical JSON command-result object (§20.6).
+/// The content IDs a command may report in its JSON result (§20.6): each
+/// is present exactly when the command produced it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CommandIds {
+    /// The source ID.
+    pub source_id: Option<Sha256Digest>,
+    /// The semantic ID.
+    pub semantic_id: Option<Sha256Digest>,
+    /// The build ID.
+    pub build_id: Option<Sha256Digest>,
+    /// The attestation ID.
+    pub attestation_id: Option<Sha256Digest>,
+}
+
+/// The canonical JSON command-result object (§20.6). Absent IDs are
+/// omitted rather than encoded as `null`; `explanation` carries the
+/// registered entry text for `explain`.
 #[must_use]
 pub fn command_result_json(
     command: &str,
@@ -748,8 +1074,10 @@ pub fn command_result_json(
     modules: &BTreeSet<String>,
     artifacts: &[String],
     diagnostics: &[Diagnostic],
+    ids: &CommandIds,
+    explanation: Option<&str>,
 ) -> Json {
-    Json::object(vec![
+    let mut fields = vec![
         ("spec", Json::Str("lexlean/command-result/1".to_owned())),
         ("command", Json::Str(command.to_owned())),
         ("success", Json::Bool(exit_code == 0)),
@@ -766,5 +1094,19 @@ pub fn command_result_json(
             "diagnostics",
             Json::Arr(diagnostics.iter().map(Diagnostic::to_json).collect()),
         ),
-    ])
+    ];
+    for (name, id) in [
+        ("source_id", ids.source_id),
+        ("semantic_id", ids.semantic_id),
+        ("build_id", ids.build_id),
+        ("attestation_id", ids.attestation_id),
+    ] {
+        if let Some(id) = id {
+            fields.push((name, Json::Str(id.to_hex())));
+        }
+    }
+    if let Some(text) = explanation {
+        fields.push(("explanation", Json::Str(text.to_owned())));
+    }
+    Json::object(fields)
 }

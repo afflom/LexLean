@@ -48,13 +48,25 @@ pub fn toolchain_root() -> Result<Utf8PathBuf, Diagnostic> {
         .ok_or_else(|| environment("neither ELAN_HOME nor HOME is set"))?;
     let mangled = crate::LEAN_TOOLCHAIN.replace('/', "--").replace(':', "---");
     let root = elan_home.join("toolchains").join(mangled);
-    Utf8PathBuf::from_path_buf(root)
-        .map_err(|bad| environment(format!("non-UTF-8 toolchain path: {}", bad.display())))
+    Utf8PathBuf::from_path_buf(root).map_err(|bad| crate::project::non_utf8_path(&bad))
 }
 
-fn probe(path: &Utf8PathBuf, argv: &[&str], bin_dir: &Utf8PathBuf) -> Result<String, Diagnostic> {
+/// A probe's captured streams and exit status.
+struct ProbeOutput {
+    exit_code: i32,
+    stdout: String,
+    stderr: String,
+}
+
+fn probe(
+    path: &Utf8PathBuf,
+    argv: &[&str],
+    bin_dir: &Utf8PathBuf,
+    extra_env: &[(&str, String)],
+) -> Result<ProbeOutput, Diagnostic> {
     let existing_path = std::env::var("PATH").unwrap_or_default();
-    let output = std::process::Command::new(path.as_std_path())
+    let mut command = std::process::Command::new(path.as_std_path());
+    command
         .args(argv)
         .env_clear()
         .env("PATH", format!("{bin_dir}:{existing_path}"))
@@ -66,13 +78,41 @@ fn probe(path: &Utf8PathBuf, argv: &[&str], bin_dir: &Utf8PathBuf) -> Result<Str
         .env("LANG", "C.UTF-8")
         .env("LC_ALL", "C.UTF-8")
         .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::null());
+    if let Some(elan_home) = std::env::var_os("ELAN_HOME") {
+        command.env("ELAN_HOME", elan_home);
+    }
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    let output = command
         .output()
         .map_err(|io_error| environment(format!("{path}: {io_error}")))?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    if text.trim().is_empty() {
-        text = String::from_utf8_lossy(&output.stderr).into_owned();
-    }
-    Ok(text.replace("\r\n", "\n").trim_end().to_owned())
+    let normalize = |bytes: &[u8]| {
+        String::from_utf8_lossy(bytes)
+            .replace("\r\n", "\n")
+            .trim_end()
+            .to_owned()
+    };
+    Ok(ProbeOutput {
+        exit_code: output.status.code().unwrap_or(-1),
+        stdout: normalize(&output.stdout),
+        stderr: normalize(&output.stderr),
+    })
+}
+
+/// The version banner of a tool: stdout, or stderr when stdout is empty.
+fn version_probe(
+    path: &Utf8PathBuf,
+    argv: &[&str],
+    bin_dir: &Utf8PathBuf,
+) -> Result<String, Diagnostic> {
+    let output = probe(path, argv, bin_dir, &[])?;
+    Ok(if output.stdout.trim().is_empty() {
+        output.stderr
+    } else {
+        output.stdout
+    })
 }
 
 fn load_tool(
@@ -88,7 +128,7 @@ fn load_tool(
     })?;
     let sha256 = Sha256Digest::of(&bytes);
     let version_output = match version_argv {
-        Some(argv) => probe(&path, argv, bin_dir)?,
+        Some(argv) => version_probe(&path, argv, bin_dir)?,
         None => String::new(),
     };
     Ok(Tool {
@@ -125,9 +165,45 @@ pub fn preflight() -> Result<Toolchain, Diagnostic> {
             crate::LEAN_VERSION
         )));
     }
-    // `leanchecker` takes no version flag; its digest and recorded output
-    // come from the replay runs themselves (§22.4).
-    let leanchecker = load_tool(&bin_dir, "leanchecker", None)?;
+    // `leanchecker` has no version flag (any first argument is a module
+    // name), so its identity is established by a checked replay of the
+    // toolchain's own `Init.Prelude` from `lib/lean`: the recorded identity
+    // names the executable relative to the toolchain root, its digest, and
+    // the probe outcome, and a failed replay is an environment failure.
+    let mut leanchecker = load_tool(&bin_dir, "leanchecker", None)?;
+    let lib_lean = root.join("lib").join("lean");
+    if !lib_lean
+        .join("Init")
+        .join("Prelude.olean")
+        .as_std_path()
+        .is_file()
+    {
+        return Err(environment(format!(
+            "the pinned toolchain `{}` has no Init/Prelude.olean under lib/lean; leanchecker cannot be probed",
+            crate::LEAN_TOOLCHAIN
+        )));
+    }
+    let outcome = probe(
+        &leanchecker.path,
+        &["Init.Prelude"],
+        &bin_dir,
+        &[("LEAN_PATH", lib_lean.to_string())],
+    )?;
+    if outcome.exit_code != 0 {
+        return Err(environment(format!(
+            "leanchecker cannot replay the toolchain's own Init.Prelude (exit {}): {}",
+            outcome.exit_code,
+            if outcome.stderr.is_empty() {
+                outcome.stdout
+            } else {
+                outcome.stderr
+            }
+        )));
+    }
+    leanchecker.version_output = format!(
+        "leanchecker bin/leanchecker sha256:{} replays Init.Prelude: exit 0",
+        leanchecker.sha256.to_hex()
+    );
     Ok(Toolchain {
         root,
         lean,

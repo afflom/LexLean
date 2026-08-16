@@ -62,7 +62,9 @@ impl DiagnosticCode {
         match self.0 {
             // §23.6 places external-tool and toolchain mismatches in the
             // environment class even though their ranges are language-family.
-            "LLB6004" | "LLV7001" | "LLV7007" => ErrorClass::Environment,
+            "LLB6004" | "LLV7001" | "LLV7007" | "LLV7008" | "LLV7009" | "LLV7010" => {
+                ErrorClass::Environment
+            }
             _ => match self.0.as_bytes()[2] {
                 b'C' => ErrorClass::CliOrConfiguration,
                 b'S' => ErrorClass::SecurityOrLimit,

@@ -9,22 +9,44 @@
 
 #![forbid(unsafe_code)]
 
+// The stable surface (§24): the engine, its requests and results, the
+// error model, the diagnostic type, and the artifact schema types.
 pub mod api;
-pub mod artifact;
-pub mod backend;
-pub mod cli;
-pub mod config;
 pub mod diagnostic;
-pub mod elaborate;
 pub mod error;
+
+// Unstable internals. They are `pub` because the repository's conformance
+// runner and `xtask` drive the compiler stage by stage, but they are
+// hidden from documentation and carry no stability promise: nothing
+// outside this repository may rely on them (§24.4, "the full mutable
+// compiler IR remains internal").
+#[doc(hidden)]
+pub mod artifact;
+#[doc(hidden)]
+pub mod backend;
+#[doc(hidden)]
+pub mod cli;
+#[doc(hidden)]
+pub mod config;
+#[doc(hidden)]
+pub mod elaborate;
+#[doc(hidden)]
 pub mod fmt;
+#[doc(hidden)]
 pub mod grammar;
+#[doc(hidden)]
 pub mod ir;
+#[doc(hidden)]
 pub mod lexicon;
+#[doc(hidden)]
 pub mod link;
+#[doc(hidden)]
 pub mod lock;
+#[doc(hidden)]
 pub mod project;
+#[doc(hidden)]
 pub mod source;
+#[doc(hidden)]
 pub mod verify;
 
 pub use api::{
@@ -32,9 +54,11 @@ pub use api::{
     FormatResultSet, LockRequest, LockResult, ModuleArtifacts, ProjectResultSet, Selection,
     VerifiedProject, VerifiedUnit, VerifyRequest,
 };
+pub use artifact::content_id::Sha256Digest;
+pub use diagnostic::{Diagnostic, DiagnosticCode, Label, Note, Span};
 pub use error::{ErrorClass, LexLeanError};
 
-use artifact::content_id::{tree_digest, Sha256Digest};
+use artifact::content_id::tree_digest;
 
 /// The embedded normative data: `language/`, `schemas/`, and the committed
 /// axiom-parser and canonical-JSON golden fixtures (SPEC.md §21.2).
