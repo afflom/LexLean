@@ -173,7 +173,7 @@ pub(crate) fn run(id: &str) {
                 "test.arity",
                 &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
                 &[(
-                    "bad.toml",
+                    "nzz.toml",
                     &support::nzz_entry("Nat.le_refl").replace(
                         "(app (const lexlean.core::lnot) (app (const lexlean.std.nat::ne) (local n) (local n)))",
                         "(app (const lexlean.core::lnot) (app (const lexlean.std.nat::ne) (local n) (local n) (local n)))",

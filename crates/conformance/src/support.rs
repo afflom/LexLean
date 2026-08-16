@@ -867,7 +867,7 @@ For every natural number \(a\); natural number \(b\), \(combine(a, b)\) is defin
 
 \begin{theorem}{nested-call}
 \noaxioms
-For every natural number \(a\) and natural number \(b\), \(succ(a) + combine((b + 0), a) = combine(b, a) + succ(a)\).
+For every natural number \(a\) and natural number \(b\), \(succ(a) + combine((b + 0), a) = combine((b + 0), a) + succ(a)\).
 \begin{proof}
 Close the goal with \(addcomm(succ(a), combine((b + 0), a))\).
 \end{proof}

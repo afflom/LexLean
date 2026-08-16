@@ -218,7 +218,7 @@ pub(crate) fn run(id: &str) {
             );
             assert_eq!(
                 corpus_header("nested_call"),
-                format!("public theorem nested_call (llv0 : Nat) (llv1 : Nat) : Eq (Nat.add (Nat.succ llv0) ({M}.combine (Nat.add llv1 0) llv0)) (Nat.add ({M}.combine llv1 llv0) (Nat.succ llv0)) := by"),
+                format!("public theorem nested_call (llv0 : Nat) (llv1 : Nat) : Eq (Nat.add (Nat.succ llv0) ({M}.combine (Nat.add llv1 0) llv0)) (Nat.add ({M}.combine (Nat.add llv1 0) llv0) (Nat.succ llv0)) := by"),
                 "a two-argument call with nested and grouped arguments"
             );
         }
