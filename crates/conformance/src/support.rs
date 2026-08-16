@@ -659,3 +659,29 @@ features = {features}
 "#
     )
 }
+
+/// An adjective-predicate entry over natural numbers, defined as `n = n`,
+/// with one canonical text form spelling `surface`.
+#[must_use]
+pub fn adjective_entry(id: &str, surface: &str) -> String {
+    format!(
+        r#"spec = "lexlean/entry/1"
+id = "{id}"
+category = "adjective-predicate"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (sort prop))"
+surface_arity = 1
+frame = "adjective"
+
+[denotation]
+kind = "defined"
+value = "(lam ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (local n) (local n)))"
+
+[[form]]
+id = "{id}"
+channel = "text"
+surface = "{surface}"
+canonical_source = true
+features = ["lower-case"]
+"#
+    )
+}

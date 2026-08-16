@@ -281,3 +281,93 @@ pub fn load_builtin_package(
     };
     load_package(&format!("builtin:{}", row.id), &files, Some(&expected), ctx)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexicon::entry::{is_lean_name, Denotation};
+    use crate::lexicon::resolve::Closure;
+
+    fn builtins() -> (Bootstrap, Vec<LexiconPackage>) {
+        let bootstrap = load_bootstrap().expect("bootstrap loads");
+        let ctx = LoadContext {
+            forbidden_controls: &bootstrap.structural.forbidden_controls,
+            max_scope_depth: 1024,
+        };
+        let packages = bootstrap
+            .builtin_packages
+            .iter()
+            .map(|row| load_builtin_package(row, &ctx).expect("builtin package loads"))
+            .collect();
+        (bootstrap, packages)
+    }
+
+    #[test]
+    fn embedded_language_data_loads_and_closes() {
+        let (bootstrap, packages) = builtins();
+        assert_eq!(bootstrap.builtin_packages.len(), 2);
+        assert!(bootstrap.structural.is_control("\\begin"));
+        assert!(!bootstrap.structural.is_control("\\def"));
+        assert!(bootstrap.structural.is_forbidden_control("\\def"));
+        assert!(bootstrap.structural.is_environment("theorem"));
+        let registry = load_token_registry().expect("registry loads");
+        assert!(registry.get("logical-and").is_some());
+        Closure::build(packages, registry, bootstrap, 128).expect("the builtin closure validates");
+    }
+
+    /// Every builtin Lean denotation is spelled per the conservative grammar
+    /// and names a constant that elaborates under Lean 4.32.1 at the entry's
+    /// signature (probed with `example : <signature> := <name>`; the list
+    /// below is that probe's accepted set).
+    #[test]
+    fn builtin_lean_names_are_conservative_and_known() {
+        const KNOWN: [&str; 21] = [
+            "And.intro",
+            "Exists.intro",
+            "Iff.intro",
+            "List",
+            "List.Mem",
+            "List.Subset",
+            "List.append",
+            "List.removeAll",
+            "Nat",
+            "Nat.add",
+            "Nat.div",
+            "Nat.le",
+            "Nat.lt",
+            "Nat.mul",
+            "Nat.sub",
+            "Nat.succ",
+            "Nat.zero",
+            "Ne",
+            "Or.inl",
+            "Or.inr",
+            "Prod",
+        ];
+        let (_, packages) = builtins();
+        let mut seen = 0usize;
+        for package in &packages {
+            for entry in package.entries.values() {
+                if let Denotation::Lean { module, name } = &entry.denotation {
+                    assert!(is_lean_name(module) && is_lean_name(name), "{name}");
+                    assert!(
+                        KNOWN.contains(&name.as_str()),
+                        "`{name}` is not in the probed Lean 4.32.1 name set"
+                    );
+                    seen += 1;
+                }
+                if let Some(eliminator) = &entry.eliminator {
+                    assert!(is_lean_name(&eliminator.cases_lean_name));
+                    assert!(is_lean_name(&eliminator.induction_lean_name));
+                    for constructor in &eliminator.constructors {
+                        assert!(is_lean_name(&constructor.lean_name));
+                    }
+                }
+            }
+        }
+        assert!(
+            seen >= 20,
+            "the builtin packages carry Lean denotations ({seen})"
+        );
+    }
+}

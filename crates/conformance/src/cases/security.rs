@@ -20,7 +20,7 @@ fn git_fixture(extra: &[(&str, &str)]) -> (tempfile::TempDir, String) {
     };
     write(
         "pkg/lexicon.toml",
-        "spec = \"lexlean/lexicon/1\"\npackage = \"test.remote\"\nversion = \"1.0.0\"\nlanguage = \"1.0\"\nimports = [\"lexlean.core@1.0.0\"]\n",
+        "spec = \"lexlean/lexicon/1\"\npackage = \"test.remote\"\nversion = \"1.0.0\"\nlanguage = \"1.0\"\nimports = [\"lexlean.core@1.0.0\", \"lexlean.std.nat@1.0.0\"]\n",
     );
     write(
         "pkg/entries/probe.toml",

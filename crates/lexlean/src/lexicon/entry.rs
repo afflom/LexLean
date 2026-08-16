@@ -479,7 +479,7 @@ pub fn is_math_safe_scalar(scalar: char) -> bool {
 ///   and non-ASCII scalars accepted by [`is_math_safe_scalar`];
 /// - both channels: both predicates.
 ///
-/// Numerals are unsafe in text and as the first atom of a math surface (a
+/// Numerals are not renderer-safe in text and as the first atom of a math surface (a
 /// leading numeral would shadow the core numeral constructor); inside a math
 /// surface (`x1`) they are ordinary identifier material. Controls are never
 /// safe (raw TeX), braces are never safe (structure).
@@ -611,7 +611,7 @@ fn error(path: &str, message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(code!("LLR3004"), message).with_span(crate::diagnostic::Span::whole_file(path))
 }
 
-fn unsafe_form(path: &str, message: impl Into<String>) -> Diagnostic {
+fn form_unsafe(path: &str, message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(code!("LLR3006"), message).with_span(crate::diagnostic::Span::whole_file(path))
 }
 
@@ -989,7 +989,7 @@ pub fn parse_entry(
         }
         if raw_form.canonical_source && !is_core {
             if let Err(reason) = surface_safety(&atoms, channel) {
-                diagnostics.push(unsafe_form(
+                diagnostics.push(form_unsafe(
                     path,
                     format!(
                         "form `{}`: the canonical surface `{}` is not renderer-safe: {reason}",
@@ -1125,7 +1125,7 @@ pub fn parse_entry(
                                 // safe, canonical or not (§13.9: raw TeX
                                 // strings do not exist).
                                 if let Err(reason) = surface_safety(&form.atoms, form.channel) {
-                                    diagnostics.push(unsafe_form(
+                                    diagnostics.push(form_unsafe(
                                         path,
                                         format!(
                                             "{channel_name} render references self form `{self_form}` whose surface `{}` is not renderer-safe: {reason}",

@@ -8,9 +8,8 @@ precedence = 70
 associativity = "left"
 
 [denotation]
-kind = "lean"
-module = "Init"
-name = "List.inter"
+kind = "defined"
+value = "(lam ((explicit a (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat))) (explicit b (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))) (app (const lexlean.std.nat::remove-all) (local a) (app (const lexlean.std.nat::remove-all) (local a) (local b))))"
 
 [[form]]
 id = "inter"

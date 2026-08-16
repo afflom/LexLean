@@ -1,23 +1,21 @@
 spec = "lexlean/entry/1"
-id = "union"
-category = "infix-function"
+id = "remove-all"
+category = "function"
 signature = "(pi ((explicit a (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat))) (explicit b (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))) (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))"
 surface_arity = 2
-frame = "infix"
-precedence = 65
-associativity = "left"
+frame = "call"
 
 [denotation]
 kind = "lean"
 module = "Init"
-name = "List.append"
+name = "List.removeAll"
 
 [[form]]
-id = "union"
+id = "removeall"
 channel = "math"
-surface = "∪"
+surface = "removeall"
 canonical_source = true
 features = []
 
 [render]
-math = "(seq (slot 0) (space) (token union) (space) (slot 1))"
+math = "(seq (operator-name removeall) (paren (seq (slot 0) (token comma) (space) (slot 1))))"

@@ -159,7 +159,7 @@ pub(crate) fn run(id: &str) {
 
             // Class 1: letters, or exactly one ASCII nonletter; a backslash
             // before a non-ASCII scalar or at end of file matches no class.
-            let controls = lexlean::source::scan::scan("m.lex.tex", "\\(x\\)\\\\ \\1\\ab12", 100)
+            let controls = lexlean::source::scan::scan("m.lex.tex", "\\(x\\)\\\\\\ \\1\\ab12", 100)
                 .expect("scan");
             let control_texts: Vec<(AtomClass, &str)> = controls
                 .iter()
@@ -307,53 +307,40 @@ pub(crate) fn run(id: &str) {
                 "import order does not change the outcome"
             );
 
-            // The lattice keeps every edge: a title whose longest match at
-            // the first atom leads nowhere still parses through the shorter
-            // path. A greedy longest-match scanner would fail here.
-            let overlap = P::example();
-            overlap.add_package(
-                "lexicons/test-overlap",
-                "test.overlap",
-                &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
-                &[
-                    (
-                        "long.toml",
-                        &support::label_word_entry("long", "Natural number addition extra"),
-                    ),
-                    (
-                        "extra-words.toml",
-                        &support::label_word_entry("extra-words", "extra words"),
-                    ),
-                ],
+            // The lattice keeps every edge: when the longest form at a word
+            // (`even and`) leads to a grammatical dead end, the sentence still
+            // parses through the shorter path (`even` + the connective
+            // `and`). A greedy longest-match scanner would fail here.
+            let overlap = support::defs_project();
+            overlap.write(
+                "lexicons/test-defs/entries/even.toml",
+                &support::adjective_entry("even", "even"),
+            );
+            overlap.write(
+                "lexicons/test-defs/entries/even-and.toml",
+                &support::adjective_entry("even-and", "even and"),
             );
             overlap.edit(
                 "src/Main.lex.tex",
-                "\\useglossary{lexlean.std.nat@1.0.0}",
-                "\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.overlap@1.0.0}",
-            );
-            overlap.edit(
-                "src/Main.lex.tex",
-                "\\title{Natural number addition}",
-                "\\title{Natural number addition extra words}",
+                "there exists a natural number \\(k\\) such that \\(k = k\\).",
+                "for every natural number \\(n\\), \\(n\\) is even and \\(n\\) is even.",
             );
             overlap.relock();
             overlap.check_ok();
             let checked = support::checked_project(&overlap);
             let module = &checked.modules["Main"];
-            let title_forms: Vec<String> = module
+            let forms: Vec<String> = module
                 .coverage_source
                 .iter()
                 .filter_map(|row| match &row.binding {
                     Origin::Form { entry, .. } => Some(entry.clone()),
                     _ => None,
                 })
-                .filter(|entry| entry == "long" || entry == "extra-words" || entry == "addition")
                 .collect();
             assert!(
-                title_forms.contains(&"extra-words".to_owned())
-                    && title_forms.contains(&"addition".to_owned())
-                    && !title_forms.contains(&"long".to_owned()),
-                "the non-greedy path is selected: {title_forms:?}"
+                forms.iter().filter(|entry| *entry == "even").count() == 2
+                    && !forms.iter().any(|entry| entry == "even-and"),
+                "the non-greedy path is selected: {forms:?}"
             );
         }
         // I1: every accepted non-whitespace atom is covered exactly once.

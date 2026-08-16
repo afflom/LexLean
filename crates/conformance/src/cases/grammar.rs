@@ -68,18 +68,52 @@ pub(crate) fn run(id: &str) {
             );
             sectioned.check_ok();
 
+            // The same configured limit bounds glossary LSE/LRE nesting
+            // (the embedded core needs a small depth), so the source test
+            // nests sections one level beyond a limit the glossary meets.
             let deep = P::example();
             deep.edit(
                 "lexlean.toml",
                 "max_scope_depth = 1024",
-                "max_scope_depth = 1",
+                "max_scope_depth = 12",
             );
             deep.relock();
-            deep.write(
-                "src/Main.lex.tex",
-                "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{section}{outer}\n\\heading{Natural number addition}\n\\begin{section}{inner}\n\\heading{Natural number addition}\n\\end{section}\n\\end{section}\n\\end{lexlean}\n",
+            let mut nested = String::from(
+                "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n",
             );
+            for level in 0..13u32 {
+                nested.push_str(&format!(
+                    "\n\\begin{{section}}{{level-{level}}}\n\\heading{{Natural number addition}}\n"
+                ));
+            }
+            for _ in 0..13u32 {
+                nested.push_str("\\end{section}\n");
+            }
+            nested.push_str("\\end{lexlean}\n");
+            deep.write("src/Main.lex.tex", &nested);
             deep.check_fails_with("LLS8002");
+            // One level fewer stays within the limit.
+            let within = P::example();
+            within.edit(
+                "lexlean.toml",
+                "max_scope_depth = 1024",
+                "max_scope_depth = 12",
+            );
+            within.relock();
+            let mut nested = String::from(
+                "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n",
+            );
+            for level in 0..12u32 {
+                nested.push_str(&format!(
+                    "\n\\begin{{section}}{{level-{level}}}\n\\heading{{Natural number addition}}\n"
+                ));
+            }
+            for _ in 0..12u32 {
+                nested.push_str("\\end{section}\n");
+            }
+            nested.push_str("\\end{lexlean}\n");
+            within.write("src/Main.lex.tex", &nested);
+            within.check_ok();
         }
         // §15.3: titles and headings cannot encode a proposition.
         "GR-04" => {
