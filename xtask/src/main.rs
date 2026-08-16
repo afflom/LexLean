@@ -16,7 +16,7 @@ mod spec_links;
 /// A gate failure, reported with the rule it broke.
 pub type Fail = Box<dyn std::error::Error>;
 
-/// Generated files as , sorted by path.
+/// Generated files as `(relative path, bytes)`, sorted by path.
 type Files = Vec<(String, Vec<u8>)>;
 
 fn main() -> ExitCode {
