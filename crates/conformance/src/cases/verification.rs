@@ -517,9 +517,21 @@ pub(crate) fn run(id: &str) {
             }
             let root = support::repo_root();
             let stages = [
-                ("probe", "tests/fixtures/verification/vr-15-probe-failure", "LLT4003"),
-                ("module", "tests/negative/lean-elaboration-failure", "LLV7002"),
-                ("leanchecker", "tests/negative/leanchecker-failure", "LLV7003"),
+                (
+                    "probe",
+                    "tests/fixtures/verification/vr-15-probe-failure",
+                    "LLT4003",
+                ),
+                (
+                    "module",
+                    "tests/negative/lean-elaboration-failure",
+                    "LLV7002",
+                ),
+                (
+                    "leanchecker",
+                    "tests/negative/leanchecker-failure",
+                    "LLV7003",
+                ),
                 ("audit", "tests/negative/malformed-axiom-output", "LLV7004"),
                 ("policy", "tests/negative/axiom-policy-excess", "LLV7005"),
             ];

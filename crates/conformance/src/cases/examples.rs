@@ -22,6 +22,27 @@ pub(crate) fn run(id: &str) {
                     }),
                 "§29.5: an empty observed axiom set for the theorem"
             );
+            // §30.4: the project, lock, and built-in lexicon inputs validate
+            // against their committed schemas (TOML read as JSON).
+            let example = support::repo_root().join("examples/nat-add-zero");
+            support::assert_toml_file_schema("project", &example.join("lexlean.toml"));
+            support::assert_toml_file_schema("lock", &example.join("lexlean.lock"));
+            for package in ["core", "std/nat"] {
+                let package_dir = support::repo_root().join("language").join(package);
+                support::assert_toml_file_schema("lexicon", &package_dir.join("lexicon.toml"));
+                let mut entries = 0usize;
+                for entry in std::fs::read_dir(package_dir.join("entries").as_std_path())
+                    .expect("entries")
+                    .flatten()
+                {
+                    let path = camino::Utf8PathBuf::from_path_buf(entry.path()).expect("utf8");
+                    if path.extension() == Some("toml") {
+                        support::assert_toml_file_schema("entry", &path);
+                        entries += 1;
+                    }
+                }
+                assert!(entries > 0, "{package}: entries validated");
+            }
         }
         // §29.6 mutation 1: the false proposition fails in Lean, remapped.
         "EX-02" => {
@@ -109,17 +130,26 @@ pub(crate) fn run(id: &str) {
             let built_b = second.build_ok();
             let id_a = built_a.build_id.expect("build id");
             let id_b = built_b.build_id.expect("build id");
-            assert_eq!(id_a, id_b, "the content-addressed build ID is path independent");
+            assert_eq!(
+                id_a, id_b,
+                "the content-addressed build ID is path independent"
+            );
             let dir_a = first.build_dir(&id_a);
             let dir_b = second.build_dir(&id_b);
             let files_a = support::file_set(&dir_a);
             let files_b = support::file_set(&dir_b);
             assert_eq!(files_a, files_b, "the published file sets are equal");
-            assert!(files_a.contains("manifest.json"), "the manifest is published");
+            assert!(
+                files_a.contains("manifest.json"),
+                "the manifest is published"
+            );
             for relative in &files_a {
                 let bytes_a = std::fs::read(dir_a.join(relative).as_std_path()).expect("read a");
                 let bytes_b = std::fs::read(dir_b.join(relative).as_std_path()).expect("read b");
-                assert_eq!(bytes_a, bytes_b, "{relative} differs between the two builds");
+                assert_eq!(
+                    bytes_a, bytes_b,
+                    "{relative} differs between the two builds"
+                );
                 let text = String::from_utf8_lossy(&bytes_a);
                 assert!(
                     !text.contains(first.root.as_str()) && !text.contains(second.root.as_str()),
@@ -181,8 +211,8 @@ pub(crate) fn run(id: &str) {
             let lean_available = support::lean_backed("EX-07");
             let mut failures: Vec<String> = Vec::new();
             for dir in crate::fixtures::discover(&root) {
-                let case = crate::fixtures::load_case(&dir)
-                    .unwrap_or_else(|error| panic!("{error}"));
+                let case =
+                    crate::fixtures::load_case(&dir).unwrap_or_else(|error| panic!("{error}"));
                 let is_lean_backed = case
                     .invocations
                     .iter()
@@ -197,6 +227,27 @@ pub(crate) fn run(id: &str) {
                         continue;
                     }
                 };
+                // §30.4: every emitted diagnostic validates against the
+                // diagnostic schema.
+                let diagnostics: serde_json::Value =
+                    serde_json::from_str(&observed.expected.diagnostics_json)
+                        .expect("diagnostics.json parses");
+                for (index, diagnostic) in
+                    diagnostics.as_array().expect("an array").iter().enumerate()
+                {
+                    let violations =
+                        crate::schema::validate(&support::schema("diagnostic"), diagnostic);
+                    if !violations.is_empty() {
+                        failures.push(format!(
+                            "{dir}: diagnostic {index} violates schemas/diagnostic.schema.json: {}",
+                            violations
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        ));
+                    }
+                }
                 let relative = dir.strip_prefix(&root).unwrap_or(&dir);
                 if let Ok(class) = relative.strip_prefix("tests/negative") {
                     let class = class.as_str();
@@ -212,7 +263,9 @@ pub(crate) fn run(id: &str) {
                         ));
                     }
                     if observed.exit == 0 {
-                        failures.push(format!("tests/negative/{class}: a negative fixture must fail"));
+                        failures.push(format!(
+                            "tests/negative/{class}: a negative fixture must fail"
+                        ));
                     }
                 }
             }

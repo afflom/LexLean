@@ -776,7 +776,9 @@ fn make_executable(path: &Path) {
 /// The committed schema `schemas/<name>.schema.json`, parsed.
 #[must_use]
 pub fn schema(name: &str) -> serde_json::Value {
-    let path = repo_root().join("schemas").join(format!("{name}.schema.json"));
+    let path = repo_root()
+        .join("schemas")
+        .join(format!("{name}.schema.json"));
     serde_json::from_slice(&std::fs::read(path.as_std_path()).expect("schema exists"))
         .expect("schema parses")
 }
@@ -807,7 +809,9 @@ pub fn assert_json_file_schema(name: &str, path: &Utf8Path) {
 /// Assert a TOML file, converted to JSON, validates against a schema.
 pub fn assert_toml_file_schema(name: &str, path: &Utf8Path) {
     let text = std::fs::read_to_string(path.as_std_path()).expect("toml file");
-    let value: toml::Value = text.parse().unwrap_or_else(|error| panic!("{path}: {error}"));
+    let value: toml::Value = text
+        .parse()
+        .unwrap_or_else(|error| panic!("{path}: {error}"));
     let json = serde_json::to_value(&value).expect("toml converts to json");
     assert_schema(name, path.as_str(), &json);
 }
@@ -879,7 +883,8 @@ pub fn packaged_crate_version(root: &Utf8Path) -> Result<String, String> {
         .flatten()
         .map(|entry| entry.path())
         .find(|path| {
-            path.extension().is_some_and(|extension| extension == "crate")
+            path.extension()
+                .is_some_and(|extension| extension == "crate")
                 && path
                     .file_name()
                     .is_some_and(|name| name.to_string_lossy().starts_with("lexlean-"))
@@ -904,21 +909,34 @@ pub fn packaged_crate_version(root: &Utf8Path) -> Result<String, String> {
         .find(|path| path.is_dir())
         .ok_or("the crate archive unpacked nothing")?;
     let unpacked = Utf8PathBuf::from_path_buf(unpacked).map_err(|_| "non-UTF-8 path".to_owned())?;
-    for required in ["language", "schemas", "tests/golden", "model/errors.toml", "build.rs"] {
+    for required in [
+        "language",
+        "schemas",
+        "tests/golden",
+        "model/errors.toml",
+        "build.rs",
+    ] {
         if !unpacked.join(required).as_std_path().exists() {
             return Err(format!(
                 "the packaged crate lacks `{required}`; the normative data must ship inside the crate (§7, §21.2)"
             ));
         }
     }
+    // Debug info is not part of the identity being compared; leaving it out
+    // keeps the isolated build directory small.
     run(
         &cargo,
         &["build", "--offline", "--bin", "lexlean"],
         &unpacked,
-        &[("CARGO_TARGET_DIR", target_dir.as_str())],
+        &[
+            ("CARGO_TARGET_DIR", target_dir.as_str()),
+            ("CARGO_PROFILE_DEV_DEBUG", "0"),
+        ],
     )?;
-    let binary = target_dir
-        .join("debug")
-        .join(if cfg!(windows) { "lexlean.exe" } else { "lexlean" });
+    let binary = target_dir.join("debug").join(if cfg!(windows) {
+        "lexlean.exe"
+    } else {
+        "lexlean"
+    });
     run(binary.as_str(), &["--version"], &unpacked, &[])
 }

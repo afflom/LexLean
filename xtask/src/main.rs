@@ -310,10 +310,9 @@ fn published_build(dir: &Path) -> Result<(tempfile::TempDir, Vec<(String, Vec<u8
             .replace('\\', "/");
         let bytes = std::fs::read(entry.path())?;
         if String::from_utf8_lossy(&bytes).contains(&root_text) {
-            return Err(format!(
-                "AR-07: {relative} embeds the absolute checkout path {root_text}"
-            )
-            .into());
+            return Err(
+                format!("AR-07: {relative} embeds the absolute checkout path {root_text}").into(),
+            );
         }
         files.push((relative, bytes));
     }
@@ -468,7 +467,8 @@ fn check_fixtures(root: &Path, write: bool) -> Result<(), Fail> {
     let fixtures = repo_conformance::fixtures::discover(&utf8_root);
     if fixtures.is_empty() {
         return Err(
-            "§28.2: no fixture directory contains a case.toml; the gate has nothing to check".into(),
+            "§28.2: no fixture directory contains a case.toml; the gate has nothing to check"
+                .into(),
         );
     }
     let mut count = 0usize;

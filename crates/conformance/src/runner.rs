@@ -242,7 +242,9 @@ pub fn scenarios_in(dir: &Path) -> std::io::Result<SuiteReport> {
                 (State::Steps | State::Tagged(_), None) | (State::Start, _) => violate(
                     &mut report,
                     line_number,
-                    format!("unknown line `{line}`; only tag, Scenario, and step lines are accepted"),
+                    format!(
+                        "unknown line `{line}`; only tag, Scenario, and step lines are accepted"
+                    ),
                 ),
                 (State::Tagged(_), Some(_)) => violate(
                     &mut report,
@@ -333,7 +335,10 @@ mod tests {
         let report = parse(GOOD);
         assert!(report.violations.is_empty(), "{:?}", report.violations);
         assert_eq!(report.scenarios.len(), 2);
-        assert_eq!(report.scenarios[1].steps, ["Given d", "When e", "Then f", "And g"]);
+        assert_eq!(
+            report.scenarios[1].steps,
+            ["Given d", "When e", "Then f", "And g"]
+        );
         assert_eq!(report.scenarios[0].tag_line, "@XX-01 @build");
     }
 

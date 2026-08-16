@@ -125,7 +125,9 @@ pub fn audit_deferral(root: &Path) -> Result<(), Fail> {
     {
         let path = entry.path();
         if entry.file_type().is_file()
-            && path.components().any(|part| part.as_os_str() == "toolchain")
+            && path
+                .components()
+                .any(|part| part.as_os_str() == "toolchain")
         {
             files.push(path.to_path_buf());
         }

@@ -194,7 +194,9 @@ fn check(
                         at,
                         format!("`{text}` does not match pattern `{pattern}`"),
                     ),
-                    Err(error) => push(out, at, format!("unsupported pattern `{pattern}`: {error}")),
+                    Err(error) => {
+                        push(out, at, format!("unsupported pattern `{pattern}`: {error}"))
+                    }
                 }
             }
         }
@@ -326,7 +328,10 @@ fn parse_quantifier(
             match parts.next() {
                 None => (low, Some(low)),
                 Some(high) if high.trim().is_empty() => (low, None),
-                Some(high) => (low, Some(high.trim().parse().map_err(|_| "bad quantifier")?)),
+                Some(high) => (
+                    low,
+                    Some(high.trim().parse().map_err(|_| "bad quantifier")?),
+                ),
             }
         }
         _ => (1, Some(1)),
@@ -480,8 +485,16 @@ mod tests {
                 "LexLeanExample.main",
                 false,
             ),
-            ("^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$", "lexlean.std.nat", true),
-            ("^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$", "lexlean..nat", false),
+            (
+                "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+                "lexlean.std.nat",
+                true,
+            ),
+            (
+                "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+                "lexlean..nat",
+                false,
+            ),
             ("^[a-z][a-z0-9-]{0,62}$", "nat-add-zero", true),
             ("^[a-z][a-z0-9-]{0,62}$", "", false),
             ("^a?b$", "b", true),

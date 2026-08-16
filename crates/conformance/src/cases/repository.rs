@@ -240,12 +240,16 @@ pub(crate) fn run(id: &str) {
                 );
             }
             assert_eq!(
-                recipes.get("model-write").map(|(_, lines)| lines.as_slice()),
+                recipes
+                    .get("model-write")
+                    .map(|(_, lines)| lines.as_slice()),
                 Some(&["cargo xtask validate-model --write".to_owned()][..]),
                 "§9.2: model-write regenerates the generated documents"
             );
             assert_eq!(
-                recipes.get("golden-write").map(|(_, lines)| lines.as_slice()),
+                recipes
+                    .get("golden-write")
+                    .map(|(_, lines)| lines.as_slice()),
                 Some(&["cargo xtask check-golden --write".to_owned()][..]),
                 "§9.2: golden-write is the only golden rewrite path"
             );
@@ -353,13 +357,15 @@ pub(crate) fn run(id: &str) {
             );
             // §27.8: no conformance test is ignored or hidden behind a cfg,
             // wherever the attribute sits in the block.
-            let (_names, flagged) =
-                crate::workspace_test_names_with_flags(root.as_std_path());
+            let (_names, flagged) = crate::workspace_test_names_with_flags(root.as_std_path());
             let hidden: Vec<&String> = flagged
                 .iter()
                 .filter(|name| name.starts_with("conformance_"))
                 .collect();
-            assert!(hidden.is_empty(), "R4: hidden conformance tests: {hidden:?}");
+            assert!(
+                hidden.is_empty(),
+                "R4: hidden conformance tests: {hidden:?}"
+            );
         }
         // §8.1, §27.10: the shipped crate forbids unsafe Rust, actively.
         "RP-09" => {
@@ -447,14 +453,13 @@ pub(crate) fn run(id: &str) {
                 if line.starts_with("| ---") {
                     continue;
                 }
-                let cells: Vec<&str> = line
-                    .trim_matches('|')
-                    .split(" | ")
-                    .map(str::trim)
-                    .collect();
+                let cells: Vec<&str> = line.trim_matches('|').split(" | ").map(str::trim).collect();
                 assert_eq!(cells.len(), 3, "a capability row has three cells: {line}");
                 rows += 1;
-                assert_eq!(cells[2], "`build`", "RP-11: the level cell is `build`: {line}");
+                assert_eq!(
+                    cells[2], "`build`",
+                    "RP-11: the level cell is `build`: {line}"
+                );
                 for claim in cells[1].split(',').map(str::trim) {
                     let ids: Vec<String> = match claim.split_once("..") {
                         Some((low, high)) => {
@@ -488,14 +493,14 @@ pub(crate) fn run(id: &str) {
                             model.ids.get(&id).is_some(),
                             "README claims unregistered ID {id}"
                         );
-                        assert!(
-                            claimed.insert(id.clone()),
-                            "README claims {id} in two rows"
-                        );
+                        assert!(claimed.insert(id.clone()), "README claims {id} in two rows");
                     }
                 }
             }
-            assert!(in_table && rows >= 1, "RP-11: the README has the capability table");
+            assert!(
+                in_table && rows >= 1,
+                "RP-11: the README has the capability table"
+            );
             let registered: BTreeSet<String> =
                 model.ids.id.iter().map(|row| row.id.clone()).collect();
             let unclaimed: Vec<&String> = registered.difference(&claimed).collect();
@@ -558,18 +563,41 @@ pub(crate) fn run(id: &str) {
             // A synthetic release tree satisfies the content checks except
             // the version, proving the shape checks discriminate.
             let staged = tempfile::tempdir().expect("tempdir");
-            let stage = camino::Utf8PathBuf::from_path_buf(staged.path().to_path_buf()).expect("utf8");
-            for relative in ["Cargo.toml", "SPEC.md", "LICENSE-APACHE", "LICENSE-MIT", "CONFORMANCE.md", "ERRORS.md", "VERIFICATION.md", "Justfile", "CHANGELOG.md"] {
+            let stage =
+                camino::Utf8PathBuf::from_path_buf(staged.path().to_path_buf()).expect("utf8");
+            for relative in [
+                "Cargo.toml",
+                "SPEC.md",
+                "LICENSE-APACHE",
+                "LICENSE-MIT",
+                "CONFORMANCE.md",
+                "ERRORS.md",
+                "VERIFICATION.md",
+                "Justfile",
+                "CHANGELOG.md",
+            ] {
                 let source = root.join(relative);
                 if source.as_std_path().is_file() {
-                    std::fs::copy(source.as_std_path(), stage.join(relative).as_std_path()).expect("copy");
+                    std::fs::copy(source.as_std_path(), stage.join(relative).as_std_path())
+                        .expect("copy");
                 }
             }
             std::fs::create_dir_all(stage.join("model").as_std_path()).expect("mkdir");
-            for entry in std::fs::read_dir(root.join("model").as_std_path()).expect("model").flatten() {
-                std::fs::copy(entry.path(), stage.join("model").join(entry.file_name().to_string_lossy().as_ref()).as_std_path()).expect("copy");
+            for entry in std::fs::read_dir(root.join("model").as_std_path())
+                .expect("model")
+                .flatten()
+            {
+                std::fs::copy(
+                    entry.path(),
+                    stage
+                        .join("model")
+                        .join(entry.file_name().to_string_lossy().as_ref())
+                        .as_std_path(),
+                )
+                .expect("copy");
             }
-            let refused = repo_model::release::check(stage.as_std_path()).expect_err("no release/ directory");
+            let refused =
+                repo_model::release::check(stage.as_std_path()).expect_err("no release/ directory");
             for name in ["checksums", "sbom", "crate-package", "version-output"] {
                 assert!(
                     refused.iter().any(|reason| reason.starts_with(name)),

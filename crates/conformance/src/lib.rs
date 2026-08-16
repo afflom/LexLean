@@ -185,7 +185,10 @@ pub fn workspace_test_names_with_flags(root: &Path) -> (BTreeSet<String>, BTreeS
         let Some(directory) = path.parent() else {
             continue;
         };
-        let base = if path.file_name().is_some_and(|name| name == "mod.rs" || name == "lib.rs" || name == "main.rs") {
+        let base = if path
+            .file_name()
+            .is_some_and(|name| name == "mod.rs" || name == "lib.rs" || name == "main.rs")
+        {
             directory.to_path_buf()
         } else {
             directory.join(path.file_stem().unwrap_or_default())
@@ -231,22 +234,26 @@ mod tests {
         .map(str::to_owned)
         .collect();
         assert_eq!(scanned.names, expect);
-        let flagged: BTreeSet<String> = ["ignored_first", "ignored_second", "attr_multiline", "gated"]
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
+        let flagged: BTreeSet<String> =
+            ["ignored_first", "ignored_second", "attr_multiline", "gated"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
         assert_eq!(scanned.flagged, flagged);
         assert_eq!(
             scanned.gated_modules,
             ["hidden".to_owned()].into_iter().collect()
         );
         assert!(!scanned.file_gated);
-        assert!(scan_tests("#![cfg(test)]\n#[test]\nfn f() {}\n").flagged.contains("f"));
+        assert!(scan_tests("#![cfg(test)]\n#[test]\nfn f() {}\n")
+            .flagged
+            .contains("f"));
         let inline = scan_tests(
             "#[cfg(feature = \"z\")]\nmod inner {\n    #[test]\n    fn conformance_zz_01() {}\n}\n",
         );
         assert!(inline.flagged.contains("conformance_zz_01"));
-        let plain_tests = scan_tests("#[cfg(test)]\nmod tests {\n    #[test]\n    fn unit() {}\n}\n");
+        let plain_tests =
+            scan_tests("#[cfg(test)]\nmod tests {\n    #[test]\n    fn unit() {}\n}\n");
         assert!(plain_tests.flagged.is_empty());
     }
 }

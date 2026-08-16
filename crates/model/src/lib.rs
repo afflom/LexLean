@@ -242,12 +242,18 @@ mod tests {
         let dir = repo_root().join("model");
         let cases: [(&str, &[&str]); 4] = [
             ("ids.toml", &["spec = \"lexlean/ids/1\"", "id = \"RP-01\""]),
-            ("ledger.toml", &["spec = \"lexlean/ledger/1\"", "level = \"some-true\""]),
+            (
+                "ledger.toml",
+                &["spec = \"lexlean/ledger/1\"", "level = \"some-true\""],
+            ),
             (
                 "authorities.toml",
                 &["spec = \"lexlean/authorities/1\"", "checksum = \"none\""],
             ),
-            ("errors.toml", &["spec = \"lexlean/errors/1\"", "class = \"language\""]),
+            (
+                "errors.toml",
+                &["spec = \"lexlean/errors/1\"", "class = \"language\""],
+            ),
         ];
         for (file, anchors) in cases {
             let text = std::fs::read_to_string(dir.join(file)).expect("model file");

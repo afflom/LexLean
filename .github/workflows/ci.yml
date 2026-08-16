@@ -1,8 +1,10 @@
 # The normative acceptance gate (SPEC.md §9.4).
 #
 # `just vv` is the single gate, run from a clean checkout on Linux x86-64 with
-# the exact pinned toolchains. `honesty` is split out so a claim that has
-# drifted from its evidence reads differently from broken code.
+# the exact pinned toolchains and no build cache: §9.4 says "from a clean
+# checkout", and a restored target directory is not one. `honesty` is split
+# out so a claim that has drifted from its evidence reads differently from
+# broken code.
 name: ci
 
 on:
@@ -31,9 +33,13 @@ jobs:
           curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
           "$HOME/.elan/bin/elan" toolchain install leanprover/lean4:v4.32.1
-      - uses: Swatinem/rust-cache@v2
       - run: just vv
 
+  # §8.3: the crate builds and its non-Lean tests pass on every supported
+  # host. Lean-backed conformance cases detect the host gate at run time
+  # (repo_conformance::support::lean_backed): without the pinned toolchain
+  # on a non-normative host they run only their platform-independent
+  # assertions and say so; on Linux x86-64 the toolchain is mandatory.
   host-matrix:
     name: build and non-Lean tests (${{ matrix.os }})
     strategy:
@@ -47,6 +53,5 @@ jobs:
         with:
           toolchain: 1.97.1
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace --all-features
       - run: cargo test --workspace --all-features

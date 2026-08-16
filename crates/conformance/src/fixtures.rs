@@ -145,7 +145,13 @@ const TOP_KEYS: [&str; 6] = [
     "expect_artifacts",
     "invocation",
 ];
-const INVOCATION_KEYS: [&str; 5] = ["step", "command", "args", "expected_exit", "expect_artifacts"];
+const INVOCATION_KEYS: [&str; 5] = [
+    "step",
+    "command",
+    "args",
+    "expected_exit",
+    "expect_artifacts",
+];
 
 /// Parse and validate a fixture's `case.toml`.
 ///
@@ -215,9 +221,9 @@ pub fn load_case(dir: &Utf8Path) -> Result<Case, String> {
                 expect_artifacts: row
                     .get("expect_artifacts")
                     .map(|value| {
-                        value
-                            .as_bool()
-                            .ok_or_else(|| format!("{row_context}: `expect_artifacts` is a boolean"))
+                        value.as_bool().ok_or_else(|| {
+                            format!("{row_context}: `expect_artifacts` is a boolean")
+                        })
                     })
                     .transpose()?
                     .unwrap_or(false),
@@ -345,10 +351,7 @@ fn normalize_attestation(text: &str) -> String {
         let after = position + marker.len();
         out.push_str(&rest[..after]);
         let candidate = &rest[after..];
-        let hex_len = candidate
-            .bytes()
-            .take_while(u8::is_ascii_hexdigit)
-            .count();
+        let hex_len = candidate.bytes().take_while(u8::is_ascii_hexdigit).count();
         if hex_len == 64 {
             out.push_str("$ATTESTATION");
             rest = &candidate[64..];
@@ -585,8 +588,7 @@ pub fn check(dir: &Utf8Path) -> Result<Observed, String> {
     let case = load_case(dir)?;
     let observed = observe(&case)?;
     let committed = read_expected(dir)?;
-    for ((name, expected), (_, actual)) in committed.files().iter().zip(observed.expected.files())
-    {
+    for ((name, expected), (_, actual)) in committed.files().iter().zip(observed.expected.files()) {
         if expected != &actual {
             return Err(format!(
                 "{dir}/expected/{name} differs from the observed run (§28.3: golden output changes only through `just fixtures-write`)\n--- expected\n{expected}\n--- observed\n{actual}"
@@ -594,9 +596,10 @@ pub fn check(dir: &Utf8Path) -> Result<Observed, String> {
         }
     }
     for text in observed.expected.files().map(|(_, text)| text) {
-        if let Some(line) = text.lines().find(|line| {
-            line.contains("/tmp/") || line.contains("/home/") || line.contains(":\\")
-        }) {
+        if let Some(line) = text
+            .lines()
+            .find(|line| line.contains("/tmp/") || line.contains("/home/") || line.contains(":\\"))
+        {
             return Err(format!(
                 "{dir}: an expected file carries an absolute path: {line}"
             ));

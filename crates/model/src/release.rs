@@ -138,19 +138,79 @@ fn sha256_hex(bytes: &[u8]) -> String {
     // A dependency-free SHA-256 (FIPS 180-4) so this crate stays
     // build-time only; the shipped crate's implementation is independent.
     const K: [u32; 64] = [
-        0x428a_2f98, 0x7137_4491, 0xb5c0_fbcf, 0xe9b5_dba5, 0x3956_c25b, 0x59f1_11f1, 0x923f_82a4,
-        0xab1c_5ed5, 0xd807_aa98, 0x1283_5b01, 0x2431_85be, 0x550c_7dc3, 0x72be_5d74, 0x80de_b1fe,
-        0x9bdc_06a7, 0xc19b_f174, 0xe49b_69c1, 0xefbe_4786, 0x0fc1_9dc6, 0x240c_a1cc, 0x2de9_2c6f,
-        0x4a74_84aa, 0x5cb0_a9dc, 0x76f9_88da, 0x983e_5152, 0xa831_c66d, 0xb003_27c8, 0xbf59_7fc7,
-        0xc6e0_0bf3, 0xd5a7_9147, 0x06ca_6351, 0x1429_2967, 0x27b7_0a85, 0x2e1b_2138, 0x4d2c_6dfc,
-        0x5338_0d13, 0x650a_7354, 0x766a_0abb, 0x81c2_c92e, 0x9272_2c85, 0xa2bf_e8a1, 0xa81a_664b,
-        0xc24b_8b70, 0xc76c_51a3, 0xd192_e819, 0xd699_0624, 0xf40e_3585, 0x106a_a070, 0x19a4_c116,
-        0x1e37_6c08, 0x2748_774c, 0x34b0_bcb5, 0x391c_0cb3, 0x4ed8_aa4a, 0x5b9c_ca4f, 0x682e_6ff3,
-        0x748f_82ee, 0x78a5_636f, 0x84c8_7814, 0x8cc7_0208, 0x90be_fffa, 0xa450_6ceb, 0xbef9_a3f7,
+        0x428a_2f98,
+        0x7137_4491,
+        0xb5c0_fbcf,
+        0xe9b5_dba5,
+        0x3956_c25b,
+        0x59f1_11f1,
+        0x923f_82a4,
+        0xab1c_5ed5,
+        0xd807_aa98,
+        0x1283_5b01,
+        0x2431_85be,
+        0x550c_7dc3,
+        0x72be_5d74,
+        0x80de_b1fe,
+        0x9bdc_06a7,
+        0xc19b_f174,
+        0xe49b_69c1,
+        0xefbe_4786,
+        0x0fc1_9dc6,
+        0x240c_a1cc,
+        0x2de9_2c6f,
+        0x4a74_84aa,
+        0x5cb0_a9dc,
+        0x76f9_88da,
+        0x983e_5152,
+        0xa831_c66d,
+        0xb003_27c8,
+        0xbf59_7fc7,
+        0xc6e0_0bf3,
+        0xd5a7_9147,
+        0x06ca_6351,
+        0x1429_2967,
+        0x27b7_0a85,
+        0x2e1b_2138,
+        0x4d2c_6dfc,
+        0x5338_0d13,
+        0x650a_7354,
+        0x766a_0abb,
+        0x81c2_c92e,
+        0x9272_2c85,
+        0xa2bf_e8a1,
+        0xa81a_664b,
+        0xc24b_8b70,
+        0xc76c_51a3,
+        0xd192_e819,
+        0xd699_0624,
+        0xf40e_3585,
+        0x106a_a070,
+        0x19a4_c116,
+        0x1e37_6c08,
+        0x2748_774c,
+        0x34b0_bcb5,
+        0x391c_0cb3,
+        0x4ed8_aa4a,
+        0x5b9c_ca4f,
+        0x682e_6ff3,
+        0x748f_82ee,
+        0x78a5_636f,
+        0x84c8_7814,
+        0x8cc7_0208,
+        0x90be_fffa,
+        0xa450_6ceb,
+        0xbef9_a3f7,
         0xc671_78f2,
     ];
     let mut h: [u32; 8] = [
-        0x6a09_e667, 0xbb67_ae85, 0x3c6e_f372, 0xa54f_f53a, 0x510e_527f, 0x9b05_688c, 0x1f83_d9ab,
+        0x6a09_e667,
+        0xbb67_ae85,
+        0x3c6e_f372,
+        0xa54f_f53a,
+        0x510e_527f,
+        0x9b05_688c,
+        0x1f83_d9ab,
         0x5be0_cd19,
     ];
     let mut message = bytes.to_vec();
@@ -171,8 +231,12 @@ fn sha256_hex(bytes: &[u8]) -> String {
             ]);
         }
         for index in 16..64 {
-            let s0 = w[index - 15].rotate_right(7) ^ w[index - 15].rotate_right(18) ^ (w[index - 15] >> 3);
-            let s1 = w[index - 2].rotate_right(17) ^ w[index - 2].rotate_right(19) ^ (w[index - 2] >> 10);
+            let s0 = w[index - 15].rotate_right(7)
+                ^ w[index - 15].rotate_right(18)
+                ^ (w[index - 15] >> 3);
+            let s1 = w[index - 2].rotate_right(17)
+                ^ w[index - 2].rotate_right(19)
+                ^ (w[index - 2] >> 10);
             w[index] = w[index - 16]
                 .wrapping_add(s0)
                 .wrapping_add(w[index - 7])
@@ -232,8 +296,14 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
         );
     }
     match read("CHANGELOG.md") {
-        Ok(changelog) if changelog.lines().any(|line| line.trim() == format!("## {RELEASE_VERSION}")) => {}
-        Ok(_) => fail("source-tag", format!("CHANGELOG.md has no `## {RELEASE_VERSION}` entry")),
+        Ok(changelog)
+            if changelog
+                .lines()
+                .any(|line| line.trim() == format!("## {RELEASE_VERSION}")) => {}
+        Ok(_) => fail(
+            "source-tag",
+            format!("CHANGELOG.md has no `## {RELEASE_VERSION}` entry"),
+        ),
         Err(error) => fail("source-tag", format!("CHANGELOG.md: {error}")),
     }
 
@@ -244,11 +314,17 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
             let mut listed: BTreeSet<String> = BTreeSet::new();
             for (index, line) in text.lines().enumerate() {
                 let Some((hash, path)) = line.split_once("  ") else {
-                    fail("checksums", format!("line {}: not `<sha256>  <path>`", index + 1));
+                    fail(
+                        "checksums",
+                        format!("line {}: not `<sha256>  <path>`", index + 1),
+                    );
                     continue;
                 };
                 if !is_hex(hash, 64) {
-                    fail("checksums", format!("line {}: `{hash}` is not a SHA-256", index + 1));
+                    fail(
+                        "checksums",
+                        format!("line {}: `{hash}` is not a SHA-256", index + 1),
+                    );
                     continue;
                 }
                 match std::fs::read(release_dir.join(path)) {
@@ -282,14 +358,20 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
         let path = release_dir.join("bin").join(target).join(name);
         match std::fs::metadata(&path) {
             Ok(metadata) if metadata.is_file() && metadata.len() > 0 => {}
-            _ => fail("host-binaries", format!("release/bin/{target}/{name} is missing or empty")),
+            _ => fail(
+                "host-binaries",
+                format!("release/bin/{target}/{name} is missing or empty"),
+            ),
         }
     }
 
     // The crate package is a gzip archive.
     match std::fs::read(release_dir.join("lexlean.crate")) {
         Ok(bytes) if bytes.len() > 2 && bytes[0] == 0x1f && bytes[1] == 0x8b => {}
-        Ok(_) => fail("crate-package", "release/lexlean.crate is not a gzip archive".to_owned()),
+        Ok(_) => fail(
+            "crate-package",
+            "release/lexlean.crate is not a gzip archive".to_owned(),
+        ),
         Err(error) => fail("crate-package", format!("release/lexlean.crate: {error}")),
     }
 
@@ -311,11 +393,16 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
             if text != expected {
                 fail(
                     "version-output",
-                    format!("release/version-output.txt must be exactly:\n{expected}found:\n{text}"),
+                    format!(
+                        "release/version-output.txt must be exactly:\n{expected}found:\n{text}"
+                    ),
                 );
             }
         }
-        Err(error) => fail("version-output", format!("release/version-output.txt: {error}")),
+        Err(error) => fail(
+            "version-output",
+            format!("release/version-output.txt: {error}"),
+        ),
     }
 
     for (name, relative) in [
@@ -334,10 +421,16 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
             let cyclonedx = text.contains("\"bomFormat\"") && text.contains("\"components\"");
             let spdx = text.contains("\"spdxVersion\"") && text.contains("\"packages\"");
             if !(cyclonedx || spdx) {
-                fail("sbom", "release/sbom.json is neither CycloneDX nor SPDX".to_owned());
+                fail(
+                    "sbom",
+                    "release/sbom.json is neither CycloneDX nor SPDX".to_owned(),
+                );
             }
             if !text.contains("\"lexlean\"") {
-                fail("sbom", "release/sbom.json does not list the lexlean package".to_owned());
+                fail(
+                    "sbom",
+                    "release/sbom.json does not list the lexlean package".to_owned(),
+                );
             }
         }
         Err(error) => fail("sbom", format!("release/sbom.json: {error}")),
@@ -347,10 +440,16 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
     match read("release/vv-evidence.txt") {
         Ok(text) => {
             if !text.contains("vv: the acceptance gate passed") {
-                fail("ci-evidence", "release/vv-evidence.txt does not record the gate passing".to_owned());
+                fail(
+                    "ci-evidence",
+                    "release/vv-evidence.txt does not record the gate passing".to_owned(),
+                );
             }
             if !text.split_whitespace().any(|token| is_hex(token, 40)) {
-                fail("ci-evidence", "release/vv-evidence.txt names no commit".to_owned());
+                fail(
+                    "ci-evidence",
+                    "release/vv-evidence.txt names no commit".to_owned(),
+                );
             }
         }
         Err(error) => fail("ci-evidence", format!("release/vv-evidence.txt: {error}")),
@@ -402,7 +501,8 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
         for (index, line) in text.lines().enumerate() {
             let trimmed = line.trim();
             let hidden = trimmed.starts_with(&ignore_attribute)
-                || (trimmed.starts_with(&format!("#[{cfg_attr_ignore}")) && trimmed.contains("ignore"));
+                || (trimmed.starts_with(&format!("#[{cfg_attr_ignore}"))
+                    && trimmed.contains("ignore"));
             if hidden {
                 fail(
                     "no-ignored-test",
@@ -418,7 +518,10 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
             for gate in GATES {
                 let heading = format!("### {gate} can fail");
                 if !text.lines().any(|line| line.starts_with(&heading)) {
-                    fail("gate-evidence", format!("VERIFICATION.md has no `{heading}` record"));
+                    fail(
+                        "gate-evidence",
+                        format!("VERIFICATION.md has no `{heading}` record"),
+                    );
                 }
             }
         }
@@ -430,13 +533,20 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
         .into_iter()
         .filter_map(|path| std::fs::read_to_string(path).ok())
         .collect();
-    for entry in std::fs::read_dir(root.join("schemas")).into_iter().flatten().flatten() {
+    for entry in std::fs::read_dir(root.join("schemas"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
         let file_name = entry.file_name().to_string_lossy().into_owned();
         let Some(name) = file_name.strip_suffix(".schema.json") else {
             continue;
         };
         if !conformance_source.contains(&format!("\"{name}\"")) {
-            fail("schemas-exercised", format!("schemas/{file_name} is validated by no conformance case"));
+            fail(
+                "schemas-exercised",
+                format!("schemas/{file_name} is validated by no conformance case"),
+            );
         }
     }
 

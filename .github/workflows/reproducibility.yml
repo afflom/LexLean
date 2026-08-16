@@ -1,5 +1,6 @@
 # R10, AR-13: two clean builds in distinct absolute directories are
 # byte-identical for every platform-independent artifact (SPEC.md §9.4, §28.4).
+# No build cache: the gate runs from a clean checkout.
 name: reproducibility
 
 on:
@@ -18,7 +19,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
-      - uses: Swatinem/rust-cache@v2
       # The gate copies each example project into two distinct absolute
       # directories, runs a clean `build` in each, and compares the entire
       # platform-independent artifact set byte-for-byte after the required

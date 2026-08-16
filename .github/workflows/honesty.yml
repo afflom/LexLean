@@ -1,8 +1,14 @@
 # R1, R2, R3: the model gate, the specification-link gate, and the honesty
-# meta-gate (SPEC.md §9.4).
+# meta-gate (SPEC.md §9.4), run separately from the code gate so that a red
+# mark here reads as what it is: not broken code, but a claim that has
+# drifted from its evidence.
 #
-# Split from `ci` so that a red mark here reads as what it is: not broken code,
-# but a claim that has drifted from its evidence.
+# This job needs no Lean toolchain: `validate-model` and `validate-spec-links`
+# read the model, the suites, and the sources; the meta-gate test binary
+# (`crates/conformance/tests/bdd.rs`) checks register/scenario/test bijection,
+# the Gherkin subset, and its own falsifiability. The Lean-backed conformance
+# cases belong to `just bdd` inside `just vv` in ci.yml, where the pinned
+# toolchain is installed.
 name: honesty
 
 on:
@@ -21,7 +27,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
-      - uses: Swatinem/rust-cache@v2
       # The model is the single source; the §31 table and the register are
       # bijective; every registered ID has one scenario and one named test.
-      - run: just model spec-links bdd
+      - run: just model spec-links
+      - run: cargo test -p repo-conformance --test bdd
