@@ -5,7 +5,7 @@ use lexlean::LockRequest;
 use crate::support::{self, P};
 
 /// The lexicon manifest and one entry committed by every git fixture.
-const FIXTURE_MANIFEST: &str = "spec = \"lexlean/lexicon/1\"\npackage = \"test.remote\"\nversion = \"1.0.0\"\nlanguage = \"1.0\"\nimports = [\"lexlean.core@1.0.0\"]\n";
+const FIXTURE_MANIFEST: &str = "spec = \"lexlean/lexicon/1\"\npackage = \"test.remote\"\nversion = \"1.0.0\"\nlanguage = \"1.0\"\nimports = [\"lexlean.core@1.0.0\", \"lexlean.std.nat@1.0.0\"]\n";
 const FIXTURE_ENTRY: &str = r#"spec = "lexlean/entry/1"
 id = "probe"
 category = "term-constant"

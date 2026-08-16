@@ -219,6 +219,12 @@ pub fn check_project(
         }
         let atoms = crate::source::scan::scan(&relative, &normalized, limits.max_primitive_atoms)
             .map_err(|diagnostic| err(vec![diagnostic]))?;
+        crate::source::scan::reject_forbidden_atoms(
+            &relative,
+            &atoms,
+            &closure.bootstrap.structural.forbidden_controls,
+        )
+        .map_err(|diagnostic| err(vec![diagnostic]))?;
         let ast = structural::parse_module(&relative, &atoms, &module_name, limits.max_scope_depth)
             .map_err(|diagnostic| err(vec![diagnostic]))?;
         for import in &ast.imports {

@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "or-inl"
+category = "proof-constant"
+signature = "(pi ((implicit a (sort prop)) (implicit b (sort prop)) (explicit h (local a))) (app (const lexlean.core::lor) (local a) (local b)))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Or.inl"
+
+[[form]]
+id = "orinl"
+channel = "math"
+surface = "orinl"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name orinl) (paren (slot 0)))"

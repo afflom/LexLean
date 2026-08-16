@@ -654,4 +654,60 @@ pub fn symlink_any(target: impl AsRef<Path>, link: impl AsRef<Path>) {
             std::os::windows::fs::symlink_file(target, link).expect("symlink");
         }
     }
+
+// ---- WS-D helpers ----
+
+/// A label-word entry with one canonical text form spelling `surface`.
+#[must_use]
+pub fn label_word_entry(id: &str, surface: &str) -> String {
+    let features = if surface.chars().next().is_some_and(char::is_uppercase) {
+        "[\"sentence-case\", \"singular\"]"
+    } else {
+        "[\"lower-case\", \"singular\"]"
+    };
+    format!(
+        r#"spec = "lexlean/entry/1"
+id = "{id}"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(const lexlean.std.nat::add)"
+
+[[form]]
+id = "{id}"
+channel = "text"
+surface = "{surface}"
+canonical_source = true
+features = {features}
+"#
+    )
+}
+
+/// An adjective-predicate entry over natural numbers, defined as `n = n`,
+/// with one canonical text form spelling `surface`.
+#[must_use]
+pub fn adjective_entry(id: &str, surface: &str) -> String {
+    format!(
+        r#"spec = "lexlean/entry/1"
+id = "{id}"
+category = "adjective-predicate"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (sort prop))"
+surface_arity = 1
+frame = "adjective"
+
+[denotation]
+kind = "defined"
+value = "(lam ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (local n) (local n)))"
+
+[[form]]
+id = "{id}"
+channel = "text"
+surface = "{surface}"
+canonical_source = true
+features = ["lower-case"]
+"#
+    )
 }

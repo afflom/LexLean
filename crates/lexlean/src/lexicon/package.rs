@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::artifact::content_id::{tree_digest, Sha256Digest};
 use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
-use crate::lexicon::entry::{parse_entry, Entry};
+use crate::lexicon::entry::{parse_entry, Entry, EntryContext};
 use crate::lexicon::lse::{is_entry_id, is_package_id};
 
 /// A package import reference, `package@version`.
@@ -158,6 +158,16 @@ pub fn entry_path(local_id: &str) -> String {
     format!("entries/{}.toml", local_id.replace('.', "/"))
 }
 
+/// What package loading needs from the language bootstrap and the project's
+/// explicit resource policy.
+#[derive(Debug, Clone, Copy)]
+pub struct LoadContext<'a> {
+    /// The §12.4 always-forbidden controls (`language/bootstrap.toml`).
+    pub forbidden_controls: &'a [String],
+    /// The configured `max_scope_depth`, bounding LSE/LRE nesting (§25.5).
+    pub max_scope_depth: u64,
+}
+
 /// Load one package from its participating files, given as
 /// `(package-relative path, bytes)`: exactly `lexicon.toml` and the files
 /// under `entries/`. Paths must already be sorted bytewise.
@@ -166,6 +176,7 @@ pub fn load_package(
     display_root: &str,
     files: &[(String, Vec<u8>)],
     expected: Option<&PackageRef>,
+    ctx: &LoadContext<'_>,
 ) -> Result<LexiconPackage, Vec<Diagnostic>> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
     let display = |relative: &str| format!("{display_root}/{relative}");
@@ -256,10 +267,28 @@ pub fn load_package(
             Err(parse_error) => diagnostics.push(file_error(&manifest_path, parse_error)),
         }
     }
-    if !imports.windows(2).all(|pair| pair[0] < pair[1]) {
+    // "Exact, sorted, and unique" (§13.1) is a property of the manifest
+    // text: the `package@version` strings sort bytewise and no two are
+    // equal, and no package is imported twice at different versions.
+    if !manifest
+        .imports
+        .windows(2)
+        .all(|pair| pair[0].as_bytes() < pair[1].as_bytes())
+    {
         diagnostics.push(file_error(
             &manifest_path,
-            "imports must be exact, sorted, and unique",
+            format!(
+                "imports must be exact, sorted bytewise, and unique; found [{}]",
+                manifest.imports.join(", ")
+            ),
+        ));
+    }
+    let import_packages: std::collections::BTreeSet<&str> =
+        imports.iter().map(|r| r.package.as_str()).collect();
+    if import_packages.len() != imports.len() {
+        diagnostics.push(file_error(
+            &manifest_path,
+            "a package is imported at most once",
         ));
     }
     if imports
@@ -273,6 +302,11 @@ pub fn load_package(
     }
 
     let is_core = manifest.package == "lexlean.core";
+    let entry_ctx = EntryContext {
+        is_core,
+        forbidden_controls: ctx.forbidden_controls,
+        max_scope_depth: ctx.max_scope_depth,
+    };
     let mut entries: BTreeMap<String, Entry> = BTreeMap::new();
     for (relative, bytes) in files {
         if relative == "lexicon.toml" {
@@ -302,7 +336,7 @@ pub fn load_package(
             diagnostics.push(file_error(&shown, "comments are forbidden"));
             continue;
         }
-        match parse_entry(&shown, entry_text, is_core) {
+        match parse_entry(&shown, entry_text, &entry_ctx) {
             Ok(entry) => {
                 if entry.id != local_id {
                     diagnostics.push(file_error(

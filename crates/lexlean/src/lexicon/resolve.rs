@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::artifact::canonical_json::Json;
 use crate::code;
 use crate::diagnostic::Diagnostic;
-use crate::lexicon::entry::{Category, Channel, Denotation, Entry};
-use crate::lexicon::lse::QualifiedId;
+use crate::lexicon::entry::{surface_safety, Category, Channel, Denotation, Eliminator, Entry};
+use crate::lexicon::lse::{self, ConstInfo, Lse, QualifiedId};
 use crate::lexicon::package::LexiconPackage;
 use crate::lexicon::{Bootstrap, TokenRegistry};
 use crate::source::atom::{Atom, AtomClass};
@@ -34,6 +34,34 @@ pub struct Closure {
     pub bootstrap: Bootstrap,
     package_index: BTreeMap<String, usize>,
     surface_index: BTreeMap<(AtomClass, String), Vec<FormRef>>,
+    /// Core entries by core-denotation constructor, for eliminator lookup
+    /// on core-headed types.
+    core_constructors: BTreeMap<String, String>,
+}
+
+/// The atom-sequence key of a form: class and text of every non-whitespace
+/// atom, with whitespace collapsed to one separator (§14.1).
+fn surface_key(atoms: &[Atom]) -> Vec<(AtomClass, String)> {
+    let mut key = Vec::new();
+    for atom in atoms {
+        if atom.class == AtomClass::Whitespace {
+            if key
+                .last()
+                .is_some_and(|(class, _)| *class != AtomClass::Whitespace)
+            {
+                key.push((AtomClass::Whitespace, String::new()));
+            }
+        } else {
+            key.push((atom.class, atom.text.clone()));
+        }
+    }
+    while key
+        .last()
+        .is_some_and(|(class, _)| *class == AtomClass::Whitespace)
+    {
+        key.pop();
+    }
+    key
 }
 
 impl Closure {
@@ -87,63 +115,68 @@ impl Closure {
             return Err(diagnostics);
         }
 
-        // Topological order with cycle detection and longest-chain depth.
+        // Topological order with cycle detection and longest-chain depth,
+        // iterative over an explicit stack (the graph depth is user input).
         let mut order: Vec<usize> = Vec::new();
         let mut state: Vec<u8> = vec![0; packages.len()]; // 0 new, 1 open, 2 done
         let mut depth: Vec<u64> = vec![0; packages.len()];
-        fn visit(
-            node: usize,
-            packages: &[LexiconPackage],
-            by_id: &BTreeMap<String, usize>,
-            state: &mut [u8],
-            depth: &mut [u64],
-            order: &mut Vec<usize>,
-        ) -> Result<u64, String> {
-            match state[node] {
-                1 => return Err(packages[node].id.clone()),
-                2 => return Ok(depth[node]),
-                _ => {}
+        for root in 0..packages.len() {
+            if state[root] == 2 {
+                continue;
             }
-            state[node] = 1;
-            let mut deepest = 0u64;
-            for import in &packages[node].imports {
-                let target = by_id[&import.package];
-                let below = visit(target, packages, by_id, state, depth, order)?;
-                deepest = deepest.max(below.saturating_add(1));
-            }
-            state[node] = 2;
-            depth[node] = deepest;
-            order.push(node);
-            Ok(deepest)
-        }
-        for index in 0..packages.len() {
-            match visit(index, &packages, &by_id, &mut state, &mut depth, &mut order) {
-                Ok(package_depth) => {
-                    if package_depth >= max_import_depth {
+            // (node, next import index)
+            let mut stack: Vec<(usize, usize)> = vec![(root, 0)];
+            state[root] = 1;
+            while let Some(&mut (node, ref mut next)) = stack.last_mut() {
+                if let Some(import) = packages[node].imports.get(*next) {
+                    *next += 1;
+                    let target = by_id[&import.package];
+                    match state[target] {
+                        1 => {
+                            diagnostics.push(Diagnostic::new(
+                                code!("LLR3003"),
+                                format!("package import cycle through `{}`", packages[target].id),
+                            ));
+                            return Err(diagnostics);
+                        }
+                        2 => {}
+                        _ => {
+                            state[target] = 1;
+                            stack.push((target, 0));
+                        }
+                    }
+                } else {
+                    let deepest = packages[node]
+                        .imports
+                        .iter()
+                        .map(|import| depth[by_id[&import.package]].saturating_add(1))
+                        .max()
+                        .unwrap_or(0);
+                    depth[node] = deepest;
+                    state[node] = 2;
+                    order.push(node);
+                    stack.pop();
+                    if deepest >= max_import_depth {
                         diagnostics.push(Diagnostic::new(
                             code!("LLS8002"),
                             format!(
                                 "max_import_depth exceeded: configured {max_import_depth}, package {}",
-                                packages[index].id
+                                packages[node].id
                             ),
                         ));
                     }
                 }
-                Err(cycle_member) => {
-                    diagnostics.push(Diagnostic::new(
-                        code!("LLR3003"),
-                        format!("package import cycle through `{cycle_member}`"),
-                    ));
-                    return Err(diagnostics);
-                }
             }
+        }
+        if !diagnostics.is_empty() {
+            return Err(diagnostics);
         }
         // Reorder by topological position, core first.
         let ordered: Vec<LexiconPackage> = {
             let mut slots: Vec<Option<LexiconPackage>> = packages.into_iter().map(Some).collect();
             order
                 .iter()
-                .map(|&index| slots[index].take().expect("each node visited once"))
+                .filter_map(|&index| slots[index].take())
                 .collect()
         };
         let package_index: BTreeMap<String, usize> = ordered
@@ -152,93 +185,375 @@ impl Closure {
             .map(|(index, package)| (package.id.clone(), index))
             .collect();
 
-        let lookup = |id: &QualifiedId| -> Option<&Entry> {
-            package_index
-                .get(&id.package)
-                .and_then(|&index| ordered[index].entries.get(&id.entry))
-        };
-
-        // Cross-entry validation.
+        // Per-package import closure (§13.6, §13.11): a package sees itself
+        // and its transitive imports, nothing else — core included only when
+        // imported.
+        let mut import_closure: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for package in &ordered {
-            for entry in package.entries.values() {
-                let where_ = format!("{}::{}", package.id, entry.id);
-                if let Some(signature) = &entry.signature {
-                    for reference in signature.referenced_consts() {
-                        if lookup(&reference).is_none() {
-                            diagnostics.push(Diagnostic::new(
-                                code!("LLR3005"),
-                                format!("{where_}: signature references unresolved `{reference}`"),
-                            ));
+            let mut visible: BTreeSet<String> = BTreeSet::new();
+            visible.insert(package.id.clone());
+            for import in &package.imports {
+                visible.insert(import.package.clone());
+                if let Some(transitive) = import_closure.get(&import.package) {
+                    visible.extend(transitive.iter().cloned());
+                }
+            }
+            import_closure.insert(package.id.clone(), visible);
+        }
+
+        {
+            let lookup_any = |id: &QualifiedId| -> Option<&Entry> {
+                package_index
+                    .get(&id.package)
+                    .and_then(|&index| ordered[index].entries.get(&id.entry))
+            };
+
+            // Core structural controls, braces, and grammar words are reserved
+            // (§12.3): a non-core form that spells one in an overlapping channel
+            // is a duplicate of a closed core form. Core punctuation (`-`, `,`,
+            // `(`, ...) is not reserved: §13.5 rule 10 lets a mathematical
+            // package reuse such a surface (subtraction shares `-` with the
+            // hyphen), and its meaning is settled by grammar and type
+            // resolution.
+            let mut reserved: BTreeMap<Vec<(AtomClass, String)>, (Channel, String)> =
+                BTreeMap::new();
+            if let Some(core) = package_index.get("lexlean.core").map(|&i| &ordered[i]) {
+                for entry in core.entries.values() {
+                    let structure = match entry.category {
+                        Category::Structural => true,
+                        Category::Grammar => false,
+                        _ => continue,
+                    };
+                    for form in &entry.forms {
+                        let is_reserved_shape = if structure {
+                            form.atoms.iter().any(|atom| {
+                                atom.class == AtomClass::Control
+                                    || (atom.class == AtomClass::Delimiter
+                                        && (atom.text == "{" || atom.text == "}"))
+                            })
+                        } else {
+                            form.atoms.iter().any(|atom| atom.class == AtomClass::Word)
+                        };
+                        if is_reserved_shape {
+                            reserved.entry(surface_key(&form.atoms)).or_insert_with(|| {
+                                (form.channel, format!("lexlean.core::{}", entry.id))
+                            });
                         }
                     }
                 }
-                if let Denotation::Defined { value, .. } = &entry.denotation {
-                    for reference in value.referenced_consts() {
-                        if lookup(&reference).is_none() {
-                            diagnostics.push(Diagnostic::new(
-                                code!("LLR3005"),
-                                format!(
-                                    "{where_}: defined value references unresolved `{reference}`"
-                                ),
-                            ));
-                        }
+                // The bootstrap structural sets and the embedded core agree:
+                // every §15.2 control is a canonical `both`-channel form of a
+                // core structural entry (an embedded-data invariant).
+                for control in &bootstrap.structural.controls {
+                    let covered = core.entries.values().any(|entry| {
+                        entry.category == Category::Structural
+                            && entry.forms.iter().any(|form| {
+                                form.canonical_source
+                                    && form.channel == Channel::Both
+                                    && form.surface == *control
+                            })
+                    });
+                    if !covered {
+                        diagnostics.push(Diagnostic::new(
+                        code!("LLI9001"),
+                        format!(
+                            "phase language-load: bootstrap control `{control}` has no core structural entry"
+                        ),
+                    ));
                     }
                 }
-                for render in [&entry.render_math, &entry.render_text]
-                    .into_iter()
-                    .flatten()
-                {
-                    for token in render.tokens() {
-                        match registry.get(&token) {
-                            Some(row) => {
-                                if row.channel == "text"
-                                    && entry.render_math.as_ref() == Some(render)
-                                {
-                                    // Structure-only tokens never appear in a
-                                    // math template.
-                                    diagnostics.push(Diagnostic::new(
-                                        code!("LLR3004"),
-                                        format!("{where_}: token `{token}` is not a math token"),
-                                    ));
-                                }
+            }
+
+            // Cross-entry validation.
+            for package in &ordered {
+                let visible = &import_closure[&package.id];
+                let is_core = package.id == "lexlean.core";
+                let resolve = |id: &QualifiedId| -> Result<&Entry, Diagnostic> {
+                    match lookup_any(id) {
+                        None => Err(Diagnostic::new(
+                            code!("LLR3005"),
+                            format!("`{id}` does not resolve"),
+                        )),
+                        Some(_) if !visible.contains(&id.package) => Err(Diagnostic::new(
+                            code!("LLR3005"),
+                            format!(
+                                "`{id}` is outside the import closure of `{}` (imports: [{}])",
+                                package.id,
+                                package
+                                    .imports
+                                    .iter()
+                                    .map(ToString::to_string)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                        )),
+                        Some(entry) => Ok(entry),
+                    }
+                };
+                let const_info = |id: &QualifiedId| -> ConstInfo<'_> {
+                    match lookup_any(id) {
+                        Some(entry) if visible.contains(&id.package) => match &entry.signature {
+                            Some(signature) => ConstInfo::Signature {
+                                signature,
+                                defined: matches!(entry.denotation, Denotation::Defined { .. }),
+                            },
+                            None => ConstInfo::NoSignature,
+                        },
+                        _ => ConstInfo::Missing,
+                    }
+                };
+                for entry in package.entries.values() {
+                    let where_ = format!("{}::{}", package.id, entry.id);
+                    let mut resolved = true;
+                    let mut expressions: Vec<(&str, &Lse)> = Vec::new();
+                    if let Some(signature) = &entry.signature {
+                        expressions.push(("signature", signature));
+                    }
+                    if let Denotation::Defined { value, .. } = &entry.denotation {
+                        expressions.push(("defined value", value));
+                    }
+                    for (what, expression) in &expressions {
+                        for reference in expression.referenced_consts() {
+                            if let Err(mut diagnostic) = resolve(&reference) {
+                                diagnostic.message =
+                                    format!("{where_}: {what} references {}", diagnostic.message);
+                                diagnostics.push(diagnostic);
+                                resolved = false;
                             }
-                            None => diagnostics.push(Diagnostic::new(
-                                code!("LLR3004"),
-                                format!("{where_}: unknown renderer token `{token}`"),
-                            )),
                         }
                     }
-                    for (entry_ref, form_id) in render.form_refs() {
-                        match lookup(&entry_ref) {
-                            Some(target) if target.forms.iter().any(|f| f.id == form_id) => {}
-                            Some(_) => diagnostics.push(Diagnostic::new(
-                                code!("LLR3004"),
-                                format!("{where_}: render references unknown form `{entry_ref}`/`{form_id}`"),
-                            )),
-                            None => diagnostics.push(Diagnostic::new(
-                                code!("LLR3004"),
-                                format!("{where_}: render references unresolved `{entry_ref}`"),
-                            )),
+                    if resolved {
+                        // The conservative checker (§13.7, §14.4): signatures are
+                        // types, applications respect explicit arities, defined
+                        // values match their signatures.
+                        if let Some(signature) = &entry.signature {
+                            if let Err(type_error) = lse::check_signature(signature, &const_info) {
+                                diagnostics.push(Diagnostic::new(
+                                    code!("LLR3004"),
+                                    format!(
+                                        "{where_}: signature `{}` is not well-typed: {type_error}",
+                                        signature.print(false)
+                                    ),
+                                ));
+                            }
+                        }
+                        if let Denotation::Defined { value, .. } = &entry.denotation {
+                            if let Err(type_error) =
+                                lse::check_value(value, entry.signature.as_ref(), &const_info)
+                            {
+                                diagnostics.push(Diagnostic::new(
+                                    code!("LLR3004"),
+                                    format!(
+                                        "{where_}: defined value is not well-typed: {type_error}"
+                                    ),
+                                ));
+                            }
                         }
                     }
-                }
-                if let Some(eliminator) = &entry.eliminator {
-                    for constructor in &eliminator.constructors {
-                        if lookup(&constructor.entry).is_none() {
-                            diagnostics.push(Diagnostic::new(
-                                code!("LLR3004"),
+
+                    // Reserved core surfaces (LLR3002).
+                    if !is_core {
+                        for form in &entry.forms {
+                            let Some((core_channel, owner)) =
+                                reserved.get(&surface_key(&form.atoms))
+                            else {
+                                continue;
+                            };
+                            let overlap = *core_channel == Channel::Both
+                                || form.channel == Channel::Both
+                                || *core_channel == form.channel;
+                            if overlap {
+                                diagnostics.push(Diagnostic::new(
+                                code!("LLR3002"),
                                 format!(
-                                    "{where_}: eliminator references absent constructor `{}`",
-                                    constructor.entry
+                                    "{where_}: form `{}` duplicates the reserved core surface `{}` of `{owner}`",
+                                    form.id, form.surface
                                 ),
                             ));
+                            }
+                        }
+                    }
+
+                    // Render templates: tokens exist in the registry with a
+                    // channel that covers the template's channel; form references
+                    // resolve within the import closure, name an existing form,
+                    // and emit only renderer-safe surfaces (§13.9, LLR3006).
+                    for (channel, render) in [
+                        (Channel::Math, &entry.render_math),
+                        (Channel::Text, &entry.render_text),
+                    ] {
+                        let Some(render) = render else {
+                            continue;
+                        };
+                        let channel_name = if channel == Channel::Text {
+                            "text"
+                        } else {
+                            "math"
+                        };
+                        for token in render.tokens() {
+                            match registry.get(&token) {
+                                Some(row) => {
+                                    let covers =
+                                        row.channel == "both" || row.channel == channel_name;
+                                    if !covers {
+                                        diagnostics.push(Diagnostic::new(
+                                        code!("LLR3004"),
+                                        format!(
+                                            "{where_}: token `{token}` is a {} token and cannot appear in a {channel_name} render",
+                                            row.channel
+                                        ),
+                                    ));
+                                    }
+                                }
+                                None => diagnostics.push(Diagnostic::new(
+                                    code!("LLR3004"),
+                                    format!("{where_}: unknown renderer token `{token}`"),
+                                )),
+                            }
+                        }
+                        for (entry_ref, form_id) in render.form_refs() {
+                            match resolve(&entry_ref) {
+                            Err(mut diagnostic) => {
+                                diagnostic.code = code!("LLR3004");
+                                diagnostic.message = format!(
+                                    "{where_}: {channel_name} render references {}",
+                                    diagnostic.message
+                                );
+                                diagnostics.push(diagnostic);
+                            }
+                            Ok(target) => match target.forms.iter().find(|f| f.id == form_id) {
+                                None => diagnostics.push(Diagnostic::new(
+                                    code!("LLR3004"),
+                                    format!(
+                                        "{where_}: {channel_name} render references unknown form `{entry_ref}`/`{form_id}`"
+                                    ),
+                                )),
+                                Some(form) => {
+                                    if !form.channel.covers(channel) {
+                                        diagnostics.push(Diagnostic::new(
+                                            code!("LLR3004"),
+                                            format!(
+                                                "{where_}: {channel_name} render references `{entry_ref}`/`{form_id}`, which is not a {channel_name} form"
+                                            ),
+                                        ));
+                                    }
+                                    if let Err(reason) = surface_safety(&form.atoms, form.channel) {
+                                        diagnostics.push(Diagnostic::new(
+                                            code!("LLR3006"),
+                                            format!(
+                                                "{where_}: {channel_name} render references `{entry_ref}`/`{form_id}` whose surface `{}` is not renderer-safe: {reason}",
+                                                form.surface
+                                            ),
+                                        ));
+                                    }
+                                }
+                            },
+                        }
+                        }
+                    }
+
+                    // Eliminator descriptors (§16.11): every constructor resolves
+                    // within the import closure to an entry whose signature
+                    // targets the descriptor's type, with as many fields as
+                    // explicit binders and as many induction hypotheses as
+                    // recursive fields.
+                    if let Some(eliminator) = &entry.eliminator {
+                        let self_id = QualifiedId {
+                            package: package.id.clone(),
+                            entry: entry.id.clone(),
+                        };
+                        for constructor in &eliminator.constructors {
+                            let target = match resolve(&constructor.entry) {
+                                Ok(target) => target,
+                                Err(diagnostic) => {
+                                    diagnostics.push(Diagnostic::new(
+                                    code!("LLR3004"),
+                                    format!(
+                                        "{where_}: eliminator references absent constructor `{}`: {}",
+                                        constructor.entry, diagnostic.message
+                                    ),
+                                ));
+                                    continue;
+                                }
+                            };
+                            let Some(signature) = &target.signature else {
+                                diagnostics.push(Diagnostic::new(
+                                    code!("LLR3004"),
+                                    format!(
+                                        "{where_}: eliminator constructor `{}` has no signature",
+                                        constructor.entry
+                                    ),
+                                ));
+                                continue;
+                            };
+                            let targets_self = match signature.result() {
+                                Lse::Const(id, _) => *id == self_id,
+                                Lse::App(function, _) => {
+                                    matches!(&**function, Lse::Const(id, _) if *id == self_id)
+                                }
+                                _ => false,
+                            };
+                            if !targets_self {
+                                diagnostics.push(Diagnostic::new(
+                                code!("LLR3004"),
+                                format!(
+                                    "{where_}: eliminator constructor `{}` does not construct `{self_id}`: its signature results in `{}`",
+                                    constructor.entry,
+                                    signature.result().print(false)
+                                ),
+                            ));
+                            }
+                            let (explicit_fields, recursive_fields) = match signature {
+                                Lse::Pi(binders, _) => {
+                                    let explicit: Vec<&lse::LseBinder> = binders
+                                        .iter()
+                                        .filter(|b| b.mode == lse::BinderMode::Explicit)
+                                        .collect();
+                                    let recursive = explicit
+                                        .iter()
+                                        .filter(|b| {
+                                            let head = match &b.ty {
+                                                Lse::App(function, _) => &**function,
+                                                other => other,
+                                            };
+                                            matches!(head, Lse::Const(id, _) if *id == self_id)
+                                        })
+                                        .count();
+                                    (explicit.len(), recursive)
+                                }
+                                _ => (0, 0),
+                            };
+                            if constructor.fields.len() != explicit_fields {
+                                diagnostics.push(Diagnostic::new(
+                                code!("LLR3004"),
+                                format!(
+                                    "{where_}: eliminator constructor `{}` lists {} field{} but its signature has {explicit_fields} explicit binder{}",
+                                    constructor.entry,
+                                    constructor.fields.len(),
+                                    if constructor.fields.len() == 1 { "" } else { "s" },
+                                    if explicit_fields == 1 { "" } else { "s" }
+                                ),
+                            ));
+                            }
+                            if constructor.induction_hypotheses.len() != recursive_fields {
+                                diagnostics.push(Diagnostic::new(
+                                code!("LLR3004"),
+                                format!(
+                                    "{where_}: eliminator constructor `{}` lists {} induction hypothes{} but has {recursive_fields} recursive field{}",
+                                    constructor.entry,
+                                    constructor.induction_hypotheses.len(),
+                                    if constructor.induction_hypotheses.len() == 1 { "is" } else { "es" },
+                                    if recursive_fields == 1 { "" } else { "s" }
+                                ),
+                            ));
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Defined-denotation acyclicity (§13.6, LLR3003).
+        // Defined-denotation acyclicity (§13.6, LLR3003), iterative.
         {
             let defined: Vec<(QualifiedId, Vec<QualifiedId>)> = ordered
                 .iter()
@@ -273,34 +588,36 @@ impl Closure {
                 })
                 .collect();
             let mut mark: BTreeMap<String, u8> = BTreeMap::new();
-            fn cyclic(
-                node: &str,
-                edges: &BTreeMap<String, Vec<String>>,
-                mark: &mut BTreeMap<String, u8>,
-            ) -> bool {
-                match mark.get(node) {
-                    Some(1) => return true,
-                    Some(2) => return false,
-                    _ => {}
+            'roots: for root in edges.keys() {
+                if mark.get(root) == Some(&2) {
+                    continue;
                 }
-                mark.insert(node.to_owned(), 1);
-                if let Some(next) = edges.get(node) {
-                    for target in next {
-                        if cyclic(target, edges, mark) {
-                            return true;
+                let mut stack: Vec<(String, usize)> = vec![(root.clone(), 0)];
+                mark.insert(root.clone(), 1);
+                while let Some((node, next)) = stack.last().cloned() {
+                    let targets = edges.get(&node).map(Vec::as_slice).unwrap_or(&[]);
+                    if let Some(target) = targets.get(next) {
+                        if let Some(last) = stack.last_mut() {
+                            last.1 += 1;
                         }
+                        match mark.get(target) {
+                            Some(1) => {
+                                diagnostics.push(Diagnostic::new(
+                                    code!("LLR3003"),
+                                    format!("defined-denotation cycle through `{target}`"),
+                                ));
+                                break 'roots;
+                            }
+                            Some(2) => {}
+                            _ => {
+                                mark.insert(target.clone(), 1);
+                                stack.push((target.clone(), 0));
+                            }
+                        }
+                    } else {
+                        mark.insert(node, 2);
+                        stack.pop();
                     }
-                }
-                mark.insert(node.to_owned(), 2);
-                false
-            }
-            for id in edges.keys() {
-                if cyclic(id, &edges, &mut mark) {
-                    diagnostics.push(Diagnostic::new(
-                        code!("LLR3003"),
-                        format!("defined-denotation cycle through `{id}`"),
-                    ));
-                    break;
                 }
             }
         }
@@ -313,8 +630,14 @@ impl Closure {
         // atom. Import order gives no priority (§14.1): candidates are kept
         // in deterministic package/entry/form order.
         let mut surface_index: BTreeMap<(AtomClass, String), Vec<FormRef>> = BTreeMap::new();
+        let mut core_constructors: BTreeMap<String, String> = BTreeMap::new();
         for package in &ordered {
             for entry in package.entries.values() {
+                if package.id == "lexlean.core" {
+                    if let Denotation::Core { constructor } = &entry.denotation {
+                        core_constructors.insert(constructor.clone(), entry.id.clone());
+                    }
+                }
                 for form in &entry.forms {
                     let Some(first) = form
                         .atoms
@@ -341,6 +664,7 @@ impl Closure {
             bootstrap,
             package_index,
             surface_index,
+            core_constructors,
         })
     }
 
@@ -358,6 +682,30 @@ impl Closure {
         self.package_index
             .get(id)
             .map(|&index| &self.packages[index])
+    }
+
+    /// The core entry that carries the given core-denotation constructor
+    /// (for example `logic.and` → `lexlean.core::land`).
+    #[must_use]
+    pub fn core_entry_for_constructor(&self, constructor: &str) -> Option<QualifiedId> {
+        self.core_constructors
+            .get(constructor)
+            .map(|entry| QualifiedId {
+                package: "lexlean.core".to_owned(),
+                entry: entry.clone(),
+            })
+    }
+
+    /// The eliminator descriptor of a type headed by `head`: the entry
+    /// itself for a bare constant type, or the head entry of an applied
+    /// type (`Or p q` → the descriptor on `lexlean.core::lor`).
+    #[must_use]
+    pub fn eliminator_for(&self, head: &QualifiedId) -> Option<(&Entry, &Eliminator)> {
+        let entry = self.entry(head)?;
+        entry
+            .eliminator
+            .as_ref()
+            .map(|eliminator| (entry, eliminator))
     }
 
     /// The form of a [`FormRef`].
@@ -420,7 +768,10 @@ impl Closure {
             // Do not end inside a composed identifier (§12.2 class 3): a
             // word- or numeral-final match followed byte-adjacently by more
             // identifier material is not this form.
-            if let (Some(last), Some(next)) = (atoms.get(source_at - 1), atoms.get(source_at)) {
+            if let (Some(last), Some(next)) = (
+                source_at.checked_sub(1).and_then(|index| atoms.get(index)),
+                atoms.get(source_at),
+            ) {
                 let last_is_ident = matches!(last.class, AtomClass::Word | AtomClass::Numeral);
                 let next_extends = next.byte_start == last.byte_end
                     && match next.class {
@@ -504,5 +855,76 @@ impl Closure {
     #[must_use]
     pub fn is_proof_category(category: Category) -> bool {
         matches!(category, Category::ProofConstant)
+    }
+}
+
+/// The token lattice of one module (§14.1): every glossary form beginning
+/// at every source position, computed once per `(position, channel)` and
+/// counted exactly once against `max_token_lattice_edges`. Grammar passes
+/// that revisit a position share the memoized edges instead of re-counting.
+#[derive(Debug)]
+pub struct TokenLattice<'a> {
+    closure: &'a Closure,
+    atoms: &'a [Atom],
+    visible: &'a BTreeSet<String>,
+    memo: BTreeMap<(usize, Channel), Vec<(FormRef, usize)>>,
+    edges: u64,
+    max_edges: u64,
+}
+
+impl<'a> TokenLattice<'a> {
+    /// A lattice over `atoms` for the visible package set, bounded by the
+    /// configured `max_token_lattice_edges`.
+    #[must_use]
+    pub fn new(
+        closure: &'a Closure,
+        atoms: &'a [Atom],
+        visible: &'a BTreeSet<String>,
+        max_token_lattice_edges: u64,
+    ) -> Self {
+        Self {
+            closure,
+            atoms,
+            visible,
+            memo: BTreeMap::new(),
+            edges: 0,
+            max_edges: max_token_lattice_edges,
+        }
+    }
+
+    /// The edges beginning at `start` in `channel`. The first request for a
+    /// position computes and counts them; later requests are free.
+    pub fn edges_at(
+        &mut self,
+        start: usize,
+        channel: Channel,
+    ) -> Result<&[(FormRef, usize)], Diagnostic> {
+        if !self.memo.contains_key(&(start, channel)) {
+            let found = self
+                .closure
+                .matches_at(self.atoms, start, channel, self.visible);
+            self.edges = self.edges.saturating_add(found.len() as u64);
+            if self.edges > self.max_edges {
+                return Err(Diagnostic::new(
+                    code!("LLS8002"),
+                    format!(
+                        "max_token_lattice_edges exceeded: configured {}",
+                        self.max_edges
+                    ),
+                ));
+            }
+            self.memo.insert((start, channel), found);
+        }
+        Ok(self
+            .memo
+            .get(&(start, channel))
+            .map(Vec::as_slice)
+            .unwrap_or(&[]))
+    }
+
+    /// The number of distinct edges counted so far.
+    #[must_use]
+    pub fn edge_count(&self) -> u64 {
+        self.edges
     }
 }

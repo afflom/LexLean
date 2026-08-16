@@ -20,3 +20,13 @@ features = []
 
 [render]
 math = "(seq (slot 0) (space) (token logical-and) (space) (slot 1))"
+
+[eliminator]
+cases_lean_name = "And.casesOn"
+induction_lean_name = "And.rec"
+
+[[eliminator.constructor]]
+entry = "lexlean.core::and-intro"
+lean_name = "And.intro"
+fields = ["left", "right"]
+induction_hypotheses = []

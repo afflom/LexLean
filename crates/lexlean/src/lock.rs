@@ -10,7 +10,9 @@ use crate::artifact::content_id::Sha256Digest;
 use crate::code;
 use crate::config::{toml_string, LexiconSource};
 use crate::diagnostic::Diagnostic;
-use crate::lexicon::package::{load_package, toml_comment_at, LexiconPackage, PackageRef};
+use crate::lexicon::package::{
+    load_package, toml_comment_at, LexiconPackage, LoadContext, PackageRef,
+};
 use crate::project::Project;
 
 /// One locked package row (§11.1).
@@ -491,6 +493,10 @@ pub fn resolve_packages(
     let mut rows = Vec::new();
 
     let bootstrap = crate::lexicon::load_bootstrap().map_err(|d| vec![d])?;
+    let load_ctx = LoadContext {
+        forbidden_controls: &bootstrap.structural.forbidden_controls,
+        max_scope_depth: project.config.limits.max_scope_depth,
+    };
 
     // Builtins: always core, plus every configured builtin source.
     let mut builtin_ids: Vec<String> = vec!["lexlean.core".to_owned()];
@@ -510,7 +516,7 @@ pub fn resolve_packages(
             diagnostics.push(resolution(format!("`{id}` is not a builtin package")));
             continue;
         };
-        match crate::lexicon::load_builtin_package(row) {
+        match crate::lexicon::load_builtin_package(row, &load_ctx) {
             Ok(package) => {
                 rows.push(LockPackage {
                     id: package.id.clone(),
@@ -550,7 +556,7 @@ pub fn resolve_packages(
                     }
                 };
                 match collect_package_files(&root, path) {
-                    Ok(files) => match load_package(path, &files, None) {
+                    Ok(files) => match load_package(path, &files, None, &load_ctx) {
                         Ok(package) => {
                             if package.id != *id {
                                 diagnostics.push(resolution(format!(
@@ -584,7 +590,15 @@ pub fn resolve_packages(
                 revision,
                 subdirectory,
             } => {
-                match resolve_git_package(project, id, url, revision, subdirectory, allow_network) {
+                match resolve_git_package(
+                    project,
+                    id,
+                    url,
+                    revision,
+                    subdirectory,
+                    allow_network,
+                    &load_ctx,
+                ) {
                     Ok(package) => {
                         rows.push(LockPackage {
                             id: package.id.clone(),
@@ -626,6 +640,7 @@ fn resolve_git_package(
     revision: &str,
     subdirectory: &str,
     allow_network: bool,
+    load_ctx: &LoadContext<'_>,
 ) -> Result<LexiconPackage, Vec<Diagnostic>> {
     let cache_relative = git_cache_relative(project, revision);
     if let Ok(cache_base) = project.confined_dir(&cache_relative) {
@@ -642,7 +657,7 @@ fn resolve_git_package(
                 continue;
             };
             if let Ok(files) = collect_package_files(&candidate, &candidate_relative) {
-                if let Ok(package) = load_package(&candidate_relative, &files, None) {
+                if let Ok(package) = load_package(&candidate_relative, &files, None, load_ctx) {
                     if package.id == id && name == package.tree_sha256.to_hex() {
                         return Ok(package);
                     }
@@ -660,7 +675,7 @@ fn resolve_git_package(
             ),
         )]);
     }
-    acquire_git_package(project, id, url, revision, subdirectory)
+    acquire_git_package(project, id, url, revision, subdirectory, load_ctx)
 }
 
 /// A Git acquisition failure in the environment (§23.6 exit 3): the
@@ -757,6 +772,7 @@ fn acquire_git_package(
     url: &str,
     revision: &str,
     subdirectory: &str,
+    load_ctx: &LoadContext<'_>,
 ) -> Result<LexiconPackage, Vec<Diagnostic>> {
     use crate::verify::child::{resolve_on_path, ChildSpec, Normalizer};
 
@@ -848,7 +864,7 @@ fn acquire_git_package(
 
     let display_root = format!("git:{id}");
     let files = collect_package_files(&package_root, &display_root)?;
-    let package = load_package(&display_root, &files, None)?;
+    let package = load_package(&display_root, &files, None, load_ctx)?;
     if package.id != id {
         return Err(vec![resolution(format!(
             "git source contains `{}`, not the configured `{id}`",

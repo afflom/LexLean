@@ -155,6 +155,70 @@ pub fn scan(path: &str, text: &str, max_primitive_atoms: u64) -> Result<Vec<Atom
     Ok(atoms)
 }
 
+/// Post-scan atom rejections that need no glossary (§12.4, §15.5): a
+/// control atom in the always-forbidden set (from
+/// `language/bootstrap.toml`, the single source of truth) is `LLL1002` with
+/// its span, before any lexical resolution; a standalone numeral with a
+/// redundant leading zero is noncanonical decimal source (`LLL1003`, with a
+/// fix-it), because §13.8 decimals and the numeral constructor share one
+/// canonical spelling. A numeral byte-adjacent after identifier material
+/// (`x01`, `add-01`) is part of a composed identifier and is not a numeral.
+pub fn reject_forbidden_atoms(
+    path: &str,
+    atoms: &[Atom],
+    forbidden_controls: &[String],
+) -> Result<(), Diagnostic> {
+    for (index, atom) in atoms.iter().enumerate() {
+        match atom.class {
+            AtomClass::Control => {
+                if forbidden_controls
+                    .iter()
+                    .any(|forbidden| forbidden == &atom.text)
+                {
+                    return Err(Diagnostic::new(
+                        code!("LLL1002"),
+                        format!(
+                            "`{}` is an always-forbidden TeX control (§12.4); LexLean does not expand TeX",
+                            atom.text
+                        ),
+                    )
+                    .with_span(atom.span(path)));
+                }
+            }
+            AtomClass::Numeral if atom.text.len() > 1 && atom.text.starts_with('0') => {
+                let continues_identifier = index
+                    .checked_sub(1)
+                    .and_then(|previous| atoms.get(previous))
+                    .is_some_and(|previous| {
+                        previous.byte_end == atom.byte_start
+                            && match previous.class {
+                                AtomClass::Word => true,
+                                AtomClass::AsciiSymbol => {
+                                    matches!(previous.text.as_str(), "_" | "'" | "-")
+                                }
+                                _ => false,
+                            }
+                    });
+                if !continues_identifier {
+                    let canonical = atom.text.trim_start_matches('0');
+                    let canonical = if canonical.is_empty() { "0" } else { canonical };
+                    return Err(Diagnostic::new(
+                            code!("LLL1003"),
+                            format!(
+                                "numeral `{}` has a redundant leading zero; the canonical decimal is `{canonical}`",
+                                atom.text
+                            ),
+                        )
+                        .with_span(atom.span(path))
+                        .with_help(format!("replace `{}` with `{canonical}`", atom.text)));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Compose a metadata/math identifier (§12.2 class 3) starting at atom
 /// `index`: an ASCII letter run, then contiguous letters, digits, `_`, or
 /// `'` atoms with no whitespace between them. Returns the identifier text
@@ -200,5 +264,130 @@ pub fn atoms_span(path: &str, atoms: &[Atom], start: usize, end: usize) -> crate
         column_start: first.column_start,
         line_end: last.line_end,
         column_end: last.column_end,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn classes(text: &str) -> Vec<(AtomClass, String)> {
+        scan("m", text, 1_000)
+            .expect("scans")
+            .into_iter()
+            .map(|atom| (atom.class, atom.text))
+            .collect()
+    }
+
+    #[test]
+    fn the_eight_atom_classes() {
+        assert_eq!(
+            classes("\\begin{x} ab 12 + \u{2115}\n"),
+            vec![
+                (AtomClass::Control, "\\begin".to_owned()),
+                (AtomClass::Delimiter, "{".to_owned()),
+                (AtomClass::Word, "x".to_owned()),
+                (AtomClass::Delimiter, "}".to_owned()),
+                (AtomClass::Whitespace, " ".to_owned()),
+                (AtomClass::Word, "ab".to_owned()),
+                (AtomClass::Whitespace, " ".to_owned()),
+                (AtomClass::Numeral, "12".to_owned()),
+                (AtomClass::Whitespace, " ".to_owned()),
+                (AtomClass::AsciiSymbol, "+".to_owned()),
+                (AtomClass::Whitespace, " ".to_owned()),
+                (AtomClass::UnicodeSymbol, "\u{2115}".to_owned()),
+                (AtomClass::Whitespace, "\n".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn controls_take_letters_or_one_nonletter() {
+        assert_eq!(
+            classes("\\(x\\)"),
+            vec![
+                (AtomClass::Control, "\\(".to_owned()),
+                (AtomClass::Word, "x".to_owned()),
+                (AtomClass::Control, "\\)".to_owned()),
+            ]
+        );
+        assert_eq!(
+            classes("\\\\\\ \\1"),
+            vec![
+                (AtomClass::Control, "\\\\".to_owned()),
+                (AtomClass::Control, "\\ ".to_owned()),
+                (AtomClass::Control, "\\1".to_owned()),
+            ]
+        );
+        assert_eq!(classes("\\ab1")[0], (AtomClass::Control, "\\ab".to_owned()));
+        // A backslash before a non-ASCII scalar or at end of file matches no
+        // class.
+        assert_eq!(
+            scan("m", "\\\u{2115}", 10)
+                .expect_err("no class")
+                .code
+                .as_str(),
+            "LLL1004"
+        );
+        assert_eq!(
+            scan("m", "\\", 10).expect_err("no class").code.as_str(),
+            "LLL1004"
+        );
+    }
+
+    #[test]
+    fn spans_are_exact_and_columns_count_scalars() {
+        let atoms = scan("m", "\u{2115}\n+", 10).expect("scans");
+        assert_eq!((atoms[0].byte_start, atoms[0].byte_end), (0, 3));
+        assert_eq!((atoms[0].line_start, atoms[0].column_start), (1, 1));
+        assert_eq!((atoms[0].line_end, atoms[0].column_end), (1, 2));
+        assert_eq!((atoms[2].line_start, atoms[2].column_start), (2, 1));
+        assert_eq!((atoms[2].byte_start, atoms[2].byte_end), (4, 5));
+    }
+
+    #[test]
+    fn identifiers_compose_only_byte_adjacently() {
+        let atoms = scan("m", "x1_2' y", 10).expect("scans");
+        assert_eq!(compose_identifier(&atoms, 0), Some(("x1_2'".to_owned(), 5)));
+        assert_eq!(compose_identifier(&atoms, 6), Some(("y".to_owned(), 7)));
+        assert_eq!(compose_identifier(&atoms, 1), None);
+        let spaced = scan("m", "x 1", 10).expect("scans");
+        assert_eq!(compose_identifier(&spaced, 0), Some(("x".to_owned(), 1)));
+    }
+
+    #[test]
+    fn atom_limit_is_a_limit_failure() {
+        assert_eq!(
+            scan("m", "a b c", 2).expect_err("limited").code.as_str(),
+            "LLS8002"
+        );
+        assert!(scan("m", "", 0).expect("empty").is_empty());
+    }
+
+    #[test]
+    fn forbidden_controls_and_leading_zeros() {
+        let forbidden = vec!["\\def".to_owned(), "\\input".to_owned()];
+        let atoms = scan("m", "a \\def b", 10).expect("scans");
+        let error = reject_forbidden_atoms("m", &atoms, &forbidden).expect_err("forbidden");
+        assert_eq!(error.code.as_str(), "LLL1002");
+        assert_eq!(
+            error.primary.as_ref().map(|s| (s.byte_start, s.byte_end)),
+            Some((2, 6))
+        );
+        let atoms = scan("m", "a \\define b", 10).expect("scans");
+        assert!(reject_forbidden_atoms("m", &atoms, &forbidden).is_ok());
+
+        let atoms = scan("m", "n + 007", 10).expect("scans");
+        let error = reject_forbidden_atoms("m", &atoms, &[]).expect_err("leading zero");
+        assert_eq!(error.code.as_str(), "LLL1003");
+        assert!(error.message.contains("`7`"));
+        for ok in ["n + 0", "n + 70", "x01", "add-01", "x_01", "x'01", "f(0)"] {
+            let atoms = scan("m", ok, 10).expect("scans");
+            assert!(reject_forbidden_atoms("m", &atoms, &[]).is_ok(), "{ok}");
+        }
+        for bad in ["(01)", "00", "1.05"] {
+            let atoms = scan("m", bad, 10).expect("scans");
+            assert!(reject_forbidden_atoms("m", &atoms, &[]).is_err(), "{bad}");
+        }
     }
 }
