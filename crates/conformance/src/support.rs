@@ -940,3 +940,37 @@ pub fn packaged_crate_version(root: &Utf8Path) -> Result<String, String> {
     });
     run(binary.as_str(), &["--version"], &unpacked, &[])
 }
+
+/// Run the pinned `lean` on a tiny module with `#print axioms` commands and
+/// return `(the successful output, the output of a run whose fourth command
+/// names an unknown constant)`, both normalized to LF. Requires the pinned
+/// toolchain (callers gate on [`lean_backed`]).
+#[must_use]
+pub fn print_axioms_output() -> (String, String) {
+    let lean = real_elan_home()
+        .join("toolchains")
+        .join(mangled_toolchain_name())
+        .join("bin")
+        .join("lean");
+    let dir = tempfile::Builder::new()
+        .prefix("lexlean-axioms-")
+        .tempdir()
+        .expect("tempdir");
+    let body = "module\nimport Init\nnamespace Demo.M\npublic theorem no_ax (n : Nat) : n = n := rfl\npublic theorem uses_choice (p : Prop) : p ∨ ¬ p := Classical.em p\npublic theorem uses_funext (f g : Nat → Nat) (h : ∀ x, f x = g x) : f = g := funext h\nend Demo.M\n#print axioms Demo.M.no_ax\n#print axioms Demo.M.uses_choice\n#print axioms Demo.M.uses_funext\n";
+    let run = |name: &str, text: &str| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, text).expect("write module");
+        let output = std::process::Command::new(&lean)
+            .arg(&path)
+            .current_dir(dir.path())
+            .env("LEAN_PATH", "")
+            .output()
+            .expect("the pinned lean runs");
+        String::from_utf8_lossy(&output.stdout)
+            .replace("\r\n", "\n")
+            .replace(dir.path().to_string_lossy().as_ref(), "$STAGING")
+    };
+    let good = run("Good.lean", body);
+    let bad = run("Bad.lean", &format!("{body}#print axioms Demo.M.missing\n"));
+    (good, bad)
+}

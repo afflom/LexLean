@@ -276,6 +276,33 @@ pub(crate) fn run(id: &str) {
                     "rejected vector was accepted: {line}"
                 );
             }
+            // The pinned toolchain's live `#print axioms` output, in its own
+            // (unsorted) order, is accepted and the observed sets come back
+            // sorted; an unknown constant's error line is rejected.
+            if support::lean_backed("VR-10") {
+                let (output, failing) = support::print_axioms_output();
+                let expected = vec![
+                    "Demo.M.no_ax".to_owned(),
+                    "Demo.M.uses_choice".to_owned(),
+                    "Demo.M.uses_funext".to_owned(),
+                ];
+                assert!(
+                    output.contains("[propext, Classical.choice, Quot.sound]"),
+                    "the toolchain prints its own order: {output}"
+                );
+                let observed = lexlean::verify::axiom::parse_audit_output(&output, &expected)
+                    .unwrap_or_else(|error| panic!("live output rejected: {output}: {error:?}"));
+                assert_eq!(observed["Demo.M.no_ax"], Vec::<String>::new());
+                assert_eq!(
+                    observed["Demo.M.uses_choice"],
+                    ["Classical.choice", "Quot.sound", "propext"]
+                );
+                assert_eq!(observed["Demo.M.uses_funext"], ["Quot.sound"]);
+                assert!(
+                    lexlean::verify::axiom::parse_audit_output(&failing, &expected).is_err(),
+                    "an unknown-constant error line is not an axiom record: {failing}"
+                );
+            }
         }
         // §22.6: policies enforced exactly and recorded per declaration.
         "VR-11" => {
