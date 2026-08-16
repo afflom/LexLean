@@ -172,13 +172,16 @@ pub(crate) fn run(id: &str) {
                 "lexicons/test-arity",
                 "test.arity",
                 &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
-                &[(
-                    "nzz.toml",
-                    &support::nzz_entry("Nat.le_refl").replace(
-                        "(app (const lexlean.core::lnot) (app (const lexlean.std.nat::ne) (local n) (local n)))",
-                        "(app (const lexlean.core::lnot) (app (const lexlean.std.nat::ne) (local n) (local n) (local n)))",
+                &[
+                    (
+                        "nzz.toml",
+                        &support::nzz_entry("Nat.le_refl").replace(
+                            "(app (const lexlean.core::lnot) (app (const lexlean.std.nat::ne) (local n) (local n)))",
+                            "(app (const lexlean.core::lnot) (app (const lexlean.std.nat::ne) (local n) (local n) (local n)))",
+                        ),
                     ),
-                )],
+                    ("z.toml", Z_MATH),
+                ],
             );
             overapplied.write(
                 "src/Main.lex.tex",
@@ -518,3 +521,27 @@ pub(crate) fn run(id: &str) {
         other => panic!("no semantic-ir case is wired for {other}"),
     }
 }
+
+/// The math-channel zero used by the arity fixture.
+const Z_MATH: &str = r#"spec = "lexlean/entry/1"
+id = "z"
+category = "term-constant"
+signature = "(const lexlean.std.nat::nat)"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.zero"
+
+[[form]]
+id = "z"
+channel = "both"
+surface = "z"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name z)"
+"#;

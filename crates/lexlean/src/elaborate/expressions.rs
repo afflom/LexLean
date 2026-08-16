@@ -1021,20 +1021,18 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         &mut self,
         reference: &FormRef,
         metas: &mut Metas,
-    ) -> Result<(Term, Term), String> {
+    ) -> Result<(Term, Term), LseError> {
         let qualified = QualifiedId {
             package: reference.package.clone(),
             entry: reference.entry.clone(),
         };
-        let entry = self
-            .shared
-            .closure
-            .entry(&qualified)
-            .ok_or_else(|| format!("`{qualified}` is not in the glossary closure"))?;
+        let entry = self.shared.closure.entry(&qualified).ok_or_else(|| {
+            LseError::Unavailable(format!("`{qualified}` is not in the glossary closure"))
+        })?;
         let signature = entry
             .signature
             .as_ref()
-            .ok_or_else(|| format!("`{qualified}` has no signature"))?;
+            .ok_or_else(|| LseError::Unavailable(format!("`{qualified}` has no signature")))?;
         let mut universe_map = BTreeMap::new();
         let mut universe_args = Vec::new();
         for name in &entry.universes {
@@ -1042,9 +1040,8 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             universe_map.insert(name.clone(), fresh.clone());
             universe_args.push(fresh);
         }
-        let ty = lse_to_term(signature, self.shared, self.alloc, &universe_map, Some(metas))
-            .map_err(|failure| failure.to_string())?;
-        let global = global_for(self.shared, &qualified, entry)?;
+        let ty = lse_to_term(signature, self.shared, self.alloc, &universe_map, Some(metas))?;
+        let global = global_for(self.shared, &qualified, entry).map_err(LseError::Unavailable)?;
         Ok((Term::Global(global, universe_args), ty))
     }
 
@@ -1192,7 +1189,8 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                                     let (byte_start, byte_end) = self.bytes_of(*atoms);
                                     let first = &self.shared.atoms[atoms.0];
                                     last_instantiation_error = Some(
-                                        Diagnostic::new(code!("LLR3005"), instantiation_error)
+                                        instantiation_error
+                                            .diagnostic(code!("LLR3005"))
                                             .with_span(crate::diagnostic::Span {
                                                 path: self.shared.path.to_owned(),
                                                 byte_start,
@@ -1282,12 +1280,13 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                         .with_span(self.span_of(*atoms))
                     })?;
                 let mut metas = Metas::default();
-                let (term, ty) =
-                    self.instantiate_entry(&reference, &mut metas)
-                        .map_err(|reason| {
-                            Diagnostic::new(code!("LLR3005"), reason)
-                                .with_span(self.span_of(*atoms))
-                        })?;
+                let (term, ty) = self
+                    .instantiate_entry(&reference, &mut metas)
+                    .map_err(|failure| {
+                        failure
+                            .diagnostic(code!("LLR3005"))
+                            .with_span(self.span_of(*atoms))
+                    })?;
                 let mut rows = vec![self.atom_row(
                     atoms.0,
                     Origin::Structural {
@@ -1601,11 +1600,13 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         expected: Option<&Term>,
     ) -> Result<ElabTerm, Diagnostic> {
         let mut metas = Metas::default();
-        let (function, function_ty) =
-            self.instantiate_entry(reference, &mut metas)
-                .map_err(|reason| {
-                    Diagnostic::new(code!("LLT4001"), reason).with_span(self.span_of(surface_atoms))
-                })?;
+        let (function, function_ty) = self
+            .instantiate_entry(reference, &mut metas)
+            .map_err(|failure| {
+                failure
+                    .diagnostic(code!("LLT4001"))
+                    .with_span(self.span_of(surface_atoms))
+            })?;
         let arg_cands: Vec<Cand> = args
             .iter()
             .map(|argument| {

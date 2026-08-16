@@ -93,10 +93,47 @@ impl Fmt<'_> {
             },
             GlobalRef::External(external) => QualifiedId::parse(&external.entry).ok()?,
             GlobalRef::DefinedLexicon(defined) => QualifiedId::parse(&defined.entry).ok()?,
-            GlobalRef::Document(_) => return None,
+            // A document declaration is named in source through the
+            // glossary entry whose denotation is that declaration (§15.7);
+            // the reverse lookup runs over the visible packages.
+            GlobalRef::Document(document) => {
+                return self.document_entry(&document.module, &document.component);
+            }
         };
         let entry = self.closure.entry(&qualified)?;
         Some((qualified, entry))
+    }
+
+    /// The visible glossary entry whose document denotation names
+    /// `module::component`, if exactly one exists.
+    fn document_entry(&self, module: &str, component: &str) -> Option<(QualifiedId, &Entry)> {
+        let mut found: Option<(QualifiedId, &Entry)> = None;
+        for package in &self.closure.packages {
+            if !self.visible.contains(&package.id) {
+                continue;
+            }
+            for (entry_id, entry) in &package.entries {
+                if let crate::lexicon::entry::Denotation::Document {
+                    module: entry_module,
+                    component: entry_component,
+                } = &entry.denotation
+                {
+                    if entry_module == module && entry_component == component {
+                        if found.is_some() {
+                            return None;
+                        }
+                        found = Some((
+                            QualifiedId {
+                                package: package.id.clone(),
+                                entry: entry_id.clone(),
+                            },
+                            entry,
+                        ));
+                    }
+                }
+            }
+        }
+        found
     }
 
     fn spelling(&self, id: LocalId) -> String {
