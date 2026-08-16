@@ -11,6 +11,51 @@ use std::collections::BTreeMap;
 use crate::artifact::source_map::{MapRole, MapSource, Mapping, SourceMap};
 use crate::source::coverage::{Origin, OutputRow};
 
+/// Mechanically check output coverage closure (§19.6, §20.5): every
+/// non-whitespace byte of the generated text lies in exactly one row, rows
+/// never overlap, and every row lies inside the text. The error names the
+/// first offending byte range.
+pub fn check_output_closure(text: &str, rows: &[OutputRow]) -> Result<(), String> {
+    let mut sorted: Vec<&OutputRow> = rows.iter().collect();
+    sorted.sort_by_key(|row| (row.byte_start, row.byte_end));
+    let mut cursor = 0usize;
+    let bytes = text.as_bytes();
+    let first_uncovered = |from: usize, to: usize| -> Option<usize> {
+        (from..to.min(bytes.len())).find(|&index| !bytes[index].is_ascii_whitespace())
+    };
+    for row in &sorted {
+        if row.byte_end < row.byte_start || row.byte_end > bytes.len() {
+            return Err(format!(
+                "coverage row {}..{} lies outside the {}-byte output",
+                row.byte_start,
+                row.byte_end,
+                bytes.len()
+            ));
+        }
+        if row.byte_start < cursor {
+            return Err(format!(
+                "coverage overlap at bytes {}..{}",
+                row.byte_start,
+                cursor.min(row.byte_end)
+            ));
+        }
+        if let Some(gap) = first_uncovered(cursor, row.byte_start) {
+            let end = (gap..row.byte_start)
+                .find(|&index| bytes[index].is_ascii_whitespace())
+                .unwrap_or(row.byte_start);
+            return Err(format!("coverage gap at bytes {gap}..{end}"));
+        }
+        cursor = row.byte_end;
+    }
+    if let Some(gap) = first_uncovered(cursor, bytes.len()) {
+        let end = (gap..bytes.len())
+            .find(|&index| bytes[index].is_ascii_whitespace())
+            .unwrap_or(bytes.len());
+        return Err(format!("coverage gap at bytes {gap}..{end}"));
+    }
+    Ok(())
+}
+
 /// Where an emitted piece traces to (§20.3).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EmitSource {

@@ -1,6 +1,6 @@
 spec = "lexlean/lock/1"
 language = "1.0"
-compiler_semantics = "fe64624defc6e59ec80db231c0789c5fccdb926dcdad1dee47721b4961a425cf"
+compiler_semantics = "97d6da2addf7128baa7951d41526f28f8e03c8632ad4facc51d10391ae79a0f8"
 project_config_sha256 = "6f58102741da3027207f2f81462140414112ad7587b2b299b40c91eeebe2737c"
 lean_toolchain = "leanprover/lean4:v4.32.1"
 
@@ -22,7 +22,7 @@ version = "1.0.0"
 kind = "builtin"
 source = "embedded"
 revision = "compiler-semantics"
-tree_sha256 = "e7f03e5f2d50275b706ffafa0305214a66a618519cfcd1eb323dd21457a90bdb"
+tree_sha256 = "716c8708e479af95531e9bfd22afdc4bb7a6c9eeb608dc56ef25bb549bcd7942"
 manifest_sha256 = "3de2c46e1eea7eabf082c18797aae7c12113195c806f01115b3f1a13f7ab4ec1"
 imports = []
 

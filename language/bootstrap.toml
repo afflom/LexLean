@@ -100,9 +100,12 @@ forbidden_controls = [
 
 [backend]
 # Renderer tokens the fixed LaTeX backend emits itself: the exact preamble
-# (§19.2), document structure (§19.3), the core-constructor math map, lambda
-# and rewrite-direction markers (§19.5), grouping delimiters, and the
-# qualified-id fallback. Everything else is referenced through entry LRE.
+# (§19.2), document structure (§19.3) including the deep-heading bold
+# construct, the core-constructor math map, lambda and rewrite-direction
+# markers, the aligned calculation display and its `by` justification text
+# (§19.5), LRE sub/sup/frac lowering, sort names, grouping delimiters, and
+# the qualified-id fallback. Everything else is referenced through entry
+# LRE.
 tokens = [
     "documentclass",
     "opt-11pt",
@@ -159,4 +162,14 @@ tokens = [
     "right-bracket",
     "operatorname",
     "section-counter",
+    "textbf",
+    "align-star",
+    "align",
+    "newline",
+    "text",
+    "subscript",
+    "superscript",
+    "frac",
+    "sort-prop",
+    "sort-type",
 ]

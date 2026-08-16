@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "branch-word"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "concept.branch"
+
+[[form]]
+id = "branch"
+channel = "text"
+surface = "Branch"
+canonical_source = true
+features = ["sentence-case", "singular"]

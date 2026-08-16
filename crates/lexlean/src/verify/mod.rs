@@ -1,25 +1,43 @@
 //! Verification (SPEC.md §22): the complete fixed pipeline, with no
 //! optional stage and no suppression. Any failed stage removes the staging
 //! tree and produces no verified artifact (I11).
+//!
+//! Fixed decisions this module makes where the specification leaves the
+//! mechanics to the implementation:
+//!
+//! - **`leanchecker` identity.** The pinned `leanchecker` has no version
+//!   flag. Its recorded, checked identity is the normalized output of the
+//!   fixed identity probe `lake env leanchecker LexLeanIdentityProbe`
+//!   (a module name no workspace defines), which the pinned toolchain
+//!   answers with exactly one deterministic line and a nonzero exit; the
+//!   executable digest is recorded alongside.
+//! - **Verified-set reuse.** A verification whose attestation ID already
+//!   has a published directory reuses it only after every staged file is
+//!   byte-equal to the published one and neither side has extra files.
+//! - **Process records.** Every child the pipeline runs (probe, module
+//!   compilations, `leanchecker` replays, the audit, and both PDF provider
+//!   processes per module) is recorded in the attestation and checked for
+//!   unexpected absolute paths.
 
 pub mod axiom;
 pub mod child;
 pub mod leanchecker;
+pub mod source_audit;
 pub mod toolchain;
 pub mod workspace;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::api::RenderedBuild;
+use crate::api::{RenderedBuild, RenderedModule};
 use crate::artifact::canonical_json::Json;
 use crate::artifact::content_id::{attestation_id, Sha256Digest};
+use crate::artifact::source_map::MapRole;
 use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
 use crate::error::LexLeanError;
-use crate::ir::declaration::DeclBody;
 use crate::link::CheckedProject;
 use crate::lock::Lock;
 use crate::project::Project;
@@ -38,53 +56,13 @@ fn fail(diagnostic: Diagnostic) -> LexLeanError {
     LexLeanError::from_diagnostic(diagnostic)
 }
 
-/// The prose-free generated-source audit (§18.2, LN-11): a token-level scan
-/// of every generated `.lean` before verification. A violation here is an
-/// internal invariant failure, because only this compiler writes the files.
-fn generated_source_audit(text: &str) -> Result<(), String> {
-    // Spelled in halves so the repository forbidden-token audits can scan
-    // their own gate sources without matching these mentions.
-    let forbidden_idents = [
-        concat!("sor", "ry"),
-        concat!("ad", "mit"),
-        concat!("axi", "om"),
-        concat!("opa", "que"),
-        concat!("un", "safe"),
-        concat!("native_", "decide"),
-    ];
-    let bytes = text.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        let c = bytes[index] as char;
-        if c == '"' {
-            return Err("a string literal in generated Lean".to_owned());
-        }
-        if c == '-' && bytes.get(index + 1) == Some(&b'-') {
-            return Err("a line comment in generated Lean".to_owned());
-        }
-        if c == '/' && bytes.get(index + 1) == Some(&b'-') {
-            return Err("a block comment in generated Lean".to_owned());
-        }
-        if c.is_ascii_alphabetic() || c == '_' {
-            let start = index;
-            while index < bytes.len()
-                && ((bytes[index] as char).is_ascii_alphanumeric()
-                    || bytes[index] == b'_'
-                    || bytes[index] == b'.')
-            {
-                index += 1;
-            }
-            let token = &text[start..index];
-            for forbidden in forbidden_idents {
-                if token == forbidden {
-                    return Err(format!("forbidden token `{forbidden}` in generated Lean"));
-                }
-            }
-        } else {
-            index += 1;
-        }
-    }
-    Ok(())
+fn internal(message: impl std::fmt::Display) -> Diagnostic {
+    Diagnostic::new(code!("LLI9001"), format!("phase verify: {message}"))
+}
+
+/// The prose-free generated-source audit (§18.2, LN-11) over one file.
+pub fn generated_source_audit(text: &str, allow_print_axioms: bool) -> Result<(), String> {
+    source_audit::audit(text, allow_print_axioms)
 }
 
 fn write_staged(root: &std::path::Path, relative: &str, bytes: &[u8]) -> Result<(), LexLeanError> {
@@ -117,103 +95,314 @@ fn write_staged(root: &std::path::Path, relative: &str, bytes: &[u8]) -> Result<
         })
 }
 
-/// Remap a Lean error location against the generated module maps (§20.4).
+/// One parsed Lean message location: `path:line:col: severity: message`
+/// with its indented continuation lines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeanMessage {
+    /// The reported path as printed.
+    pub path: String,
+    /// One-based line.
+    pub line: usize,
+    /// Zero-based column in Unicode scalar values.
+    pub column: usize,
+    /// `error`, `warning`, or `info`.
+    pub severity: String,
+    /// The message text with continuation lines joined by LF.
+    pub message: String,
+}
+
+/// Parse every Lean message from combined process output (§20.4). Lines
+/// that do not open a message continue the previous one.
+#[must_use]
+pub fn parse_lean_messages(output: &str) -> Vec<LeanMessage> {
+    let mut messages: Vec<LeanMessage> = Vec::new();
+    for line in output.lines() {
+        let opened = (|| {
+            // The path may contain `:` on no supported host, so the split
+            // takes the first three fields.
+            let mut parts = line.splitn(4, ':');
+            let path = parts.next()?;
+            let line_number = parts.next()?.trim().parse::<usize>().ok()?;
+            let column = parts.next()?.trim().parse::<usize>().ok()?;
+            let rest = parts.next()?.trim_start();
+            let (severity, message) = rest.split_once(':')?;
+            let severity = severity.trim();
+            if !matches!(severity, "error" | "warning" | "info") {
+                return None;
+            }
+            Some(LeanMessage {
+                path: path.to_owned(),
+                line: line_number,
+                column,
+                severity: severity.to_owned(),
+                message: message.trim().to_owned(),
+            })
+        })();
+        match opened {
+            Some(message) => messages.push(message),
+            None => {
+                if let Some(last) = messages.last_mut() {
+                    if !line.trim().is_empty() {
+                        last.message.push('\n');
+                        last.message.push_str(line.trim_end());
+                    }
+                }
+            }
+        }
+    }
+    messages
+}
+
+/// The byte offset of a Lean location in generated text: Lean columns count
+/// Unicode scalar values (§20.1), so the column is converted per line.
+#[must_use]
+pub fn lean_position_to_byte(text: &str, line: usize, column: usize) -> Option<usize> {
+    let mut offset = 0usize;
+    for (index, text_line) in text.split('\n').enumerate() {
+        if index + 1 == line {
+            let within: usize = text_line.chars().take(column).map(char::len_utf8).sum();
+            return Some(offset + within);
+        }
+        offset += text_line.len() + 1;
+    }
+    None
+}
+
+fn source_span(checked: &CheckedProject, module: &RenderedModule, range: (usize, usize)) -> Span {
+    let path = module
+        .map
+        .sources
+        .first()
+        .map_or_else(String::new, |source| match source {
+            crate::artifact::source_map::MapSource::File { path, .. } => path.clone(),
+            _ => String::new(),
+        });
+    let position = |byte: usize| {
+        checked
+            .modules
+            .get(&module.module)
+            .map_or((1, 1), |checked_module| {
+                let prefix =
+                    &checked_module.normalized[..byte.min(checked_module.normalized.len())];
+                let line = prefix.matches('\n').count() + 1;
+                let column = prefix
+                    .rsplit('\n')
+                    .next()
+                    .map_or(1, |tail| tail.chars().count() + 1);
+                (line, column)
+            })
+    };
+    let (line_start, column_start) = position(range.0);
+    let (line_end, column_end) = position(range.1);
+    Span {
+        path,
+        byte_start: range.0,
+        byte_end: range.1,
+        line_start,
+        column_start,
+        line_end,
+        column_end,
+    }
+}
+
+/// The source range of the declaration component enclosing a generated
+/// byte position: the nearest preceding `declaration`-role mapping.
+fn enclosing_declaration_range(module: &RenderedModule, offset: usize) -> Option<(usize, usize)> {
+    module
+        .map
+        .mappings
+        .iter()
+        .filter(|mapping| {
+            mapping.artifact == 0
+                && mapping.role == MapRole::Declaration
+                && mapping.gen_start <= offset
+        })
+        .max_by_key(|mapping| mapping.gen_start)
+        .and_then(|mapping| mapping.src_range)
+}
+
+/// Remap every Lean error location against the generated module maps
+/// (§20.4): the smallest enclosing mapping wins; a position no mapping
+/// encloses falls back to the enclosing declaration component with the
+/// generated range kept as a note.
 fn remap_lean_failure(
     checked: &CheckedProject,
     build: &RenderedBuild,
     module_lean_name: &str,
-    stderr: &str,
-    project_span_fallback: Option<Span>,
-) -> Diagnostic {
-    // Lean reports `path:line:col: error: message`.
-    for line in stderr.lines() {
-        let mut parts = line.splitn(4, ':');
-        let (Some(path_part), Some(line_part), Some(column_part), Some(message)) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
-        else {
+    output: &str,
+) -> Vec<Diagnostic> {
+    let Some(module) = build
+        .modules
+        .iter()
+        .find(|module| module.lean_module == module_lean_name)
+    else {
+        return vec![Diagnostic::new(
+            code!("LLV7002"),
+            format!("Lean rejected `{module_lean_name}`: {}", output.trim_end()),
+        )];
+    };
+    let mut diagnostics = Vec::new();
+    for message in parse_lean_messages(output) {
+        if message.severity == "info" {
             continue;
-        };
-        let (Ok(line_number), Ok(column_number)) = (
-            line_part.trim().parse::<usize>(),
-            column_part.trim().parse::<usize>(),
-        ) else {
-            continue;
-        };
-        let Some(module) = build
-            .modules
-            .iter()
-            .find(|module| module.lean_module == module_lean_name)
-        else {
-            break;
-        };
-        // Byte position from one-based line and zero-based column.
-        let mut offset = 0usize;
-        for (index, text_line) in module.lean_text.split('\n').enumerate() {
-            if index + 1 == line_number {
-                offset += column_number.min(text_line.len());
-                break;
-            }
-            offset += text_line.len() + 1;
         }
         let mut diagnostic = Diagnostic::new(
             code!("LLV7002"),
-            format!("Lean rejected `{module_lean_name}`:{}", message.trim_end()),
+            format!("Lean rejected `{module_lean_name}`: {}", message.message),
         );
-        if let Some(mapping) = module.map.remap(0, offset) {
-            if let Some((source_start, source_end)) = mapping.src_range {
-                let path =
-                    module
-                        .map
-                        .sources
-                        .first()
-                        .map_or_else(String::new, |source| match source {
-                            crate::artifact::source_map::MapSource::File { path, .. } => {
-                                path.clone()
-                            }
-                            _ => String::new(),
-                        });
-                let position = |byte: usize| {
-                    checked
-                        .modules
-                        .get(&module.module)
-                        .map_or((1, 1), |checked_module| {
-                            let prefix = &checked_module.normalized
-                                [..byte.min(checked_module.normalized.len())];
-                            let line = prefix.matches('\n').count() + 1;
-                            let column = prefix
-                                .rsplit('\n')
-                                .next()
-                                .map_or(1, |tail| tail.chars().count() + 1);
-                            (line, column)
-                        })
-                };
-                let (line_start, column_start) = position(source_start);
-                let (line_end, column_end) = position(source_end);
-                diagnostic = diagnostic.with_span(Span {
-                    path,
-                    byte_start: source_start,
-                    byte_end: source_end,
-                    line_start,
-                    column_start,
-                    line_end,
-                    column_end,
-                });
+        let offset = lean_position_to_byte(&module.lean_text, message.line, message.column);
+        let generated_note = format!(
+            "generated location: {}:{}:{}",
+            message.path, message.line, message.column
+        );
+        match offset {
+            Some(offset) => match module
+                .map
+                .remap(0, offset)
+                .and_then(|mapping| mapping.src_range)
+            {
+                Some(range) => {
+                    diagnostic = diagnostic
+                        .with_span(source_span(checked, module, range))
+                        .with_note(generated_note);
+                }
+                None => {
+                    if let Some(range) = enclosing_declaration_range(module, offset) {
+                        diagnostic = diagnostic.with_span(source_span(checked, module, range));
+                    }
+                    let generated_end = module.lean_text[offset..]
+                        .find(char::is_whitespace)
+                        .map_or(module.lean_text.len(), |length| offset + length);
+                    diagnostic = diagnostic.with_note(format!(
+                        "{generated_note} (unmapped generated bytes {offset}..{generated_end})"
+                    ));
+                }
+            },
+            None => {
+                diagnostic = diagnostic.with_note(generated_note);
             }
-        } else if let Some(span) = project_span_fallback.clone() {
-            diagnostic = diagnostic.with_span(span);
         }
-        diagnostic = diagnostic.with_note(format!(
-            "generated location: {path_part}:{line_number}:{column_number}"
-        ));
-        return diagnostic;
+        diagnostics.push(diagnostic);
     }
-    Diagnostic::new(
-        code!("LLV7002"),
-        format!("Lean rejected `{module_lean_name}`: {}", stderr.trim_end()),
-    )
+    if diagnostics.is_empty() {
+        diagnostics.push(Diagnostic::new(
+            code!("LLV7002"),
+            format!("Lean rejected `{module_lean_name}`: {}", output.trim_end()),
+        ));
+    }
+    diagnostics
+}
+
+/// The fixed `leanchecker` identity probe (module documentation): the
+/// module name no workspace defines and the exact normalized answer the
+/// pinned toolchain gives.
+pub const LEANCHECKER_IDENTITY_MODULE: &str = "LexLeanIdentityProbe";
+/// The expected normalized identity output.
+pub const LEANCHECKER_IDENTITY_OUTPUT: &str =
+    "uncaught exception: Could not find any oleans for: LexLeanIdentityProbe\n";
+
+/// Run the identity probe and record its output as `leanchecker`'s
+/// version output; a different answer is a toolchain mismatch (LLV7001).
+fn leanchecker_identity(
+    toolchain: &Toolchain,
+    lean_path: &str,
+    workspace_root: &Utf8Path,
+    limits: &crate::config::Limits,
+    normalizer: &Normalizer,
+) -> Result<String, Diagnostic> {
+    let record = leanchecker::run_leanchecker(
+        toolchain,
+        LEANCHECKER_IDENTITY_MODULE,
+        lean_path,
+        workspace_root,
+        limits,
+        normalizer,
+    )?;
+    let combined = format!("{}{}", record.stdout.trim_end(), record.stderr.trim_end());
+    let observed = format!("{}\n", combined.trim_end());
+    if record.exit_code == 0 || observed != LEANCHECKER_IDENTITY_OUTPUT {
+        return Err(Diagnostic::new(
+            code!("LLV7001"),
+            format!(
+                "leanchecker identity probe answered exit {} with `{}`, expected `{}`",
+                record.exit_code,
+                observed.trim_end(),
+                LEANCHECKER_IDENTITY_OUTPUT.trim_end()
+            ),
+        ));
+    }
+    Ok(observed)
+}
+
+/// Compare a staged directory against a published one: every file
+/// byte-equal, no extra or missing files on either side.
+fn validate_existing(staged: &std::path::Path, published: &Utf8Path) -> Result<(), String> {
+    fn files_of(root: &std::path::Path) -> BTreeMap<String, std::path::PathBuf> {
+        let mut out = BTreeMap::new();
+        for entry in walkdir::WalkDir::new(root).into_iter().flatten() {
+            if entry.file_type().is_file() {
+                if let Ok(relative) = entry.path().strip_prefix(root) {
+                    out.insert(
+                        relative.to_string_lossy().replace('\\', "/"),
+                        entry.path().to_path_buf(),
+                    );
+                }
+            }
+        }
+        out
+    }
+    let staged_files = files_of(staged);
+    let published_files = files_of(published.as_std_path());
+    for name in staged_files.keys() {
+        if !published_files.contains_key(name) {
+            return Err(format!("`{name}` is missing from the published set"));
+        }
+    }
+    for name in published_files.keys() {
+        if !staged_files.contains_key(name) {
+            return Err(format!(
+                "`{name}` is an unexplained extra file in the published set"
+            ));
+        }
+    }
+    for (name, staged_path) in &staged_files {
+        // The attestation records the current run's host-bound process
+        // records; content-addressing already guarantees equality of the
+        // body that determines the ID, so the file must be byte-equal too.
+        let published_path = &published_files[name];
+        let (Ok(a), Ok(b)) = (std::fs::read(staged_path), std::fs::read(published_path)) else {
+            return Err(format!("`{name}` could not be read for comparison"));
+        };
+        if a != b {
+            return Err(format!("`{name}` differs from the published bytes"));
+        }
+    }
+    Ok(())
+}
+
+/// Fail on any warning or unexpected output from a successful Lean process
+/// (§20.2, §22.3): `accepted_stdout` is the only stdout allowed.
+fn require_silent(
+    record: &ChildRecord,
+    stage: &str,
+    accepted_stdout: bool,
+) -> Result<(), Diagnostic> {
+    let stdout_noise = !accepted_stdout && !record.stdout.trim().is_empty();
+    if stdout_noise || !record.stderr.trim().is_empty() {
+        return Err(Diagnostic::new(
+            code!("LLV7006"),
+            format!(
+                "unexpected output during {stage}: {}{}",
+                record.stdout.trim_end(),
+                record.stderr.trim_end()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Run the complete verification pipeline (§22.1) over a rendered build.
+/// The caller holds the project mutation lock for the whole run (§21.8).
 #[allow(clippy::too_many_lines)]
 pub fn run(
     project: &Project,
@@ -224,7 +413,7 @@ pub fn run(
     let limits = project.config.limits;
 
     // Stage 4: toolchain preflight (§22.2).
-    let toolchain: Toolchain = toolchain::preflight().map_err(fail)?;
+    let mut toolchain: Toolchain = toolchain::preflight().map_err(fail)?;
     let toolchain_bin = toolchain.root.join("bin");
 
     // Stage 5: Lake workspace preflight (§10.4) and module-name conflicts
@@ -242,14 +431,56 @@ pub fn run(
     all_names.push(audit_name.clone());
     workspace::reject_module_conflicts(project, &all_names).map_err(fail)?;
 
-    // Generated-source audit before any Lean invocation (§18.2).
+    // Every external reached by any module (§18.8): direct globals, defined
+    // values, and case constructors.
+    let mut externals: BTreeMap<String, crate::ir::term::ExternalConstRef> =
+        checked.external_used.clone();
+    for checked_module in checked.modules.values() {
+        externals.extend(crate::backend::lean::document_externals(
+            &checked_module.document,
+            &checked.closure,
+        ));
+    }
+    let probe = crate::backend::lean::probe_module(&semantic_hex32, &externals, &checked.closure)
+        .map_err(fail)?;
+    debug_assert_eq!(probe.name, probe_name);
+
+    // Stage 9 preparation: the audit module text is fixed by the build.
+    let mut declaration_names: Vec<String> = Vec::new();
     for module in &build.modules {
-        if let Err(reason) = generated_source_audit(&module.lean_text) {
-            return Err(fail(Diagnostic::new(
-                code!("LLI9001"),
-                format!("phase verify: {reason}"),
-            )));
+        let document = &checked.modules[&module.module].document;
+        for declaration in document.declarations() {
+            declaration_names.push(format!("{}.{}", module.lean_module, declaration.lean_name));
         }
+    }
+    declaration_names.sort();
+    let generated_module_names: Vec<String> = build
+        .modules
+        .iter()
+        .map(|module| module.lean_module.clone())
+        .collect();
+    let (audit_module_name, audit_text) = crate::backend::lean::audit_module(
+        &semantic_hex32,
+        &generated_module_names,
+        &declaration_names,
+    );
+    debug_assert_eq!(audit_module_name, audit_name);
+
+    // Generated-source audit before any Lean invocation (§18.2): the build
+    // modules, the probe, and the audit module itself.
+    for module in &build.modules {
+        if let Err(reason) = generated_source_audit(&module.lean_text, false) {
+            return Err(fail(internal(format!(
+                "`{}`: {reason}",
+                module.lean_module
+            ))));
+        }
+    }
+    if let Err(reason) = generated_source_audit(&probe.text, false) {
+        return Err(fail(internal(format!("probe module: {reason}"))));
+    }
+    if let Err(reason) = generated_source_audit(&audit_text, true) {
+        return Err(fail(internal(format!("audit module: {reason}"))));
     }
 
     // Staging under the build root with owner-only permissions (§25.6).
@@ -305,6 +536,12 @@ pub fn run(
     // Stage the compilation tree.
     let src_root = staging_utf8.join("lean-src");
     let olean_root = staging_utf8.join("oleans");
+    std::fs::create_dir_all(olean_root.as_std_path()).map_err(|io_error| {
+        fail(Diagnostic::new(
+            code!("LLB6003"),
+            format!("staging oleans: {io_error}"),
+        ))
+    })?;
     for module in &build.modules {
         let module_path = module.lean_module.replace('.', "/");
         write_staged(
@@ -316,18 +553,21 @@ pub fn run(
     let lean_path_env = format!("{olean_root}");
     let mut process_records: Vec<ChildRecord> = Vec::new();
 
-    // Stage 6: the external-interface probe (§18.8).
-    let (probe_module_name, probe_text) = crate::backend::lean::probe_module(
-        &semantic_hex32,
-        &checked.external_used,
-        &checked.closure,
+    // The leanchecker identity (module documentation), before any replay.
+    toolchain.leanchecker.version_output = leanchecker_identity(
+        &toolchain,
+        &lean_path_env,
+        &workspace_root,
+        &limits,
+        &normalizer,
     )
     .map_err(fail)?;
-    debug_assert_eq!(probe_module_name, probe_name);
+
+    // Stage 6: the external-interface probe (§18.8).
     write_staged(
         staging.path(),
         &format!("probe/{probe_name}.lean"),
-        probe_text.as_bytes(),
+        probe.text.as_bytes(),
     )?;
     let probe_source = staging_utf8
         .join("probe")
@@ -352,25 +592,43 @@ pub fn run(
     )
     .map_err(fail)?;
     if probe_record.exit_code != 0 {
-        return Err(fail(Diagnostic::new(
+        // Lean writes messages to stdout under `lake env lean`; both
+        // normalized streams are reported, and every failing line is
+        // attributed to its entry (S11).
+        let combined = format!("{}{}", probe_record.stdout, probe_record.stderr);
+        let mut diagnostic = Diagnostic::new(
             code!("LLT4003"),
             format!(
                 "an external-interface probe failed to elaborate: {}",
-                probe_record.stderr.trim_end()
+                combined.trim_end()
             ),
-        )));
+        );
+        let mut noted: BTreeSet<String> = BTreeSet::new();
+        for message in parse_lean_messages(&combined) {
+            if let Some(row) = probe.entry_at_line(message.line) {
+                if noted.insert(row.entry.clone()) {
+                    diagnostic = diagnostic.with_note(format!(
+                        "probe line {} belongs to entry `{}` (probe index {}): {}",
+                        row.line, row.entry, row.index, message.message
+                    ));
+                }
+            }
+        }
+        return Err(fail(diagnostic));
     }
+    require_silent(&probe_record, "the external-interface probe", false).map_err(fail)?;
     write_staged(
         staging.path(),
         "probe/process.json",
         &probe_record.to_json().to_file_bytes(),
     )?;
+    process_records.push(probe_record);
 
     // Stage 7: module elaboration in topological import order (§22.3).
-    let ordered: Vec<&crate::api::RenderedModule> = {
+    let ordered: Vec<&RenderedModule> = {
         let mut order = Vec::new();
         let mut placed: BTreeSet<&str> = BTreeSet::new();
-        let mut remaining: Vec<&crate::api::RenderedModule> = build.modules.iter().collect();
+        let mut remaining: Vec<&RenderedModule> = build.modules.iter().collect();
         while !remaining.is_empty() {
             let before = remaining.len();
             remaining.retain(|module| {
@@ -388,10 +646,7 @@ pub fn run(
                 }
             });
             if remaining.len() == before {
-                return Err(fail(Diagnostic::new(
-                    code!("LLI9001"),
-                    "phase verify: module order did not converge",
-                )));
+                return Err(fail(internal("module order did not converge")));
             }
         }
         order
@@ -433,27 +688,21 @@ pub fn run(
             // Lean reports compile errors on stdout under `lake env lean`;
             // remap over both streams (§20.4).
             let combined = format!("{}\n{}", record.stdout, record.stderr);
-            return Err(fail(remap_lean_failure(
+            return Err(LexLeanError::from_diagnostics(remap_lean_failure(
                 checked,
                 build,
                 &module.lean_module,
                 &combined,
-                None,
             )));
         }
         // Any warning or unknown informational message fails verification
         // (§20.2, §22.3).
-        if !record.stdout.trim().is_empty() || !record.stderr.trim().is_empty() {
-            return Err(fail(Diagnostic::new(
-                code!("LLV7006"),
-                format!(
-                    "unexpected output while compiling `{}`: {}{}",
-                    module.lean_module,
-                    record.stdout.trim_end(),
-                    record.stderr.trim_end()
-                ),
-            )));
-        }
+        require_silent(
+            &record,
+            &format!("compiling `{}`", module.lean_module),
+            false,
+        )
+        .map_err(fail)?;
         if !olean.as_std_path().is_file() {
             return Err(fail(Diagnostic::new(
                 code!("LLV7002"),
@@ -470,7 +719,7 @@ pub fn run(
 
     // Stage 8: separate-process leanchecker replay per module, sorted
     // (§22.4).
-    let mut sorted_modules: Vec<&crate::api::RenderedModule> = build.modules.iter().collect();
+    let mut sorted_modules: Vec<&RenderedModule> = build.modules.iter().collect();
     sorted_modules.sort_by(|a, b| a.lean_module.cmp(&b.lean_module));
     for module in &sorted_modules {
         let record = leanchecker::replay_module(
@@ -491,25 +740,6 @@ pub fn run(
     }
 
     // Stage 9–10: the audit module and exact output parsing (§18.9, §22.5).
-    let mut declaration_names: Vec<String> = Vec::new();
-    for module in &build.modules {
-        let document = &checked.modules[&module.module].document;
-        for declaration in document.declarations() {
-            declaration_names.push(format!("{}.{}", module.lean_module, declaration.lean_name));
-        }
-    }
-    declaration_names.sort();
-    let generated_module_names: Vec<String> = build
-        .modules
-        .iter()
-        .map(|module| module.lean_module.clone())
-        .collect();
-    let (audit_module_name, audit_text) = crate::backend::lean::audit_module(
-        &semantic_hex32,
-        &generated_module_names,
-        &declaration_names,
-    );
-    debug_assert_eq!(audit_module_name, audit_name);
     write_staged(
         staging.path(),
         &format!("audit/{audit_name}.lean"),
@@ -540,9 +770,16 @@ pub fn run(
     if audit_record.exit_code != 0 {
         return Err(fail(Diagnostic::new(
             code!("LLV7004"),
-            format!("the axiom audit failed: {}", audit_record.stderr.trim_end()),
+            format!(
+                "the axiom audit failed: {}{}",
+                audit_record.stdout.trim_end(),
+                audit_record.stderr.trim_end()
+            ),
         )));
     }
+    // The audit's stdout is exactly the `#print axioms` records (checked by
+    // the parser); its stderr must be empty (§20.2).
+    require_silent(&audit_record, "the axiom audit", true).map_err(fail)?;
     write_staged(
         staging.path(),
         "audit/output.txt",
@@ -555,6 +792,7 @@ pub fn run(
     )?;
     let observed =
         axiom::parse_audit_output(&audit_record.stdout, &declaration_names).map_err(fail)?;
+    process_records.push(audit_record);
 
     // Stage 11: per-declaration policy enforcement (§22.6).
     let mut declaration_rows: Vec<Json> = Vec::new();
@@ -573,7 +811,6 @@ pub fn run(
                     ),
                 )));
             }
-            let _ = matches!(declaration.body, DeclBody::TheoremLike { .. });
             declaration_rows.push(Json::object(vec![
                 ("name", Json::Str(full_name)),
                 (
@@ -603,8 +840,9 @@ pub fn run(
         }
     }
 
-    // Stage 12: optional configured PDF rendering (§19.7).
-    let mut pdf_row: Option<Json> = None;
+    // Stage 12: optional configured PDF rendering (§19.7): one row and two
+    // process records per module.
+    let mut pdf_rows: Vec<Json> = Vec::new();
     if let Some(provider) = &project.config.pdf {
         for module in &build.modules {
             let result = crate::backend::pdf::run_provider(
@@ -620,16 +858,37 @@ pub fn run(
                 &format!("pdf/{}.pdf", module.lean_module),
                 &result.pdf_bytes,
             )?;
-            pdf_row = Some(Json::object(vec![
+            let version_record = result
+                .version
+                .to_child_record(&module.lean_module, &normalizer);
+            let compile_record = result
+                .compile
+                .to_child_record(&module.lean_module, &normalizer);
+            write_staged(
+                staging.path(),
+                &format!("pdf/{}.version.json", module.lean_module),
+                &version_record.to_json().to_file_bytes(),
+            )?;
+            write_staged(
+                staging.path(),
+                &format!("pdf/{}.compile.json", module.lean_module),
+                &compile_record.to_json().to_file_bytes(),
+            )?;
+            pdf_rows.push(Json::object(vec![
                 ("module", Json::Str(module.lean_module.clone())),
                 ("recipe_id", Json::Str(result.recipe_id.to_hex())),
                 ("pdf_sha256", Json::Str(result.pdf_sha256.to_hex())),
                 ("byte_length", Json::from_usize(result.pdf_bytes.len())),
+                ("version", version_record.to_json()),
+                ("compile", compile_record.to_json()),
             ]));
+            process_records.push(version_record);
+            process_records.push(compile_record);
         }
     }
 
-    // Stage 13: no unexpected absolute paths in successful output (§22.7).
+    // Stage 13: no unexpected absolute paths in successful output (§22.7),
+    // over every process record.
     for record in &process_records {
         if normalizer.has_unexpected_absolute_path(&record.stdout)
             || normalizer.has_unexpected_absolute_path(&record.stderr)
@@ -637,10 +896,39 @@ pub fn run(
             return Err(fail(Diagnostic::new(
                 code!("LLV7006"),
                 format!(
-                    "unexpected absolute path in the output of `{}`",
-                    record.tool
+                    "unexpected absolute path in the output of `{}`{}",
+                    record.tool,
+                    record
+                        .module
+                        .as_ref()
+                        .map_or_else(String::new, |module| format!(" for `{module}`"))
                 ),
             )));
+        }
+    }
+
+    // Remove the compilation scratch tree; the fixed §22.8 artifact set
+    // keeps exactly `oleans/*.olean` (the module-system `.olean.private`,
+    // `.olean.server`, and `.ir` intermediates are not part of the set and
+    // are removed once every consumer — later modules, the replay, and the
+    // audit — has run).
+    let _ = std::fs::remove_dir_all(src_root.as_std_path());
+    for entry in walkdir::WalkDir::new(olean_root.as_std_path())
+        .into_iter()
+        .flatten()
+    {
+        if entry.file_type().is_file()
+            && entry
+                .path()
+                .extension()
+                .is_none_or(|extension| extension != "olean")
+        {
+            std::fs::remove_file(entry.path()).map_err(|io_error| {
+                fail(Diagnostic::new(
+                    code!("LLB6003"),
+                    format!("removing {}: {io_error}", entry.path().display()),
+                ))
+            })?;
         }
     }
 
@@ -662,12 +950,17 @@ pub fn run(
         ]));
     }
 
-    // Stage 14: the attestation (§22.9). No timestamp is hashed.
+    // Stage 14: the attestation (§22.9). No timestamp is hashed. The
+    // running executable must be readable to be recorded; nothing is
+    // fabricated in its place.
     let lexlean_executable_sha256 = std::env::current_exe()
-        .ok()
-        .and_then(|path| std::fs::read(path).ok())
+        .and_then(std::fs::read)
         .map(|bytes| Sha256Digest::of(&bytes))
-        .unwrap_or(Sha256Digest([0; 32]));
+        .map_err(|io_error| {
+            fail(internal(format!(
+                "reading the running executable: {io_error}"
+            )))
+        })?;
     let tool_json = |tool: &toolchain::Tool| {
         Json::object(vec![
             ("version_output", Json::Str(tool.version_output.clone())),
@@ -740,8 +1033,8 @@ pub fn run(
         ),
         ("declarations", Json::Arr(declaration_rows)),
     ];
-    if let Some(pdf) = pdf_row {
-        body_fields.push(("pdf", pdf));
+    if !pdf_rows.is_empty() {
+        body_fields.push(("pdf", Json::Arr(pdf_rows)));
     }
     let body = Json::object(body_fields);
     let this_attestation_id = attestation_id(&body.to_canonical_string());
@@ -757,34 +1050,24 @@ pub fn run(
     };
     write_staged(staging.path(), "attestation.json", &full.to_file_bytes())?;
 
-    // Remove the compilation scratch tree; the fixed §22.8 artifact set
-    // keeps only sources, maps, coverage, oleans, probe, audit, and process
-    // records. The module-system `.olean.private`/`.olean.server` parts
-    // stay with their `.olean`; the `.ir` intermediate does not.
-    let _ = std::fs::remove_dir_all(src_root.as_std_path());
-    for entry in walkdir::WalkDir::new(olean_root.as_std_path())
-        .into_iter()
-        .flatten()
-    {
-        if entry.file_type().is_file()
-            && entry
-                .path()
-                .extension()
-                .is_some_and(|extension| extension == "ir")
-        {
-            let _ = std::fs::remove_file(entry.path());
-        }
-    }
-
     // Stage 15: atomic publication (§21.8).
     let target = verified_root.join(this_attestation_id.to_hex());
     if target.as_std_path().exists() {
-        // A repeated verification of identical content republishes the
-        // identical set; anything else refuses to overwrite.
-        return Ok(VerifyOutcome {
-            attestation_id: this_attestation_id,
-            root: target,
-        });
+        // A repeated verification of identical content reuses the
+        // published set only after every staged file validates against it
+        // (§21.8); anything else refuses to overwrite unexplained bytes.
+        return match validate_existing(staging.path(), &target) {
+            Ok(()) => Ok(VerifyOutcome {
+                attestation_id: this_attestation_id,
+                root: target,
+            }),
+            Err(reason) => Err(fail(Diagnostic::new(
+                code!("LLB6003"),
+                format!(
+                    "existing verified directory {target} does not validate against this run: {reason}; refusing to overwrite unexplained bytes"
+                ),
+            ))),
+        };
     }
     let staged = staging.keep();
     std::fs::rename(&staged, target.as_std_path()).map_err(|io_error| {
@@ -794,6 +1077,7 @@ pub fn run(
             format!("publishing {target}: {io_error}"),
         ))
     })?;
+    crate::artifact::fsync_dir(verified_root.as_std_path());
     Ok(VerifyOutcome {
         attestation_id: this_attestation_id,
         root: target,

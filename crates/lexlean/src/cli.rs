@@ -273,6 +273,7 @@ pub fn run(
 
     let mut modules: BTreeSet<String> = BTreeSet::new();
     let mut artifacts: Vec<String> = Vec::new();
+    let mut ids = crate::api::CommandIds::default();
     let mut summary = String::new();
     let outcome: Result<(), LexLeanError> = (|| match command {
         CommandKind::Explain { code: requested } => match explain_text(&requested) {
@@ -328,6 +329,8 @@ pub fn run(
                         selection: selection_from(all, inputs)?,
                     })?;
                     modules = result.units.keys().cloned().collect();
+                    ids.source_id = Some(result.source_id);
+                    ids.semantic_id = Some(result.semantic_id);
                     summary = format!(
                         "checked {} modules (source {}, semantic {})\n",
                         result.units.len(),
@@ -341,6 +344,9 @@ pub fn run(
                         selection: selection_from(all, inputs)?,
                     })?;
                     modules = result.units.keys().cloned().collect();
+                    ids.source_id = Some(result.source_id);
+                    ids.semantic_id = Some(result.semantic_id);
+                    ids.build_id = result.build_id;
                     if let Some(id) = result.build_id {
                         artifacts.push(format!(
                             "{}/build/{}",
@@ -360,6 +366,10 @@ pub fn run(
                         selection: selection_from(all, inputs)?,
                     })?;
                     modules = result.units.keys().cloned().collect();
+                    ids.source_id = Some(result.source_id);
+                    ids.semantic_id = Some(result.semantic_id);
+                    ids.build_id = Some(result.build_id);
+                    ids.attestation_id = Some(result.attestation_id);
                     artifacts.push(format!(
                         "{}/verified/{}",
                         engine.project().config.build_root,
@@ -405,7 +415,14 @@ pub fn run(
     if json_mode {
         let empty = Vec::new();
         let diagnostics = error.as_ref().map_or(&empty, |e| &e.diagnostics);
-        let json = command_result_json(command_name, exit_code, &modules, &artifacts, diagnostics);
+        let json = command_result_json(
+            command_name,
+            exit_code,
+            &modules,
+            &artifacts,
+            diagnostics,
+            &ids,
+        );
         let _ = stdout.write_all(&json.to_file_bytes());
     } else {
         if exit_code == 0 && !summary.is_empty() {

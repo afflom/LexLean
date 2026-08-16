@@ -3,6 +3,28 @@
 //! canonical glossary form, every mathematical construct from LRE and the
 //! renderer-token registry, and every structural control from the fixed
 //! backend, with complete output coverage (§19.6).
+//!
+//! Fixed rendering decisions the specification leaves to the backend:
+//!
+//! - **Deep headings** (§19.3): depth 0 is `\section{...}`, depth 1 is
+//!   `\subsection{...}`, and every deeper heading is the registered bold
+//!   construct `\textbf{...}` on its own line.
+//! - **Section parameters** (§19.3) render immediately below the heading
+//!   and its label as one display `\[\mathrm{Parameters}: \forall x \in T;
+//!   \forall y \in U\]`, one `\forall x \in T` clause per parameter in
+//!   scope order, separated by `;`.
+//! - **Calculations** (§19.5) render as one `align*` display with one step
+//!   per row: the first row is `start &= t_1 && \text{by } p_1 \\`, every
+//!   later row is `&= t_i && \text{by } p_i`, rows separated by `\\`; the
+//!   relation glyph is the equality token and the justification is the
+//!   step's proof term rendered in math.
+//! - **Proof branches** (§19.5) are visible: every `cases`/`induction`
+//!   branch opens with `Case <constructor> [with x, y]:`, every
+//!   `constructor` branch with `Branch \(i\):`, and every structured
+//!   `apply` premise with `Premise \(i\):`, each on its own line before
+//!   the branch's own sentences; the words are core glossary entries.
+//! - **Sorts** render as `\mathrm{Prop}` / `\mathrm{Type}` through the
+//!   registered `sort-prop` / `sort-type` tokens.
 
 use std::collections::BTreeMap;
 
@@ -54,12 +76,19 @@ impl Sink<'_, '_> {
             "punctuation"
         };
         let bytes = row.bytes.clone();
+        // Renderer-token output carries the `renderer` role (§20.3) except
+        // inside the synthetic preamble, which stays `synthetic`.
+        let role = if self.role == MapRole::Synthetic {
+            MapRole::Synthetic
+        } else {
+            MapRole::Renderer
+        };
         self.emitter.piece(
             &bytes,
             kind,
             Origin::RendererToken(id.to_owned()),
             self.source.clone(),
-            self.role,
+            role,
             self.node,
         );
         Ok(())
@@ -81,6 +110,13 @@ impl Sink<'_, '_> {
     }
 
     fn structural(&mut self, text: &str, entry: &str, kind: &str) {
+        // Control sequences map under the `renderer` role (§20.3);
+        // punctuation keeps the enclosing role.
+        let role = if kind == "control" && self.role != MapRole::Synthetic {
+            MapRole::Renderer
+        } else {
+            self.role
+        };
         self.emitter.piece(
             text,
             kind,
@@ -89,7 +125,7 @@ impl Sink<'_, '_> {
                 entry: entry.to_owned(),
             },
             self.source.clone(),
-            self.role,
+            role,
             self.node,
         );
     }
@@ -187,13 +223,17 @@ impl Sink<'_, '_> {
         Ok(())
     }
 
-    fn local(&mut self, id: LocalId) {
-        let spelling = self
-            .ctx
-            .spellings
-            .get(&id)
-            .cloned()
-            .unwrap_or_else(|| format!("x{}", id.0));
+    /// Emit a local by its display spelling. Every rendered local has a
+    /// spelling in the linked IR (binders and proof introductions record
+    /// theirs); a missing one is an internal invariant failure, never an
+    /// invented name.
+    fn local(&mut self, id: LocalId) -> Result<(), Diagnostic> {
+        let spelling = self.ctx.spellings.get(&id).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                code!("LLI9001"),
+                format!("phase latex: local {} has no display spelling", id.0),
+            )
+        })?;
         self.emitter.piece(
             &spelling,
             "word",
@@ -202,6 +242,7 @@ impl Sink<'_, '_> {
             self.role,
             self.node,
         );
+        Ok(())
     }
 
     fn numeral(&mut self, digits: &str) {
@@ -283,16 +324,15 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
         sink.tok("left-paren")?;
     }
     match term {
-        Term::Local(id) => sink.local(*id),
+        Term::Local(id) => sink.local(*id)?,
         Term::NatLiteral { decimal, .. } => sink.numeral(decimal),
         Term::Sort(universe) => {
             sink.tok("mathrm")?;
             sink.brace(true);
-            let name = match universe {
-                crate::ir::term::Universe::Num(0) => "Prop",
-                _ => "Type",
-            };
-            sink.metadata(name, "core:lean-syntax/1");
+            sink.tok(match universe {
+                crate::ir::term::Universe::Num(0) => "sort-prop",
+                _ => "sort-type",
+            })?;
             sink.brace(false);
         }
         Term::Global(global, _) => match entry_for_global(closure, global) {
@@ -330,7 +370,7 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
                     if let Term::Lambda { binders, body } = &explicit_args[0] {
                         for binder in binders {
                             sink.ws(" ");
-                            sink.local(binder.id);
+                            sink.local(binder.id)?;
                         }
                         sink.tok("comma")?;
                         sink.ws(" ");
@@ -443,7 +483,7 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
                 sink.tok("forall")?;
                 for binder in binders {
                     sink.ws(" ");
-                    sink.local(binder.id);
+                    sink.local(binder.id)?;
                 }
                 sink.tok("comma")?;
                 sink.ws(" ");
@@ -452,7 +492,7 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
         }
         Term::Lambda { binders, body } => {
             for binder in binders {
-                sink.local(binder.id);
+                sink.local(binder.id)?;
                 sink.ws(" ");
             }
             sink.tok("mapsto")?;
@@ -569,11 +609,29 @@ fn eval_lre(
             sink.metadata(name, &self_entry.to_string());
             sink.brace(false);
         }
-        Render::Sub(..) | Render::Sup(..) | Render::Frac(..) => {
-            return Err(Diagnostic::new(
-                code!("LLB6002"),
-                "sub, sup, and frac renders need registry rows the language-1.0 registry does not carry",
-            ));
+        Render::Sub(base, script) | Render::Sup(base, script) => {
+            // `base_{script}` / `base^{script}`: the base is grouped so
+            // multi-token bases attach the script as one unit.
+            sink.brace(true);
+            eval_lre(sink, base, self_entry, args)?;
+            sink.brace(false);
+            sink.tok(if matches!(render, Render::Sub(..)) {
+                "subscript"
+            } else {
+                "superscript"
+            })?;
+            sink.brace(true);
+            eval_lre(sink, script, self_entry, args)?;
+            sink.brace(false);
+        }
+        Render::Frac(numerator, denominator) => {
+            sink.tok("frac")?;
+            sink.brace(true);
+            eval_lre(sink, numerator, self_entry, args)?;
+            sink.brace(false);
+            sink.brace(true);
+            eval_lre(sink, denominator, self_entry, args)?;
+            sink.brace(false);
         }
     }
     Ok(())
@@ -776,7 +834,7 @@ fn binder_prose(sink: &mut Sink<'_, '_>, binder: &Binder) -> Result<(), Diagnost
     }
     sink.ws(" ");
     sink.structural("\\(", "math-open", "control");
-    sink.local(binder.id);
+    sink.local(binder.id)?;
     sink.structural("\\)", "math-close", "control");
     Ok(())
 }
@@ -785,13 +843,117 @@ fn period(sink: &mut Sink<'_, '_>) {
     sink.structural(".", "period", "punctuation");
 }
 
+/// The per-step source ranges of one proof in pre-order (§20.3), consumed
+/// as the proof IR is walked so every proof token maps to its own step.
+struct StepCursor<'a> {
+    steps: &'a [(usize, usize)],
+    next: usize,
+}
+
+impl StepCursor<'_> {
+    fn take(&mut self) -> Result<(usize, usize), Diagnostic> {
+        let range = self.steps.get(self.next).copied().ok_or_else(|| {
+            Diagnostic::new(
+                code!("LLI9001"),
+                "phase latex: proof-step origin count does not match the proof IR",
+            )
+        })?;
+        self.next += 1;
+        Ok(range)
+    }
+}
+
+/// `Case <constructor>[ with x, y]:` on its own line (module
+/// documentation): the constructor through its canonical form, binders as
+/// math islands.
+fn case_label(
+    sink: &mut Sink<'_, '_>,
+    case: &crate::ir::proof::CaseProof,
+) -> Result<(), Diagnostic> {
+    sink.word("case-word", true)?;
+    sink.ws(" ");
+    let closure = sink.ctx.closure;
+    let entry = closure.entry(&case.constructor).ok_or_else(|| {
+        Diagnostic::new(
+            code!("LLB6002"),
+            format!("`{}` is unavailable", case.constructor),
+        )
+    })?;
+    // The constructor's canonical text form when it has one, else its
+    // canonical math surface (or arity-zero render) as an island, else the
+    // qualified-ID fallback.
+    let text_form = entry
+        .forms
+        .iter()
+        .find(|form| form.canonical_source && form.channel.covers(Channel::Text))
+        .map(|form| form.id.clone());
+    let math_form = entry
+        .forms
+        .iter()
+        .find(|form| form.canonical_source && form.channel.covers(Channel::Math))
+        .map(|form| form.id.clone());
+    if let Some(form_id) = text_form {
+        sink.form_surface(&case.constructor.package, &case.constructor.entry, &form_id)?;
+    } else {
+        sink.structural("\\(", "math-open", "control");
+        if let Some(form_id) = math_form {
+            sink.form_surface(&case.constructor.package, &case.constructor.entry, &form_id)?;
+        } else if let Some(render) = entry
+            .render_math
+            .clone()
+            .filter(|_| entry.surface_arity == 0)
+        {
+            eval_lre(sink, &render, &case.constructor, &[])?;
+        } else {
+            fallback_qualified(sink, &case.constructor)?;
+        }
+        sink.structural("\\)", "math-close", "control");
+    }
+    if !case.binders.is_empty() {
+        sink.ws(" ");
+        sink.word("with", false)?;
+        for (index, (id, _)) in case.binders.iter().enumerate() {
+            if index > 0 {
+                sink.structural(",", "comma", "punctuation");
+            }
+            sink.ws(" ");
+            sink.structural("\\(", "math-open", "control");
+            sink.local(*id)?;
+            sink.structural("\\)", "math-close", "control");
+        }
+    }
+    sink.structural(":", "colon", "punctuation");
+    sink.ws("\n");
+    Ok(())
+}
+
+/// `Branch \(i\):` / `Premise \(i\):` on its own line.
+fn numbered_label(sink: &mut Sink<'_, '_>, word: &str, index: usize) -> Result<(), Diagnostic> {
+    sink.word(word, true)?;
+    sink.ws(" ");
+    sink.structural("\\(", "math-open", "control");
+    sink.numeral(&(index + 1).to_string());
+    sink.structural("\\)", "math-close", "control");
+    sink.structural(":", "colon", "punctuation");
+    sink.ws("\n");
+    Ok(())
+}
+
 /// Canonical proof prose (§19.5).
 #[allow(clippy::too_many_lines)]
-fn proof_prose(sink: &mut Sink<'_, '_>, proof: &Proof) -> Result<(), Diagnostic> {
+fn proof_prose(
+    sink: &mut Sink<'_, '_>,
+    proof: &Proof,
+    steps: &mut StepCursor<'_>,
+) -> Result<(), Diagnostic> {
+    if !matches!(proof, Proof::Sequence(_)) {
+        let (start, end) = steps.take()?;
+        sink.source = EmitSource::File(start, end);
+    }
     match proof {
-        Proof::Sequence(steps) => {
-            for step in steps {
-                proof_prose(sink, step)?;
+        Proof::Sequence(inner) => {
+            for step in inner {
+                proof_prose(sink, step, steps)?;
             }
         }
         Proof::Intro(locals) => {
@@ -802,7 +964,7 @@ fn proof_prose(sink: &mut Sink<'_, '_>, proof: &Proof) -> Result<(), Diagnostic>
                 }
                 sink.ws(" ");
                 sink.structural("\\(", "math-open", "control");
-                sink.local(*local);
+                sink.local(*local)?;
                 sink.structural("\\)", "math-close", "control");
             }
             period(sink);
@@ -828,8 +990,11 @@ fn proof_prose(sink: &mut Sink<'_, '_>, proof: &Proof) -> Result<(), Diagnostic>
             period(sink);
             sink.ws("\n");
             if let Proof::Apply { premises, .. } = proof {
-                for premise in premises {
-                    proof_prose(sink, premise)?;
+                let head_source = sink.source.clone();
+                for (index, premise) in premises.iter().enumerate() {
+                    sink.source = head_source.clone();
+                    numbered_label(sink, "premise-word", index)?;
+                    proof_prose(sink, premise, steps)?;
                 }
             }
         }
@@ -889,7 +1054,7 @@ fn proof_prose(sink: &mut Sink<'_, '_>, proof: &Proof) -> Result<(), Diagnostic>
             island(sink, proposition, false)?;
             period(sink);
             sink.ws("\n");
-            proof_prose(sink, proof)?;
+            proof_prose(sink, proof, steps)?;
         }
         Proof::Rewrite { target, rules } => {
             sink.word("rewrite-verb", true)?;
@@ -932,8 +1097,11 @@ fn proof_prose(sink: &mut Sink<'_, '_>, proof: &Proof) -> Result<(), Diagnostic>
             sink.ws("\n");
         }
         Proof::Constructor(branches) => {
-            for branch in branches {
-                proof_prose(sink, branch)?;
+            let head_source = sink.source.clone();
+            for (index, branch) in branches.iter().enumerate() {
+                sink.source = head_source.clone();
+                numbered_label(sink, "branch-word", index)?;
+                proof_prose(sink, branch, steps)?;
             }
         }
         Proof::Cases { scrutinee, cases } => {
@@ -948,8 +1116,11 @@ fn proof_prose(sink: &mut Sink<'_, '_>, proof: &Proof) -> Result<(), Diagnostic>
             island(sink, scrutinee, false)?;
             period(sink);
             sink.ws("\n");
+            let head_source = sink.source.clone();
             for case in cases {
-                proof_prose(sink, &case.proof)?;
+                sink.source = head_source.clone();
+                case_label(sink, case)?;
+                proof_prose(sink, &case.proof, steps)?;
             }
         }
         Proof::Induction { scrutinee, cases } => {
@@ -964,21 +1135,48 @@ fn proof_prose(sink: &mut Sink<'_, '_>, proof: &Proof) -> Result<(), Diagnostic>
             island(sink, scrutinee, false)?;
             period(sink);
             sink.ws("\n");
+            let head_source = sink.source.clone();
             for case in cases {
-                proof_prose(sink, &case.proof)?;
+                sink.source = head_source.clone();
+                case_label(sink, case)?;
+                proof_prose(sink, &case.proof, steps)?;
             }
         }
-        Proof::Calculate { start, steps, .. } => {
-            // A displayed aligned chain (§19.5).
-            sink.structural("\\[", "display-open", "control");
+        Proof::Calculate {
+            start,
+            steps: chain,
+            ..
+        } => {
+            // A displayed aligned chain (§19.5, module documentation): one
+            // `align*` row per step with the relation and justification.
+            env_open(sink, "align-star")?;
+            sink.ws("\n");
             math_term(sink, start, 0)?;
-            for step in steps {
+            for (index, step) in chain.iter().enumerate() {
+                if index > 0 {
+                    sink.ws(" ");
+                    sink.tok("newline")?;
+                    sink.ws("\n");
+                }
                 sink.ws(" ");
+                sink.tok("align")?;
                 sink.tok("equals")?;
                 sink.ws(" ");
                 math_term(sink, &step.term, 51)?;
+                sink.ws(" ");
+                sink.tok("align")?;
+                sink.tok("align")?;
+                sink.ws(" ");
+                sink.tok("text")?;
+                sink.brace(true);
+                sink.word("by", false)?;
+                sink.ws(" ");
+                sink.brace(false);
+                sink.ws(" ");
+                math_term(sink, &step.proof, 0)?;
             }
-            sink.structural("\\]", "display-close", "control");
+            sink.ws("\n");
+            env_close(sink, "align-star")?;
             sink.ws("\n");
         }
     }
@@ -994,7 +1192,7 @@ fn rewrite_target_prose(sink: &mut Sink<'_, '_>, target: &RewriteTarget) -> Resu
         }
         RewriteTarget::Hypothesis(id) => {
             sink.structural("\\(", "math-open", "control");
-            sink.local(*id);
+            sink.local(*id)?;
             sink.structural("\\)", "math-close", "control");
         }
     }
@@ -1229,9 +1427,9 @@ fn render_blocks(
                     0 => sink.tok("section")?,
                     1 => sink.tok("subsection")?,
                     _ => {
-                        // Deterministic bold heading beyond two levels
-                        // (§19.3), registered through the mathrm token.
-                        sink.tok("mathrm")?;
+                        // The deterministic bold heading construct beyond
+                        // two levels (§19.3, module documentation).
+                        sink.tok("textbf")?;
                     }
                 }
                 sink.brace(true);
@@ -1256,7 +1454,7 @@ fn render_blocks(
                         sink.ws(" ");
                         sink.tok("forall")?;
                         sink.ws(" ");
-                        sink.local(binder.id);
+                        sink.local(binder.id)?;
                         sink.ws(" ");
                         sink.tok("member")?;
                         sink.ws(" ");
@@ -1283,15 +1481,20 @@ fn render_declaration(
     declaration: &Declaration,
 ) -> Result<(), Diagnostic> {
     let document = &checked.document;
-    let origin = checked
+    // No declaration renders without its source ranges (§20.3 forbids a
+    // fabricated span).
+    let origin: &DeclOrigin = checked
         .decl_origins
         .get(&declaration.component)
-        .cloned()
-        .unwrap_or(DeclOrigin {
-            whole: (0, 0),
-            sentence: (0, 0),
-            proof: None,
-        });
+        .ok_or_else(|| {
+            Diagnostic::new(
+                code!("LLI9001"),
+                format!(
+                    "phase latex: declaration `{}` has no source origin",
+                    declaration.component
+                ),
+            )
+        })?;
     let node = emitter.node("declaration");
     let env_token = match declaration.kind {
         DeclKind::Theorem => "theorem",
@@ -1341,7 +1544,26 @@ fn render_declaration(
         };
         env_open(&mut sink, "proof")?;
         sink.ws("\n");
-        proof_prose(&mut sink, proof)?;
+        let mut cursor = StepCursor {
+            steps: &origin.steps,
+            next: 0,
+        };
+        proof_prose(&mut sink, proof, &mut cursor)?;
+        if cursor.next != cursor.steps.len() {
+            return Err(Diagnostic::new(
+                code!("LLI9001"),
+                format!(
+                    "phase latex: declaration `{}` has {} proof-step origins for {} rendered steps",
+                    declaration.component,
+                    cursor.steps.len(),
+                    cursor.next
+                ),
+            ));
+        }
+        sink.source = match origin.proof {
+            Some((start, end)) => EmitSource::File(start, end),
+            None => EmitSource::File(origin.whole.0, origin.whole.1),
+        };
         env_close(&mut sink, "proof")?;
         sink.ws("\n");
     }

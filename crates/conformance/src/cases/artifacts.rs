@@ -40,6 +40,47 @@ pub(crate) fn run(id: &str) {
             let mut sorted = offsets.clone();
             sorted.sort_unstable();
             assert_eq!(offsets, sorted, "diagnostics sort by position");
+            // A failed check established no ID: absent IDs are omitted,
+            // never null (§20.6).
+            for absent in ["source_id", "semantic_id", "build_id", "attestation_id"] {
+                assert!(
+                    value.get(absent).is_none(),
+                    "`{absent}` is omitted when unknown: {value}"
+                );
+            }
+
+            // A successful check reports the source and semantic IDs; a
+            // build adds the build ID (§20.6).
+            let project = P::example();
+            let checked = support::checked_project(&project);
+            let (exit, stdout, _) = project.cli(&["--diagnostic-format", "json", "check"]);
+            assert_eq!(exit, 0);
+            let value: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+            assert_eq!(
+                value["source_id"].as_str(),
+                Some(checked.source_id.to_hex().as_str()),
+                "check reports the source ID"
+            );
+            assert_eq!(
+                value["semantic_id"].as_str(),
+                Some(checked.semantic_id.to_hex().as_str()),
+                "check reports the semantic ID"
+            );
+            assert!(value.get("build_id").is_none(), "check has no build ID");
+            let (exit, stdout, _) = project.cli(&["--diagnostic-format", "json", "build"]);
+            assert_eq!(exit, 0);
+            let value: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+            let build_id =
+                lexlean::artifact::content_id::build_id(checked.source_id, checked.semantic_id);
+            assert_eq!(
+                value["build_id"].as_str(),
+                Some(build_id.to_hex().as_str()),
+                "build reports the build ID"
+            );
+            assert!(
+                value.get("attestation_id").is_none(),
+                "build has no attestation ID"
+            );
         }
         // §20.3: complete source-map records.
         "AR-02" => {
@@ -63,7 +104,60 @@ pub(crate) fn run(id: &str) {
                     "every mapping names a real artifact"
                 );
                 assert!(mapping.gen_start <= mapping.gen_end, "sane ranges");
+                if let Some((start, end)) = mapping.src_range {
+                    assert!(
+                        (start, end) != (0, 0),
+                        "no fabricated (0,0) source span: {mapping:?}"
+                    );
+                }
             }
+            // Roles are clause-granular (§20.3): the lifted binder maps
+            // under `binder` to its own introduction, proof tokens under
+            // `proof` to their step, LaTeX controls under `renderer`, and
+            // the preamble under `synthetic`.
+            use lexlean::artifact::source_map::MapRole;
+            let module = &build.modules[0];
+            let source = support::checked_project(&P::example());
+            let normalized = &source.modules["Main"].normalized;
+            let binder_at = module
+                .lean_text
+                .find("(llv0 : Nat)")
+                .expect("the parameter");
+            let binder = map.remap(0, binder_at + 1).expect("mapped");
+            assert_eq!(binder.role, MapRole::Binder, "parameters map as binders");
+            let (start, end) = binder.src_range.expect("a source range");
+            assert_eq!(
+                &normalized[start..end],
+                "n",
+                "the binder maps to its own introduction"
+            );
+            let rfl_at = module.lean_text.find("rfl").expect("rfl");
+            let proof = map.remap(0, rfl_at).expect("mapped");
+            assert_eq!(proof.role, MapRole::Proof);
+            let (start, end) = proof.src_range.expect("a source range");
+            assert_eq!(
+                &normalized[start..end],
+                "Close the goal by reflexivity.",
+                "a proof token maps to exactly its step"
+            );
+            let control_at = module.tex_text.find("\\begin{proof}").expect("proof env");
+            let control = map.remap(1, control_at).expect("mapped");
+            assert_eq!(
+                control.role,
+                MapRole::Renderer,
+                "LaTeX controls map as renderer"
+            );
+            let preamble = map.remap(1, 0).expect("mapped");
+            assert_eq!(
+                preamble.role,
+                MapRole::Synthetic,
+                "the preamble is synthetic"
+            );
+            let module_at = module.lean_text.find("module").expect("module keyword");
+            assert_eq!(
+                map.remap(0, module_at).expect("mapped").role,
+                MapRole::Synthetic
+            );
         }
         // §20.4: the smallest-enclosing remap algorithm.
         "AR-03" => {
@@ -128,6 +222,38 @@ pub(crate) fn run(id: &str) {
                 }
             }
             assert!(!module.coverage.source.is_empty(), "source rows recorded");
+            // The mechanical closure check (§20.5) accepts the real rows and
+            // rejects a synthetic gap, overlap, and out-of-range row.
+            use lexlean::backend::check_output_closure;
+            use lexlean::source::coverage::{Origin, OutputRow};
+            check_output_closure(&module.lean_text, &module.coverage.lean)
+                .expect("lean rows close");
+            check_output_closure(&module.tex_text, &module.coverage.latex).expect("tex rows close");
+            let row = |start: usize, end: usize| OutputRow {
+                byte_start: start,
+                byte_end: end,
+                kind: "word".to_owned(),
+                origin: Origin::Numeral,
+            };
+            assert_eq!(
+                check_output_closure("ab cd", &[row(0, 2)]),
+                Err("coverage gap at bytes 3..5".to_owned())
+            );
+            assert_eq!(
+                check_output_closure("ab cd", &[row(0, 2), row(1, 5)]),
+                Err("coverage overlap at bytes 1..2".to_owned())
+            );
+            assert_eq!(
+                check_output_closure("ab", &[row(0, 3)]),
+                Err("coverage row 0..3 lies outside the 2-byte output".to_owned())
+            );
+            assert_eq!(
+                check_output_closure("ab  cd\n", &[row(0, 2), row(4, 6)]),
+                Ok(())
+            );
+            let mut broken = module.coverage.lean.clone();
+            broken.pop();
+            assert!(check_output_closure(&module.lean_text, &broken).is_err());
         }
         // §21.1: the exact frame function.
         "AR-05" => {
@@ -148,11 +274,46 @@ pub(crate) fn run(id: &str) {
         }
         // §21.2: the semantics ID is sensitive to every normative input.
         "AR-06" => {
+            // Recompute independently from the repository files (§21.2):
+            // every regular file under language/, schemas/, and the two
+            // golden fixture directories, in bytewise path order.
+            let root = support::repo_root();
+            let mut disk: Vec<(String, Vec<u8>)> = Vec::new();
+            for dir in [
+                "language",
+                "schemas",
+                "tests/golden/axiom-parser",
+                "tests/golden/canonical-json",
+            ] {
+                for entry in walkdir::WalkDir::new(root.join(dir).as_std_path())
+                    .into_iter()
+                    .flatten()
+                {
+                    if entry.file_type().is_file() {
+                        let relative = entry
+                            .path()
+                            .strip_prefix(root.as_std_path())
+                            .expect("under root")
+                            .to_string_lossy()
+                            .replace('\\', "/");
+                        disk.push((relative, std::fs::read(entry.path()).expect("read")));
+                    }
+                }
+            }
+            disk.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+            let disk_refs: Vec<(&str, &[u8])> = disk
+                .iter()
+                .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+                .collect();
+            assert_eq!(
+                lexlean::artifact::content_id::tree_digest(&disk_refs),
+                lexlean::compiler_semantics_id(),
+                "the on-disk normative set reproduces the embedded ID"
+            );
             let files: Vec<(&str, &[u8])> = lexlean::embedded::FILES.to_vec();
             assert_eq!(
-                lexlean::artifact::content_id::tree_digest(&files),
-                lexlean::compiler_semantics_id(),
-                "the embedded set reproduces the ID"
+                files, disk_refs,
+                "the embedded set is exactly the on-disk set"
             );
             let mut mutated = files.clone();
             let flipped = b"tampered".as_slice();
@@ -248,6 +409,31 @@ pub(crate) fn run(id: &str) {
                     "inputs enumerate {required}: {inputs:?}"
                 );
             }
+            let lexicon_rows: Vec<&str> = inputs
+                .iter()
+                .filter(|row| row["kind"].as_str() == Some("lexicon"))
+                .map(|row| row["path"].as_str().expect("path"))
+                .collect();
+            assert_eq!(
+                lexicon_rows,
+                vec!["embedded", "embedded"],
+                "builtin lexicon input rows name the embedded source: {inputs:?}"
+            );
+            let defs = support::defs_project();
+            let defs_build = support::rendered(&defs);
+            let defs_manifest: serde_json::Value =
+                serde_json::from_slice(&defs_build.manifest_bytes).expect("parses");
+            let path_rows: Vec<&str> = defs_manifest["inputs"]
+                .as_array()
+                .expect("inputs")
+                .iter()
+                .filter(|row| row["kind"].as_str() == Some("lexicon"))
+                .map(|row| row["path"].as_str().expect("path"))
+                .collect();
+            assert!(
+                path_rows.contains(&"lexicons/test-defs"),
+                "a path package input row carries its project-relative path: {path_rows:?}"
+            );
             for row in manifest["outputs"].as_array().expect("outputs") {
                 let path = row["path"].as_str().expect("path");
                 let bytes =
@@ -268,6 +454,22 @@ pub(crate) fn run(id: &str) {
         "AR-11" => {
             assert!(Json::parse(b"1.5").is_err(), "floats are rejected");
             assert!(Json::parse(b"null").is_err(), "null is rejected");
+            assert!(
+                Json::parse(b"{\"a\":1,\"a\":2}").is_err(),
+                "duplicate keys are rejected"
+            );
+            assert!(
+                Json::parse(b"{\"a\":{\"b\":1,\"b\":2}}").is_err(),
+                "nested duplicate keys are rejected"
+            );
+            assert!(
+                Json::parse(b"{\"a\":[{\"b\":1},{\"b\":2}]}").is_ok(),
+                "equal keys in distinct objects are not duplicates"
+            );
+            assert!(
+                Json::parse(b"{\"a\":\"x\\\"a\",\"b\":1}").is_ok(),
+                "an escaped quote inside a value is not a key"
+            );
             let object = Json::object(vec![
                 ("zebra", Json::from_usize(1)),
                 ("alpha", Json::from_usize(2)),
@@ -282,6 +484,42 @@ pub(crate) fn run(id: &str) {
                 file_bytes, b"{\"alpha\":2,\"zebra\":1}\n",
                 "file form adds exactly one final LF; the hash form has none"
             );
+            // The committed canonical-JSON fixture table (§21.2 digests it):
+            // one `input<TAB>canonical` row per line; every row must parse
+            // and re-serialize to exactly its canonical column, and the
+            // canonical column must be a fixed point.
+            let table = std::fs::read_to_string(
+                support::repo_root()
+                    .join("tests/golden/canonical-json/values.txt")
+                    .as_std_path(),
+            )
+            .expect("the canonical-json fixture table");
+            let mut rows = 0usize;
+            for (number, line) in table.lines().enumerate() {
+                if line.is_empty() {
+                    continue;
+                }
+                let (input, expected) = line.split_once('\t').unwrap_or_else(|| {
+                    panic!("values.txt line {}: input<TAB>canonical", number + 1)
+                });
+                let parsed = Json::parse(input.as_bytes())
+                    .unwrap_or_else(|error| panic!("values.txt line {}: {error}", number + 1));
+                assert_eq!(
+                    parsed.to_canonical_string(),
+                    expected,
+                    "values.txt line {}: canonical form",
+                    number + 1
+                );
+                let reparsed = Json::parse(expected.as_bytes()).expect("canonical parses");
+                assert_eq!(
+                    reparsed.to_canonical_string(),
+                    expected,
+                    "values.txt line {}: canonical form is a fixed point",
+                    number + 1
+                );
+                rows += 1;
+            }
+            assert!(rows >= 6, "the fixture table is populated ({rows} rows)");
         }
         // §21.8: atomic, content-addressed, never silently overwritten.
         "AR-12" => {
@@ -324,6 +562,24 @@ pub(crate) fn run(id: &str) {
                 .err()
                 .expect("unexplained bytes at the build path are an error");
             support::expect_code(&error, "LLB6003");
+
+            // An unexplained extra file in the published set is detected.
+            let fresh = P::example();
+            let fresh_build = fresh.build_ok();
+            let fresh_dir = fresh.build_dir(&fresh_build.build_id.expect("built"));
+            std::fs::write(fresh_dir.join("extra.txt").as_std_path(), b"x").expect("plant");
+            let error = fresh
+                .engine()
+                .build(lexlean::BuildRequest {
+                    selection: lexlean::Selection::Entrypoints,
+                })
+                .err()
+                .expect("an extra file refuses reuse");
+            support::expect_code(&error, "LLB6003");
+            assert!(
+                error.to_string().contains("extra.txt"),
+                "the extra file is named: {error}"
+            );
 
             // No staging residue anywhere.
             for entry in walkdir::WalkDir::new(project.root.join(".lexlean").as_std_path())

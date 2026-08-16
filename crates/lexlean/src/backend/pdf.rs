@@ -1,5 +1,19 @@
 //! The external PDF provider protocol (SPEC.md §19.7, §19.8): optional,
 //! isolated, hash-checked, and with no proof authority whatsoever.
+//!
+//! Fixed protocol decisions:
+//!
+//! - the configured `output` is a bare file name (no `/`, `\`, or `..`
+//!   segment) so the provider can only ever satisfy the protocol inside
+//!   `{out_dir}`;
+//! - declared resources are staged by basename next to the canonical
+//!   `.tex`; two resources with one basename, or a resource whose basename
+//!   is the `.tex` itself, are configuration conflicts (LLB6004);
+//! - the produced PDF is capped by `max_child_output_bytes` — the provider
+//!   is a child process and its file output is child output, so the same
+//!   configured limit governs it (LLS8002);
+//! - after compilation `{out_dir}` must contain exactly the configured
+//!   output regular file; every extra entry is named in the failure.
 
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -28,6 +42,41 @@ pub struct PdfProcess {
     pub stderr: String,
     /// SHA-256 of the executable bytes.
     pub executable_sha256: Sha256Digest,
+}
+
+impl PdfProcess {
+    /// The attestation process record (tool `pdf`), argv normalized.
+    #[must_use]
+    pub fn to_child_record(
+        &self,
+        module: &str,
+        normalizer: &crate::verify::child::Normalizer,
+    ) -> crate::verify::child::ChildRecord {
+        crate::verify::child::ChildRecord {
+            tool: "pdf".to_owned(),
+            module: Some(module.to_owned()),
+            argv: self
+                .argv
+                .iter()
+                .map(|argument| normalizer.normalize_arg(argument))
+                .collect(),
+            exit_code: self.exit_code,
+            stdout: normalizer.normalize(self.stdout.as_bytes()),
+            stderr: normalizer.normalize(self.stderr.as_bytes()),
+            executable_sha256: self.executable_sha256,
+        }
+    }
+}
+
+/// Is a configured output pattern a bare file name?
+#[must_use]
+pub fn is_bare_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('/')
+        && !name.contains('\\')
+        && name != "."
+        && name != ".."
+        && !name.contains('\0')
 }
 
 /// The outcome of one provider run.
@@ -200,14 +249,34 @@ pub fn run_provider(
             .map_err(|io_error| protocol(format!("pdf staging: {io_error}")))?;
     }
     let tex_name = format!("{stem}.tex");
+    if !is_bare_file_name(&provider.output) {
+        return Err(protocol(format!(
+            "pdf output `{}` is not a bare file name",
+            provider.output
+        )));
+    }
+    let output_name = provider.output.replace("{stem}", stem);
+    if !is_bare_file_name(&output_name) {
+        return Err(protocol(format!(
+            "pdf output `{output_name}` is not a bare file name"
+        )));
+    }
     std::fs::write(workdir.join(&tex_name), tex_bytes)
         .map_err(|io_error| protocol(format!("pdf staging: {io_error}")))?;
     let mut resource_rows: Vec<(String, Sha256Digest)> = Vec::new();
+    let mut staged_names: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    staged_names.insert(tex_name.clone(), "the canonical document".to_owned());
     for resource in &provider.resources {
         let absolute = project.confined_file(resource)?;
         let bytes = std::fs::read(absolute.as_std_path())
             .map_err(|io_error| protocol(format!("{resource}: {io_error}")))?;
         let name = resource.rsplit('/').next().unwrap_or(resource);
+        if let Some(previous) = staged_names.insert(name.to_owned(), resource.clone()) {
+            return Err(protocol(format!(
+                "pdf resource `{resource}` collides with {previous} at the staged name `{name}`"
+            )));
+        }
         std::fs::write(workdir.join(name), &bytes)
             .map_err(|io_error| protocol(format!("pdf staging: {io_error}")))?;
         resource_rows.push((resource.clone(), Sha256Digest::of(&bytes)));
@@ -258,16 +327,54 @@ pub fn run_provider(
         )));
     }
 
-    // 9–10. Exactly the configured output regular file, beginning `%PDF-`.
-    let output_name = provider.output.replace("{stem}", stem);
+    // 9–10. Exactly the configured output regular file, beginning `%PDF-`,
+    // within the child output cap; nothing else in the output directory.
+    let mut extras: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(&out_dir)
+        .map_err(|io_error| protocol(format!("pdf output directory: {io_error}")))?
+    {
+        let entry =
+            entry.map_err(|io_error| protocol(format!("pdf output directory: {io_error}")))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name != output_name {
+            extras.push(name);
+        }
+    }
+    if !extras.is_empty() {
+        extras.sort();
+        return Err(protocol(format!(
+            "the provider left entries other than `{output_name}` in the output directory: {}",
+            extras.join(", ")
+        )));
+    }
     let output_path = out_dir.join(&output_name);
     let metadata = std::fs::symlink_metadata(&output_path)
         .map_err(|io_error| protocol(format!("{output_name}: {io_error}")))?;
     if !metadata.is_file() {
         return Err(protocol(format!("{output_name} is not a regular file")));
     }
+    if metadata.len() > limits.max_child_output_bytes {
+        return Err(Diagnostic::new(
+            code!("LLS8002"),
+            format!(
+                "max_child_output_bytes exceeded by the pdf output: configured {}, produced {}",
+                limits.max_child_output_bytes,
+                metadata.len()
+            ),
+        ));
+    }
     let pdf_bytes = std::fs::read(&output_path)
         .map_err(|io_error| protocol(format!("{output_name}: {io_error}")))?;
+    if pdf_bytes.len() as u64 > limits.max_child_output_bytes {
+        return Err(Diagnostic::new(
+            code!("LLS8002"),
+            format!(
+                "max_child_output_bytes exceeded by the pdf output: configured {}, produced {}",
+                limits.max_child_output_bytes,
+                pdf_bytes.len()
+            ),
+        ));
+    }
     if !pdf_bytes.starts_with(b"%PDF-") {
         return Err(protocol("the provider output does not begin with %PDF-"));
     }

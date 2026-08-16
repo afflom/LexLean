@@ -41,6 +41,112 @@ pub struct DeclOrigin {
     pub sentence: (usize, usize),
     /// The proof environment, when theorem-like.
     pub proof: Option<(usize, usize)>,
+    /// One byte range per proof step in proof-IR pre-order (structured
+    /// items span their whole environment; sentences span through their
+    /// period), for step-granular source maps (§20.3).
+    pub steps: Vec<(usize, usize)>,
+}
+
+/// The byte end of the `\end{...}` closing every `\begin` atom, keyed by
+/// the `\begin` atom index. Unbalanced environments are simply absent; the
+/// structural parser has already rejected them.
+fn env_ends(atoms: &[Atom]) -> BTreeMap<usize, usize> {
+    let mut ends = BTreeMap::new();
+    let mut stack: Vec<usize> = Vec::new();
+    for (index, atom) in atoms.iter().enumerate() {
+        if atom.class != AtomClass::Control {
+            continue;
+        }
+        if atom.text == "\\begin" {
+            stack.push(index);
+        } else if atom.text == "\\end" {
+            if let Some(begin) = stack.pop() {
+                // `\end` `{` name `}`: the closing brace ends the range.
+                let close = atoms
+                    .iter()
+                    .enumerate()
+                    .skip(index + 1)
+                    .find(|(_, candidate)| candidate.text == "}")
+                    .map_or(atom.byte_end, |(_, candidate)| candidate.byte_end);
+                ends.insert(begin, close);
+            }
+        }
+    }
+    ends
+}
+
+/// The nearest `\begin` atom at or before `index`.
+fn begin_before(atoms: &[Atom], index: usize) -> Option<usize> {
+    (0..=index.min(atoms.len().saturating_sub(1)))
+        .rev()
+        .find(|&candidate| {
+            atoms[candidate].class == AtomClass::Control && atoms[candidate].text == "\\begin"
+        })
+}
+
+/// Append one byte range per proof item in pre-order (§20.3): a sentence
+/// spans through its period; a structured item spans its environment.
+fn proof_step_ranges(
+    atoms: &[Atom],
+    ends: &BTreeMap<usize, usize>,
+    env: &crate::grammar::structural::ProofEnvAst,
+    enclosing: (usize, usize),
+    out: &mut Vec<(usize, usize)>,
+) {
+    use crate::grammar::structural::ProofItemAst;
+    let env_range = |anchor: usize| -> (usize, usize) {
+        match begin_before(atoms, anchor) {
+            Some(begin) => (
+                atoms[begin].byte_start,
+                ends.get(&begin).copied().unwrap_or(enclosing.1),
+            ),
+            None => enclosing,
+        }
+    };
+    for item in &env.items {
+        match item {
+            ProofItemAst::Sentence(sentence) => {
+                out.push(bytes_of(atoms, (sentence.range.0, sentence.period + 1)));
+            }
+            ProofItemAst::Have { name, proof, .. } => {
+                let range = env_range(name.range.0);
+                out.push(range);
+                proof_step_ranges(atoms, ends, proof, range, out);
+            }
+            ProofItemAst::Rewrite { target, .. } | ProofItemAst::Simplify { target, .. } => {
+                out.push(env_range(target.range.0));
+            }
+            ProofItemAst::Apply { function, premises } => {
+                let range = env_range(function.range.0);
+                out.push(range);
+                for (_, premise) in premises {
+                    proof_step_ranges(atoms, ends, premise, range, out);
+                }
+            }
+            ProofItemAst::Constructor { branches } => {
+                let range = match branches.first() {
+                    Some((_, first)) => env_range(first.begin.saturating_sub(1)),
+                    None => enclosing,
+                };
+                out.push(range);
+                for (_, branch) in branches {
+                    proof_step_ranges(atoms, ends, branch, range, out);
+                }
+            }
+            ProofItemAst::CasesLike {
+                scrutinee, cases, ..
+            } => {
+                let range = env_range(scrutinee.range.0);
+                out.push(range);
+                for case in cases {
+                    proof_step_ranges(atoms, ends, &case.proof, range, out);
+                }
+            }
+            ProofItemAst::Calculate { start, .. } => {
+                out.push(env_range(start.range.0));
+            }
+        }
+    }
 }
 
 /// One fully checked module.
@@ -861,7 +967,14 @@ fn link_declaration(
             .proof
             .as_ref()
             .map(|proof| bytes_of(&load.atoms, (proof.begin, decl.end))),
+        steps: Vec::new(),
     };
+    let mut origin = origin;
+    if let Some(proof_ast) = &decl.proof {
+        let ends = env_ends(&load.atoms);
+        let enclosing = origin.proof.unwrap_or(origin.whole);
+        proof_step_ranges(&load.atoms, &ends, proof_ast, enclosing, &mut origin.steps);
+    }
     decl_origins.insert(decl.component.text.clone(), origin);
 
     let (body, _decl_ty) = if decl.kind.is_theorem_like() {
@@ -968,8 +1081,23 @@ fn link_declaration(
             collect_term_locals(value, &mut used);
         }
     }
-    let params: Vec<Binder> = scopes
-        .entries()
+    // Dependency closure (§18.3): a used parameter whose type mentions an
+    // earlier parameter drags that parameter in, transitively.
+    let scope_entries = scopes.entries();
+    loop {
+        let before = used.len();
+        for entry in &scope_entries {
+            if used.contains(&entry.id) {
+                if let Some(ty) = &entry.ty {
+                    collect_term_locals(ty, &mut used);
+                }
+            }
+        }
+        if used.len() == before {
+            break;
+        }
+    }
+    let params: Vec<Binder> = scope_entries
         .into_iter()
         .filter(|entry| used.contains(&entry.id))
         .map(|entry| Binder {

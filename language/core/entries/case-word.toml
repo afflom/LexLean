@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "case-word"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "concept.case"
+
+[[form]]
+id = "case"
+channel = "text"
+surface = "Case"
+canonical_source = true
+features = ["sentence-case", "singular"]
