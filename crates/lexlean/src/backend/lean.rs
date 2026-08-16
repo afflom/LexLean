@@ -1024,7 +1024,6 @@ fn collect_locals(term: &Term, out: &mut BTreeSet<LocalId>) {
 struct StepCursor<'a> {
     steps: &'a [(usize, usize)],
     next: usize,
-    fallback: (usize, usize),
 }
 
 impl StepCursor<'_> {
@@ -1784,7 +1783,6 @@ fn render_declaration(
             let mut cursor = StepCursor {
                 steps: &origin.steps,
                 next: 0,
-                fallback: proof_range,
             };
             print_proof(&mut sink, proof, &mut namer, closure, 1, &mut cursor)?;
             if cursor.next != cursor.steps.len() {
@@ -1795,7 +1793,6 @@ fn render_declaration(
                     cursor.next
                 )));
             }
-            let _ = cursor.fallback;
         }
         DeclBody::Definition { ty, value, .. } => {
             let mut sink = Sink {
