@@ -111,16 +111,15 @@ fn git_wrapper(local_repo: &std::path::Path) -> GitWrapper {
         .prefix("lexlean-gitwrap-")
         .tempdir()
         .expect("tempdir");
-    let real_git = String::from_utf8_lossy(
-        &std::process::Command::new("sh")
-            .args(["-c", "command -v git"])
-            .output()
-            .expect("sh")
-            .stdout,
-    )
-    .trim()
-    .to_owned();
-    assert!(!real_git.is_empty(), "git is available for the fixture");
+    // The real git is resolved from PATH while skipping any wrapper
+    // directory another concurrently running case may have prepended.
+    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .filter(|dir| !dir.to_string_lossy().contains("lexlean-gitwrap-"))
+        .map(|dir| dir.join("git"))
+        .find(|candidate| candidate.is_file())
+        .expect("git is available for the fixture")
+        .display()
+        .to_string();
     let script = format!(
         "#!/bin/sh\nexec \"{real_git}\" -c \"url.{}.insteadOf={FIXTURE_URL}\" \"$@\"\n",
         local_repo.display()
@@ -660,8 +659,15 @@ pub(crate) fn run(id: &str) {
             assert!(
                 attestation["toolchain"]["leanchecker"]["version_output"]
                     .as_str()
-                    .is_some_and(|text| text.contains("replays Init.Prelude: exit 0")),
-                "leanchecker's identity is a checked replay probe"
+                    .is_some_and(|text| {
+                        text.starts_with("leanchecker bin/leanchecker sha256:")
+                            && text.ends_with(
+                                attestation["toolchain"]["leanchecker"]["executable_sha256"]
+                                    .as_str()
+                                    .unwrap_or("?"),
+                            )
+                    }),
+                "leanchecker's identity names its toolchain-relative path and digest"
             );
             let process_dir = support::verified().outcome.root.join("process/lean");
             for name in support::file_set(&process_dir) {

@@ -2,7 +2,7 @@ spec = "lexlean/negative-case/1"
 class = "toolchain-mismatch"
 kind = "mutation"
 command = "lock-check"
-codes = ["LLC0102"]
+codes = ["LLC0101"]
 
 [[edit]]
 file = "lean-toolchain"

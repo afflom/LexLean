@@ -51,19 +51,13 @@ pub fn toolchain_root() -> Result<Utf8PathBuf, Diagnostic> {
     Utf8PathBuf::from_path_buf(root).map_err(|bad| crate::project::non_utf8_path(&bad))
 }
 
-/// A probe's captured streams and exit status.
-struct ProbeOutput {
-    exit_code: i32,
-    stdout: String,
-    stderr: String,
-}
-
-fn probe(
+/// The version banner of a tool under the allow-list environment: stdout,
+/// or stderr when stdout is empty.
+fn version_probe(
     path: &Utf8PathBuf,
     argv: &[&str],
     bin_dir: &Utf8PathBuf,
-    extra_env: &[(&str, String)],
-) -> Result<ProbeOutput, Diagnostic> {
+) -> Result<String, Diagnostic> {
     let existing_path = std::env::var("PATH").unwrap_or_default();
     let mut command = std::process::Command::new(path.as_std_path());
     command
@@ -82,9 +76,6 @@ fn probe(
     if let Some(elan_home) = std::env::var_os("ELAN_HOME") {
         command.env("ELAN_HOME", elan_home);
     }
-    for (key, value) in extra_env {
-        command.env(key, value);
-    }
     let output = command
         .output()
         .map_err(|io_error| environment(format!("{path}: {io_error}")))?;
@@ -94,24 +85,11 @@ fn probe(
             .trim_end()
             .to_owned()
     };
-    Ok(ProbeOutput {
-        exit_code: output.status.code().unwrap_or(-1),
-        stdout: normalize(&output.stdout),
-        stderr: normalize(&output.stderr),
-    })
-}
-
-/// The version banner of a tool: stdout, or stderr when stdout is empty.
-fn version_probe(
-    path: &Utf8PathBuf,
-    argv: &[&str],
-    bin_dir: &Utf8PathBuf,
-) -> Result<String, Diagnostic> {
-    let output = probe(path, argv, bin_dir, &[])?;
-    Ok(if output.stdout.trim().is_empty() {
-        output.stderr
+    let stdout = normalize(&output.stdout);
+    Ok(if stdout.trim().is_empty() {
+        normalize(&output.stderr)
     } else {
-        output.stdout
+        stdout
     })
 }
 
@@ -166,42 +144,13 @@ pub fn preflight() -> Result<Toolchain, Diagnostic> {
         )));
     }
     // `leanchecker` has no version flag (any first argument is a module
-    // name), so its identity is established by a checked replay of the
-    // toolchain's own `Init.Prelude` from `lib/lean`: the recorded identity
-    // names the executable relative to the toolchain root, its digest, and
-    // the probe outcome, and a failed replay is an environment failure.
+    // name), so its recorded identity is the executable's path relative to
+    // the toolchain root and its digest; `load_tool` already required the
+    // file to exist and hashed it. The replay runs themselves (§22.4) are
+    // the functional check.
     let mut leanchecker = load_tool(&bin_dir, "leanchecker", None)?;
-    let lib_lean = root.join("lib").join("lean");
-    if !lib_lean
-        .join("Init")
-        .join("Prelude.olean")
-        .as_std_path()
-        .is_file()
-    {
-        return Err(environment(format!(
-            "the pinned toolchain `{}` has no Init/Prelude.olean under lib/lean; leanchecker cannot be probed",
-            crate::LEAN_TOOLCHAIN
-        )));
-    }
-    let outcome = probe(
-        &leanchecker.path,
-        &["Init.Prelude"],
-        &bin_dir,
-        &[("LEAN_PATH", lib_lean.to_string())],
-    )?;
-    if outcome.exit_code != 0 {
-        return Err(environment(format!(
-            "leanchecker cannot replay the toolchain's own Init.Prelude (exit {}): {}",
-            outcome.exit_code,
-            if outcome.stderr.is_empty() {
-                outcome.stdout
-            } else {
-                outcome.stderr
-            }
-        )));
-    }
     leanchecker.version_output = format!(
-        "leanchecker bin/leanchecker sha256:{} replays Init.Prelude: exit 0",
+        "leanchecker bin/leanchecker sha256:{}",
         leanchecker.sha256.to_hex()
     );
     Ok(Toolchain {

@@ -1013,8 +1013,8 @@ impl Engine {
                 // delete an open file.
                 {
                     let _guard = acquire_lock(&self.project)?;
-                    for entry in std::fs::read_dir(build_root.as_std_path())
-                        .map_err(removal_failure)?
+                    for entry in
+                        std::fs::read_dir(build_root.as_std_path()).map_err(removal_failure)?
                     {
                         let entry = entry.map_err(removal_failure)?;
                         if entry.file_name() == ".lock" {
