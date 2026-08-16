@@ -12,8 +12,8 @@ use crate::diagnostic::Diagnostic;
 use crate::verify::child::{run, ChildRecord, ChildSpec, Normalizer};
 use crate::verify::toolchain::Toolchain;
 
-/// Run `lake env leanchecker <module>` and return its record, whatever
-/// the exit status.
+/// Run `lake env <leanchecker> <module>` (the preflighted executable by
+/// absolute path) and return its record, whatever the exit status.
 pub fn run_leanchecker(
     toolchain: &Toolchain,
     module: &str,
@@ -29,9 +29,12 @@ pub fn run_leanchecker(
             module: Some(module.to_owned()),
             program: &toolchain.lake.path,
             executable_sha256: toolchain.leanchecker.sha256,
+            // The preflighted, digest-checked executable by absolute path,
+            // inside the Lake environment (§22.2): `lake env` supplies
+            // `LEAN_PATH`, never the executable.
             argv: vec![
                 "env".to_owned(),
-                "leanchecker".to_owned(),
+                toolchain.leanchecker.path.to_string(),
                 module.to_owned(),
             ],
             cwd: workspace,

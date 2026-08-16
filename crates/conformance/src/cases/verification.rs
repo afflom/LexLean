@@ -196,13 +196,13 @@ pub(crate) fn run(id: &str) {
                 probe.text
             );
             assert!(
-                probe.text.contains("example : {x0 : Type p1u} → {x1 : x0} → {x2 : x0} → (x3 : Eq x1 x2) → Eq x2 x1 := Eq.symm\n"),
+                probe.text.contains("example : {x0 : Type p1u} → {x1 : x0} → {x2 : x0} → (x3 : @Eq x0 x1 x2) → @Eq x0 x2 x1 := Eq.symm\n"),
                 "the universe-polymorphic interface: {}",
                 probe.text
             );
             assert!(
                 probe.text.contains(
-                    "example : (x0 : Nat) → Eq (Nat.add (0 : Nat) x0) x0 := Nat.zero_add\n"
+                    "example : (x0 : Nat) → @Eq Nat (Nat.add (0 : Nat) x0) x0 := Nat.zero_add\n"
                 ),
                 "the numeral prints with its inferred ascription: {}",
                 probe.text
@@ -314,7 +314,12 @@ pub(crate) fn run(id: &str) {
                 );
             }
 
-            let broken = fake_toolchain(&[("leanchecker", "#!/bin/sh\nexit 1\n")]);
+            // A leanchecker that answers the fixed identity probe but fails
+            // every replay is a replay failure, not a toolchain mismatch.
+            let broken = fake_toolchain(&[(
+                "leanchecker",
+                "#!/bin/sh\nif [ \"$1\" = \"LexLeanIdentityProbe\" ]; then echo 'uncaught exception: Could not find any oleans for: LexLeanIdentityProbe' >&2; fi\nexit 1\n",
+            )]);
             let fake_path = broken.path().to_string_lossy().into_owned();
             support::with_env(&[("ELAN_HOME", Some(&fake_path))], || {
                 let project = P::example();

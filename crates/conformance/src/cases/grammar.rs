@@ -157,9 +157,11 @@ pub(crate) fn run(id: &str) {
             let unique = lean_for_condition(
                 "there exists exactly one natural number \\(k\\) such that \\(k = 0\\)",
             );
+            // The IR keeps `ExistsUnique`; the printed Lean is its documented
+            // expansion (Lean 4.32.1 has no `ExistsUnique` constant).
             assert!(
-                unique.contains("ExistsUnique"),
-                "unique existence lowers to ExistsUnique: {unique}"
+                unique.contains("Exists (fun (llv1 : Nat) => And (Eq llv1 (0 : Nat)) ((llv2 : Nat) → (Eq llv2 (0 : Nat)) → Eq llv2 llv1))"),
+                "unique existence lowers to the ExistsUnique expansion: {unique}"
             );
             // The conditional itself is a Pi/arrow with the universal binder
             // peeled to a parameter.

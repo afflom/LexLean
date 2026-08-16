@@ -468,6 +468,31 @@ impl LsePrinter<'_> {
         out
     }
 
+    /// Does applying `function` to `arity` LSE arguments need Lean's `@`
+    /// form: is it a Lean constant whose signature has a non-explicit
+    /// binder among the first `arity`?
+    fn needs_at(&self, function: &Lse, arity: usize) -> bool {
+        let Lse::Const(id, _) = function else {
+            return false;
+        };
+        let Some(entry) = self.closure.entry(id) else {
+            return false;
+        };
+        if !matches!(
+            entry.denotation,
+            Denotation::Lean { .. } | Denotation::Core { .. }
+        ) {
+            return false;
+        }
+        let Some(Lse::Pi(binders, _)) = &entry.signature else {
+            return false;
+        };
+        binders
+            .iter()
+            .take(arity)
+            .any(|binder| !matches!(binder.mode, BinderMode::Explicit))
+    }
+
     fn universe(&self, universe: &crate::lexicon::lse::Universe) -> Result<String, Diagnostic> {
         match self.universe_prefix {
             Some(prefix) => Ok(universe_text(universe, prefix)),
@@ -520,7 +545,16 @@ impl LsePrinter<'_> {
                 .ok_or_else(|| internal(format!("unbound LSE local `{name}`")))?,
             Lse::App(function, arguments) => {
                 let parameter_types = self.parameter_types(function, arguments);
-                let mut text = self.walk(function, true, None)?;
+                // LSE applications supply every binder, implicit ones
+                // included, so a constant with a non-explicit binder in the
+                // applied prefix prints in `@` form.
+                let explicit_form = self.needs_at(function, arguments.len());
+                let head = self.walk(function, true, None)?;
+                let mut text = if explicit_form {
+                    format!("@{head}")
+                } else {
+                    head
+                };
                 for (index, argument) in arguments.iter().enumerate() {
                     text.push(' ');
                     let expected = parameter_types.get(index).and_then(Option::as_ref);

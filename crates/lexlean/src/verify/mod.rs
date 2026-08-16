@@ -7,8 +7,9 @@
 //!
 //! - **`leanchecker` identity.** The pinned `leanchecker` has no version
 //!   flag. Its recorded, checked identity is the normalized output of the
-//!   fixed identity probe `lake env leanchecker LexLeanIdentityProbe`
-//!   (a module name no workspace defines), which the pinned toolchain
+//!   fixed identity probe `lake env <leanchecker> LexLeanIdentityProbe`
+//!   (the preflighted executable by absolute path, on a module name no
+//!   workspace defines), which the pinned toolchain
 //!   answers with exactly one deterministic line and a nonzero exit; the
 //!   executable digest is recorded alongside.
 //! - **Verified-set reuse.** A verification whose attestation ID already
