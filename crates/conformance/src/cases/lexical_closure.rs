@@ -94,6 +94,31 @@ pub(crate) fn run(id: &str) {
                 &[b"\xEF\xBB\xBF".to_vec(), text.into_bytes()].concat(),
             );
             bom.check_fails_with("LLL1001");
+
+            // Exactly one final LF: surplus final line breaks are
+            // noncanonical source that formatting removes.
+            let padded = P::example();
+            let text = padded.read("src/Main.lex.tex");
+            write_bytes(
+                &padded,
+                "src/Main.lex.tex",
+                format!("{text}\n\n").as_bytes(),
+            );
+            let error = padded.check_fails_with("LLL1003");
+            assert!(
+                error
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.code.as_str() == "LLL1003" && !d.help.is_empty()),
+                "the surplus-LF diagnostic carries a fix-it"
+            );
+            let trimmed = lexlean::source::normalize::normalize(
+                "src/Main.lex.tex",
+                format!("{text}\n\n").as_bytes(),
+                true,
+            )
+            .expect("fmt-mode normalization trims");
+            assert_eq!(trimmed.text, text);
         }
         // §12.1: non-NFC is diagnosed; formatting rewrites to NFC.
         "LX-02" => {
@@ -120,6 +145,20 @@ pub(crate) fn run(id: &str) {
             mutated("For every", "\tFor every").check_fails_with("LLL1002");
             mutated("\\(n + 0 = n\\).\n", "\\(n + 0 = n\\). \n").check_fails_with("LLL1001");
             mutated("For every", "For\u{00A0}every").check_fails_with("LLL1001");
+            mutated("For every", "For\u{3000}every").check_fails_with("LLL1001");
+            // Numerals are canonical decimals: a redundant leading zero is
+            // noncanonical source with a fix-it and an exact span.
+            let zeros = mutated("\\(n + 0 = n\\)", "\\(n + 007 = n\\)");
+            let error = zeros.check_fails_with("LLL1003");
+            let diagnostic = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLL1003")
+                .expect("matched");
+            let span = diagnostic.primary.as_ref().expect("span");
+            let text = zeros.read("src/Main.lex.tex");
+            assert_eq!(&text[span.byte_start..span.byte_end], "007");
+            assert!(diagnostic.help.iter().any(|h| h.contains("`7`")));
         }
         // §12.2: the exact atom classes with exact spans.
         "LX-04" => {

@@ -171,7 +171,8 @@ pub fn load_bootstrap() -> Result<Bootstrap, Diagnostic> {
     fn is_environment_row(text: &str) -> bool {
         !text.is_empty() && text.bytes().all(|b| b.is_ascii_lowercase())
     }
-    let sets: [(&str, &Vec<String>, fn(&str) -> bool); 3] = [
+    type RowCheck = fn(&str) -> bool;
+    let sets: [(&str, &Vec<String>, RowCheck); 3] = [
         ("controls", &bootstrap.structural.controls, is_control_row),
         (
             "forbidden_controls",
@@ -313,6 +314,37 @@ mod tests {
         let registry = load_token_registry().expect("registry loads");
         assert!(registry.get("logical-and").is_some());
         Closure::build(packages, registry, bootstrap, 128).expect("the builtin closure validates");
+    }
+
+    #[test]
+    fn token_lattice_counts_each_edge_once() {
+        use crate::lexicon::entry::Channel;
+        use crate::lexicon::resolve::TokenLattice;
+        let (bootstrap, packages) = builtins();
+        let registry = load_token_registry().expect("registry loads");
+        let closure = Closure::build(packages, registry, bootstrap, 128).expect("closure");
+        let atoms = crate::source::scan::scan("m", "natural number list", 100).expect("scans");
+        let visible = closure.visible_set(&["lexlean.std.nat".to_owned()]);
+        let mut lattice = TokenLattice::new(&closure, &atoms, &visible, 100);
+        let first = lattice.edges_at(0, Channel::Text).expect("edges").len();
+        assert!(
+            first >= 2,
+            "`natural number` and `natural number list` both start here"
+        );
+        let counted = lattice.edge_count();
+        for _ in 0..10 {
+            lattice.edges_at(0, Channel::Text).expect("memoized");
+        }
+        assert_eq!(lattice.edge_count(), counted, "revisits are free");
+        let mut tight = TokenLattice::new(&closure, &atoms, &visible, 1);
+        assert_eq!(
+            tight
+                .edges_at(0, Channel::Text)
+                .expect_err("limited")
+                .code
+                .as_str(),
+            "LLS8002"
+        );
     }
 
     /// Every builtin Lean denotation is spelled per the conservative grammar

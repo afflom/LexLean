@@ -185,25 +185,24 @@ pub fn reject_forbidden_atoms(
                     .with_span(atom.span(path)));
                 }
             }
-            AtomClass::Numeral => {
-                if atom.text.len() > 1 && atom.text.starts_with('0') {
-                    let continues_identifier = index
-                        .checked_sub(1)
-                        .and_then(|previous| atoms.get(previous))
-                        .is_some_and(|previous| {
-                            previous.byte_end == atom.byte_start
-                                && match previous.class {
-                                    AtomClass::Word => true,
-                                    AtomClass::AsciiSymbol => {
-                                        matches!(previous.text.as_str(), "_" | "'" | "-")
-                                    }
-                                    _ => false,
+            AtomClass::Numeral if atom.text.len() > 1 && atom.text.starts_with('0') => {
+                let continues_identifier = index
+                    .checked_sub(1)
+                    .and_then(|previous| atoms.get(previous))
+                    .is_some_and(|previous| {
+                        previous.byte_end == atom.byte_start
+                            && match previous.class {
+                                AtomClass::Word => true,
+                                AtomClass::AsciiSymbol => {
+                                    matches!(previous.text.as_str(), "_" | "'" | "-")
                                 }
-                        });
-                    if !continues_identifier {
-                        let canonical = atom.text.trim_start_matches('0');
-                        let canonical = if canonical.is_empty() { "0" } else { canonical };
-                        return Err(Diagnostic::new(
+                                _ => false,
+                            }
+                    });
+                if !continues_identifier {
+                    let canonical = atom.text.trim_start_matches('0');
+                    let canonical = if canonical.is_empty() { "0" } else { canonical };
+                    return Err(Diagnostic::new(
                             code!("LLL1003"),
                             format!(
                                 "numeral `{}` has a redundant leading zero; the canonical decimal is `{canonical}`",
@@ -212,7 +211,6 @@ pub fn reject_forbidden_atoms(
                         )
                         .with_span(atom.span(path))
                         .with_help(format!("replace `{}` with `{canonical}`", atom.text)));
-                    }
                 }
             }
             _ => {}

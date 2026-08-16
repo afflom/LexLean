@@ -443,7 +443,7 @@ pub(crate) fn run(id: &str) {
 
             // Every grammar production parses and canonicalizes; alpha-
             // equivalent signatures hash identically.
-            let full = format!(
+            let full = String::from(
                 "(pi ((implicit a (sort (type (max u (succ 0) (imax u 1))))) (explicit f (pi ((explicit x (local a))) (sort prop))) (explicit n (local a))) (let m (local a) (local n) (app (local f) (local m))))"
             );
             let productions = with_entries(&[

@@ -1756,7 +1756,7 @@ mod tests {
         assert_eq!(checked.ty, nat);
 
         let mismatch = parse(
-            &format!("(app (const lexlean.std.nat::add) (nat 1) (const lexlean.std.nat::nat))"),
+            "(app (const lexlean.std.nat::add) (nat 1) (const lexlean.std.nat::nat))",
             16,
         )
         .unwrap();
