@@ -190,13 +190,13 @@ pub(crate) fn run(id: &str) {
             // An over-applied signature is rejected when the package loads
             // (§13.7: the signature is checked as an interface), so it never
             // reaches source elaboration.
-            let error = overapplied
-                .engine()
-                .lock(lexlean::LockRequest {
-                    check_only: false,
-                    allow_network: false,
-                })
-                .expect_err("an over-applied signature fails package loading");
+            let error = match overapplied.engine().lock(lexlean::LockRequest {
+                check_only: false,
+                allow_network: false,
+            }) {
+                Ok(_) => panic!("an over-applied signature must fail package loading"),
+                Err(error) => error,
+            };
             let diagnostic = error
                 .diagnostics
                 .iter()
