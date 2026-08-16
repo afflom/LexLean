@@ -220,6 +220,13 @@ pub(crate) fn run(id: &str) {
                 if is_lean_backed && !lean_available {
                     continue;
                 }
+                // A checkout without symlink support (Windows with
+                // core.symlinks=false) materializes the fixture's symlink as
+                // text, so the path-symlink class is host-bound there.
+                if cfg!(windows) && dir.ends_with("path-symlink") {
+                    eprintln!("EX-07: {dir}: symlink fixture skipped on a host without symlink checkout (§8.3)");
+                    continue;
+                }
                 let observed = match crate::fixtures::check(&dir) {
                     Ok(observed) => observed,
                     Err(error) => {
