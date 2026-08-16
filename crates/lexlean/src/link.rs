@@ -91,7 +91,11 @@ fn err(diagnostics: Vec<Diagnostic>) -> LexLeanError {
 /// The span of an atom range, for linker diagnostics.
 fn span_of_range(path: &str, atoms: &[Atom], range: AtomRange) -> crate::diagnostic::Span {
     let first = &atoms[range.0.min(atoms.len().saturating_sub(1))];
-    let last = &atoms[range.1.saturating_sub(1).max(range.0).min(atoms.len().saturating_sub(1))];
+    let last = &atoms[range
+        .1
+        .saturating_sub(1)
+        .max(range.0)
+        .min(atoms.len().saturating_sub(1))];
     crate::diagnostic::Span {
         path: path.to_owned(),
         byte_start: first.byte_start,
@@ -237,7 +241,9 @@ pub fn check_project(
         let handle = std::thread::Builder::new()
             .name("lexlean-compile".to_owned())
             .stack_size(COMPILE_STACK_BYTES)
-            .spawn_scoped(scope, || check_project_inline(project, selection, lock, packages));
+            .spawn_scoped(scope, || {
+                check_project_inline(project, selection, lock, packages)
+            });
         match handle {
             Ok(joined) => match joined.join() {
                 Ok(result) => result,
@@ -804,11 +810,10 @@ fn elab_binder_list(
                 let at = tokens
                     .get(pos)
                     .map_or(range.0, crate::grammar::chart::TextToken::first_atom);
-                return Err(Diagnostic::new(
-                    code!("LLP2002"),
-                    "ambiguous parameter binder",
-                )
-                .with_span(span_of_range(shared.path, shared.atoms, (at, at + 1))));
+                return Err(
+                    Diagnostic::new(code!("LLP2002"), "ambiguous parameter binder")
+                        .with_span(span_of_range(shared.path, shared.atoms, (at, at + 1))),
+                );
             }
         }
         let (end, ast) = valid.into_iter().next().expect("one");
@@ -1072,7 +1077,11 @@ fn link_declaration(
                 code!("LLF5005"),
                 "a theorem-like declaration without a proof is not valid",
             )
-            .with_span(span_of_range(&load.path, &load.atoms, (decl.begin, decl.begin + 1)))
+            .with_span(span_of_range(
+                &load.path,
+                &load.atoms,
+                (decl.begin, decl.begin + 1),
+            ))
         })?;
         scopes.push_frame();
         let mut goal = statement.clone();
@@ -1178,7 +1187,11 @@ fn link_declaration(
         } else {
             match value {
                 Term::Lambda { binders, body } => Term::Lambda {
-                    binders: params.iter().cloned().chain(binders.iter().cloned()).collect(),
+                    binders: params
+                        .iter()
+                        .cloned()
+                        .chain(binders.iter().cloned())
+                        .collect(),
                     body: body.clone(),
                 },
                 other => Term::Lambda {
@@ -1510,5 +1523,6 @@ pub fn signature_term_of(
         .signature
         .as_ref()
         .ok_or_else(|| "entry has no signature".to_owned())?;
-    lse_to_term(signature, shared, alloc, &BTreeMap::new(), None).map_err(|failure| failure.to_string())
+    lse_to_term(signature, shared, alloc, &BTreeMap::new(), None)
+        .map_err(|failure| failure.to_string())
 }

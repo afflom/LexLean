@@ -93,11 +93,16 @@ pub(crate) fn run(id: &str) {
                 "LLF5002",
             );
             assert!(
-                diagnostic.message.contains("already a declaration parameter"),
+                diagnostic
+                    .message
+                    .contains("already a declaration parameter"),
                 "the lifted-binder Assume names the cause: {}",
                 diagnostic.message
             );
-            assert!(diagnostic.primary.is_some(), "the diagnostic carries a span");
+            assert!(
+                diagnostic.primary.is_some(),
+                "the diagnostic carries a span"
+            );
             // Assume on a known conjunction goal is a shape error.
             fails_with(
                 &theorem_module(
@@ -171,7 +176,10 @@ pub(crate) fn run(id: &str) {
                 ),
                 "LLF5002",
             );
-            assert!(diagnostic.primary.is_some(), "the closed-branch step has a span");
+            assert!(
+                diagnostic.primary.is_some(),
+                "the closed-branch step has a span"
+            );
             // Reflexivity on a known conjunction goal is a shape error.
             fails_with(
                 &theorem_module(
@@ -247,7 +255,11 @@ pub(crate) fn run(id: &str) {
                     .iter()
                     .any(|d| matches!(d.code.as_str(), "LLL1004" | "LLT4001")),
                 "an unknown hypothesis spelling has no reading: {:?}",
-                error.diagnostics.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()
+                error
+                    .diagnostics
+                    .iter()
+                    .map(|d| d.code.as_str())
+                    .collect::<Vec<_>>()
             );
             // The reserved target word and non-identifier spellings are not
             // hypothesis names (C15).
@@ -482,7 +494,10 @@ pub(crate) fn run(id: &str) {
                 ),
                 "LLF5004",
             );
-            assert!(diagnostic.primary.is_some(), "the open-goal diagnostic has a span");
+            assert!(
+                diagnostic.primary.is_some(),
+                "the open-goal diagnostic has a span"
+            );
             fails_with(
                 &theorem_module(
                     "For every natural number \\(n\\), \\(n + 0 = n\\).",
@@ -513,11 +528,16 @@ pub(crate) fn run(id: &str) {
                     "LLF5005",
                 );
                 assert!(
-                    diagnostic.message.contains(&format!("`{word}` is a forbidden proof form")),
+                    diagnostic
+                        .message
+                        .contains(&format!("`{word}` is a forbidden proof form")),
                     "{proof:?} names `{word}`: {}",
                     diagnostic.message
                 );
-                assert!(diagnostic.primary.is_some(), "the forbidden form has a span");
+                assert!(
+                    diagnostic.primary.is_some(),
+                    "the forbidden form has a span"
+                );
             }
             let diagnostic = fails_with(
                 &theorem_module(
@@ -527,7 +547,9 @@ pub(crate) fn run(id: &str) {
                 "LLF5005",
             );
             assert!(
-                diagnostic.message.contains("not a registered proof sentence"),
+                diagnostic
+                    .message
+                    .contains("not a registered proof sentence"),
                 "an unregistered sentence is a forbidden form: {}",
                 diagnostic.message
             );
@@ -542,7 +564,9 @@ pub(crate) fn run(id: &str) {
                 "LLF5005",
             );
             assert!(
-                diagnostic.message.contains("`native_decide` is a forbidden proof form"),
+                diagnostic
+                    .message
+                    .contains("`native_decide` is a forbidden proof form"),
                 "{}",
                 diagnostic.message
             );

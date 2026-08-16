@@ -214,8 +214,7 @@ pub fn forbidden_proof_form(parser: &TextParser<'_>) -> Option<(String, usize)> 
         {
             return Some((composed, index));
         }
-        if atom.class == AtomClass::AsciiSymbol
-            && (composed.starts_with("<;>") || atom.text == "·")
+        if atom.class == AtomClass::AsciiSymbol && (composed.starts_with("<;>") || atom.text == "·")
         {
             return Some((composed, index));
         }

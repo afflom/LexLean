@@ -234,10 +234,10 @@ pub fn elab_term_phrase(
                     )
                     .with_span(a.span(shared.path))
                 })),
-                _ => Err(ambiguity_diagnostic(
-                    survivors.iter().map(|(_, result)| &result.term),
-                )
-                .with_span(a.span(shared.path))),
+                _ => Err(
+                    ambiguity_diagnostic(survivors.iter().map(|(_, result)| &result.term))
+                        .with_span(a.span(shared.path)),
+                ),
             }
         }
     }
@@ -271,8 +271,14 @@ fn apply_frame_candidate(
     let mut arg_terms = Vec::new();
     for (index, argument) in args.iter().enumerate() {
         let expected_ty = binder_types.get(index).cloned().flatten();
-        let result =
-            elab_term_phrase(shared, scopes, alloc, budget, argument, expected_ty.as_ref())?;
+        let result = elab_term_phrase(
+            shared,
+            scopes,
+            alloc,
+            budget,
+            argument,
+            expected_ty.as_ref(),
+        )?;
         rows.extend(result.rows.clone());
         arg_terms.push(result);
     }
@@ -729,7 +735,11 @@ fn differentiating_span(
     let start = rows.iter().map(|row| row.byte_start).min()?;
     let end = rows.iter().map(|row| row.byte_end).max()?;
     let first = shared.atoms.iter().find(|atom| atom.byte_start == start)?;
-    let last = shared.atoms.iter().rev().find(|atom| atom.byte_end == end)?;
+    let last = shared
+        .atoms
+        .iter()
+        .rev()
+        .find(|atom| atom.byte_end == end)?;
     Some(crate::diagnostic::Span {
         path: shared.path.to_owned(),
         byte_start: start,

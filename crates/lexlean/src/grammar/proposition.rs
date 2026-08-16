@@ -480,9 +480,7 @@ impl<'a> TextParser<'a> {
         budget
             .depth(depth, "parse (proposition nesting)")
             .map_err(|diagnostic| match self.tokens.get(pos) {
-                Some(token) => {
-                    diagnostic.with_span(self.atoms[token.first_atom()].span(self.path))
-                }
+                Some(token) => diagnostic.with_span(self.atoms[token.first_atom()].span(self.path)),
                 None => diagnostic,
             })
     }
@@ -601,9 +599,14 @@ impl<'a> TextParser<'a> {
         budget: &mut Budget,
         depth: u64,
     ) -> Result<Alts<PropAst>, Diagnostic> {
-        self.chain(pos, budget, depth, "or", Self::conjunction, |items, keywords| {
-            PropAst::Or { items, keywords }
-        })
+        self.chain(
+            pos,
+            budget,
+            depth,
+            "or",
+            Self::conjunction,
+            |items, keywords| PropAst::Or { items, keywords },
+        )
     }
 
     fn conjunction(
@@ -612,9 +615,14 @@ impl<'a> TextParser<'a> {
         budget: &mut Budget,
         depth: u64,
     ) -> Result<Alts<PropAst>, Diagnostic> {
-        self.chain(pos, budget, depth, "and", Self::negation, |items, keywords| {
-            PropAst::And { items, keywords }
-        })
+        self.chain(
+            pos,
+            budget,
+            depth,
+            "and",
+            Self::negation,
+            |items, keywords| PropAst::And { items, keywords },
+        )
     }
 
     fn chain(
@@ -839,9 +847,7 @@ impl<'a> TextParser<'a> {
                 let Some(and_kw) = self.is_word(after_first, "and") else {
                     continue;
                 };
-                for (after_second, second) in
-                    self.term_phrase(after_first + 1, budget, nested)?
-                {
+                for (after_second, second) in self.term_phrase(after_first + 1, budget, nested)? {
                     budget.state()?;
                     alternatives.push((
                         after_second,

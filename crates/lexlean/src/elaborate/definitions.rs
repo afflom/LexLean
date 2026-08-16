@@ -735,9 +735,7 @@ fn elab_definition_alternative(
                     rows.push(head_row);
                 } else {
                     let island = cursor.island().ok_or_else(|| {
-                        def_error(
-                            "the self head must be the canonical form or a self application",
-                        )
+                        def_error("the self head must be the canonical form or a self application")
                     })?;
                     let mut self_rows = match_self_application(
                         shared,
@@ -770,8 +768,7 @@ fn elab_definition_alternative(
                 let island = cursor
                     .island()
                     .ok_or_else(|| def_error("the right-hand side must be a term"))?;
-                let result =
-                    elab_island(shared, scopes, alloc, budget, &island, Some(&remaining))?;
+                let result = elab_island(shared, scopes, alloc, budget, &island, Some(&remaining))?;
                 rows.extend(result.rows);
                 result.term
             } else {
@@ -784,9 +781,7 @@ fn elab_definition_alternative(
                 // The rest of the sentence is a proposition, not
                 // sentence-initial (§15.6).
                 let Some(rest_token) = parser.tokens.get(cursor.pos) else {
-                    return Err(def_error(
-                        "a predicate definition ends with a proposition",
-                    ));
+                    return Err(def_error("a predicate definition ends with a proposition"));
                 };
                 let rest_start = rest_token.first_atom();
                 let sentence_end = parser
@@ -931,12 +926,15 @@ pub fn elab_definition(
         ))
         .with_span(entry_span));
     }
-    let signature = entry
-        .signature
-        .as_ref()
-        .ok_or_else(|| def_error("the document entry has no signature").with_span(entry_span.clone()))?;
-    let signature_term = lse_to_term(signature, shared, alloc, &BTreeMap::new(), None)
-        .map_err(|failure| failure.diagnostic(code!("LLF5001")).with_span(entry_span.clone()))?;
+    let signature = entry.signature.as_ref().ok_or_else(|| {
+        def_error("the document entry has no signature").with_span(entry_span.clone())
+    })?;
+    let signature_term =
+        lse_to_term(signature, shared, alloc, &BTreeMap::new(), None).map_err(|failure| {
+            failure
+                .diagnostic(code!("LLF5001"))
+                .with_span(entry_span.clone())
+        })?;
 
     let tokens = text_tokens(
         shared.path,
@@ -1029,10 +1027,7 @@ pub fn elab_definition(
 
 /// Give a diagnostic the definition sentence's span when it carries none
 /// (§20.1).
-fn with_default_span(
-    diagnostic: Diagnostic,
-    span: &crate::diagnostic::Span,
-) -> Diagnostic {
+fn with_default_span(diagnostic: Diagnostic, span: &crate::diagnostic::Span) -> Diagnostic {
     if diagnostic.primary.is_some() {
         diagnostic
     } else {

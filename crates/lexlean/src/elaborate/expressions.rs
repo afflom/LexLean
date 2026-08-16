@@ -370,8 +370,11 @@ fn unsolved_numeral(term: &Term, metas: &Metas) -> Option<String> {
             function,
             explicit_args,
             ..
-        } => unsolved_numeral(function, metas)
-            .or_else(|| explicit_args.iter().find_map(|arg| unsolved_numeral(arg, metas))),
+        } => unsolved_numeral(function, metas).or_else(|| {
+            explicit_args
+                .iter()
+                .find_map(|arg| unsolved_numeral(arg, metas))
+        }),
         Term::Pi { binders, body } | Term::Lambda { binders, body } => binders
             .iter()
             .find_map(|binder| unsolved_numeral(&binder.ty, metas))
@@ -691,9 +694,16 @@ impl LseWalk<'_, '_, '_> {
     /// Convert one LSE node under an expected type; returns the term and
     /// its conservatively known type when one is available.
     #[allow(clippy::too_many_lines)]
-    fn walk(&mut self, lse: &Lse, expected: Option<&Term>) -> Result<(Term, Option<Term>), LseError> {
+    fn walk(
+        &mut self,
+        lse: &Lse,
+        expected: Option<&Term>,
+    ) -> Result<(Term, Option<Term>), LseError> {
         Ok(match lse {
-            Lse::SortProp => (Term::Sort(Universe::Num(0)), Some(Term::Sort(Universe::Num(1)))),
+            Lse::SortProp => (
+                Term::Sort(Universe::Num(0)),
+                Some(Term::Sort(Universe::Num(1))),
+            ),
             Lse::SortType(universe) => {
                 let level = normalize_succ(universe_of(universe, &self.owned_map));
                 let ty = normalize_succ(level.clone());
@@ -719,7 +729,9 @@ impl LseWalk<'_, '_, '_> {
                     .iter()
                     .rev()
                     .find(|entry| entry.name == *name)
-                    .ok_or_else(|| LseError::Unavailable(format!("local `{name}` is not in scope")))?;
+                    .ok_or_else(|| {
+                        LseError::Unavailable(format!("local `{name}` is not in scope"))
+                    })?;
                 (Term::Local(entry.id), Some(entry.ty.clone()))
             }
             Lse::App(function, arguments) => {
@@ -1040,7 +1052,13 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             universe_map.insert(name.clone(), fresh.clone());
             universe_args.push(fresh);
         }
-        let ty = lse_to_term(signature, self.shared, self.alloc, &universe_map, Some(metas))?;
+        let ty = lse_to_term(
+            signature,
+            self.shared,
+            self.alloc,
+            &universe_map,
+            Some(metas),
+        )?;
         let global = global_for(self.shared, &qualified, entry).map_err(LseError::Unavailable)?;
         Ok((Term::Global(global, universe_args), ty))
     }
@@ -1189,9 +1207,8 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                                     let (byte_start, byte_end) = self.bytes_of(*atoms);
                                     let first = &self.shared.atoms[atoms.0];
                                     last_instantiation_error = Some(
-                                        instantiation_error
-                                            .diagnostic(code!("LLR3005"))
-                                            .with_span(crate::diagnostic::Span {
+                                        instantiation_error.diagnostic(code!("LLR3005")).with_span(
+                                            crate::diagnostic::Span {
                                                 path: self.shared.path.to_owned(),
                                                 byte_start,
                                                 byte_end,
@@ -1199,7 +1216,8 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                                                 column_start: first.column_start,
                                                 line_end: first.line_end,
                                                 column_end: first.column_end,
-                                            }),
+                                            },
+                                        ),
                                     );
                                 }
                                 Ok((term, ty)) => {
@@ -1280,13 +1298,13 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                         .with_span(self.span_of(*atoms))
                     })?;
                 let mut metas = Metas::default();
-                let (term, ty) = self
-                    .instantiate_entry(&reference, &mut metas)
-                    .map_err(|failure| {
-                        failure
-                            .diagnostic(code!("LLR3005"))
-                            .with_span(self.span_of(*atoms))
-                    })?;
+                let (term, ty) =
+                    self.instantiate_entry(&reference, &mut metas)
+                        .map_err(|failure| {
+                            failure
+                                .diagnostic(code!("LLR3005"))
+                                .with_span(self.span_of(*atoms))
+                        })?;
                 let mut rows = vec![self.atom_row(
                     atoms.0,
                     Origin::Structural {
@@ -1600,13 +1618,13 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         expected: Option<&Term>,
     ) -> Result<ElabTerm, Diagnostic> {
         let mut metas = Metas::default();
-        let (function, function_ty) = self
-            .instantiate_entry(reference, &mut metas)
-            .map_err(|failure| {
-                failure
-                    .diagnostic(code!("LLT4001"))
-                    .with_span(self.span_of(surface_atoms))
-            })?;
+        let (function, function_ty) =
+            self.instantiate_entry(reference, &mut metas)
+                .map_err(|failure| {
+                    failure
+                        .diagnostic(code!("LLT4001"))
+                        .with_span(self.span_of(surface_atoms))
+                })?;
         let arg_cands: Vec<Cand> = args
             .iter()
             .map(|argument| {

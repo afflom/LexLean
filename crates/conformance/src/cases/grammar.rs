@@ -121,7 +121,10 @@ pub(crate) fn run(id: &str) {
                 "the depth diagnostic names the limit, value, and phase: {}",
                 diagnostic.message
             );
-            assert!(diagnostic.primary.is_some(), "the depth diagnostic has a span");
+            assert!(
+                diagnostic.primary.is_some(),
+                "the depth diagnostic has a span"
+            );
             // 20000 nested `have` environments likewise.
             let mut proof = String::new();
             for _ in 0..20_000 {
@@ -213,7 +216,9 @@ pub(crate) fn run(id: &str) {
                 "Close the goal by reflexivity.",
             ));
             assert!(
-                lean.contains("Eq (Nat.succ (Nat.succ (Nat.add llv0 0))) (Nat.succ (Nat.succ llv0))"),
+                lean.contains(
+                    "Eq (Nat.succ (Nat.succ (Nat.add llv0 0))) (Nat.succ (Nat.succ llv0))"
+                ),
                 "nested calls with a grouped argument elaborate: {lean}"
             );
             assert_eq!(
@@ -339,7 +344,9 @@ pub(crate) fn run(id: &str) {
                 "Assume \\(h\\).\nClose the goal by reflexivity.",
             ));
             assert!(
-                lean.contains("(Or (And (Eq llv0 llv0) (Eq llv0 0)) (Eq llv0 0)) → Eq (Nat.add llv0 0) llv0"),
+                lean.contains(
+                    "(Or (And (Eq llv0 llv0) (Eq llv0 0)) (Eq llv0 0)) → Eq (Nat.add llv0 0) llv0"
+                ),
                 "`P and Q or R` parses as Or(And(P,Q),R): {lean}"
             );
         }

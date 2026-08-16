@@ -289,10 +289,7 @@ impl Term {
                 ]),
                 Resolved::Free(free) => Json::object(vec![
                     ("k", Json::Str("local".to_owned())),
-                    (
-                        "free",
-                        Json::Int(i64::try_from(free.0).unwrap_or(i64::MAX)),
-                    ),
+                    ("free", Json::Int(i64::try_from(free.0).unwrap_or(i64::MAX))),
                 ]),
             },
             Self::Global(global, universes) => {
@@ -415,8 +412,7 @@ impl Term {
     /// their `LocalId` verbatim so distinct locals never conflate.
     #[must_use]
     pub fn eq_key(&self) -> String {
-        Self::strip_spellings(&self.to_json(&mut Renumber::keeping_free()))
-            .to_canonical_string()
+        Self::strip_spellings(&self.to_json(&mut Renumber::keeping_free())).to_canonical_string()
     }
 
     /// The nesting depth of a term, computed without recursion so a deep

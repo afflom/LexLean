@@ -159,7 +159,10 @@ impl Fmt<'_> {
                     Some((_, entry))
                         if entry.surface_arity as usize == explicit_args.len()
                             && self.unique_surface(entry, Channel::Math).is_some()
-                            && matches!(entry.frame, Frame::Infix | Frame::Prefix | Frame::Postfix) =>
+                            && matches!(
+                                entry.frame,
+                                Frame::Infix | Frame::Prefix | Frame::Postfix
+                            ) =>
                     {
                         entry.precedence.map_or(256, u16::from)
                     }
@@ -407,10 +410,7 @@ impl Fmt<'_> {
         Ok(Some(match entry.category {
             Category::AdjectivePredicate => format!("{first} is {surface}"),
             Category::IntransitivePredicate => format!("{first} {surface}"),
-            _ => format!(
-                "{first} {surface} {}",
-                self.term_phrase(&explicit_args[1])?
-            ),
+            _ => format!("{first} {surface} {}", self.term_phrase(&explicit_args[1])?),
         }))
     }
 

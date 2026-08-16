@@ -151,7 +151,11 @@ impl<'a, 'b> ProofElab<'a, 'b> {
             let Term::Global(GlobalRef::Document(reference), _) = function else {
                 return current;
             };
-            let Some(info) = self.shared.decls.get(&reference.module, &reference.component) else {
+            let Some(info) = self
+                .shared
+                .decls
+                .get(&reference.module, &reference.component)
+            else {
                 return current;
             };
             let Some(value) = &info.value else {
@@ -234,7 +238,11 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 })
             };
             let previous = index.checked_sub(1).and_then(|i| self.shared.atoms.get(i));
-            let next = self.shared.atoms.get(index + 1).filter(|_| index + 1 < range.1);
+            let next = self
+                .shared
+                .atoms
+                .get(index + 1)
+                .filter(|_| index + 1 < range.1);
             let hole = match atom.text.as_str() {
                 "_" => !adjacent_ident(previous, true) && !adjacent_ident(next, false),
                 "?" => next.is_some_and(|n| n.text == "_" && n.byte_start == atom.byte_end),
@@ -363,8 +371,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 } => {
                     // The hypothesis name is an LSE identifier and never the
                     // reserved target word `goal` (§16.3, §16.4).
-                    if !crate::lexicon::lse::is_lse_identifier(&name.text) || name.text == "goal"
-                    {
+                    if !crate::lexicon::lse::is_lse_identifier(&name.text) || name.text == "goal" {
                         return Err(fail(
                             code!("LLF5002"),
                             format!(
@@ -439,9 +446,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                     });
                 }
                 ProofItemAst::Apply {
-                    function,
-                    premises,
-                    ..
+                    function, premises, ..
                 } => {
                     let function_term = self.term_brace(function)?;
                     let residuals = self.residual_premises(&function_term, &step_goal);
@@ -552,15 +557,12 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                     cases,
                     begin,
                 } => {
-                    let step =
-                        self.cases_like(*induction, scrutinee, cases, &step_goal, *begin)?;
+                    let step = self.cases_like(*induction, scrutinee, cases, &step_goal, *begin)?;
                     steps.push(step);
                     closed = true;
                 }
                 ProofItemAst::Calculate {
-                    start,
-                    steps: calc,
-                    ..
+                    start, steps: calc, ..
                 } => {
                     let step = self.calculate(start, calc, &step_goal)?;
                     steps.push(step);
@@ -794,23 +796,20 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 match core {
                     CoreRef::And => {
                         if explicit_args.len() == 2 {
-                            return Some(
-                                explicit_args.iter().cloned().map(Goal::Known).collect(),
-                            );
+                            return Some(explicit_args.iter().cloned().map(Goal::Known).collect());
                         }
                     }
                     CoreRef::Iff => {
                         if let [left, right] = explicit_args.as_slice() {
-                            let arrow =
-                                |from: &Term, to: &Term, alloc: &mut LocalAlloc| Term::Pi {
-                                    binders: vec![Binder {
-                                        id: alloc.fresh(),
-                                        mode: BinderMode::Explicit,
-                                        ty: from.clone(),
-                                        spelling: String::new(),
-                                    }],
-                                    body: Box::new(to.clone()),
-                                };
+                            let arrow = |from: &Term, to: &Term, alloc: &mut LocalAlloc| Term::Pi {
+                                binders: vec![Binder {
+                                    id: alloc.fresh(),
+                                    mode: BinderMode::Explicit,
+                                    ty: from.clone(),
+                                    spelling: String::new(),
+                                }],
+                                body: Box::new(to.clone()),
+                            };
                             let forward = arrow(left, right, self.alloc);
                             let backward = arrow(right, left, self.alloc);
                             return Some(vec![Goal::Known(forward), Goal::Known(backward)]);
@@ -1239,7 +1238,10 @@ impl<'a, 'b> ProofElab<'a, 'b> {
             .with_span(self.span_of(scrutinee.range)));
         };
         let Some(scrutinee_ty) = scrutinee_term.ty.clone() else {
-            return Err(fail(code!("LLI9001"), "phase proofs: descriptor without a type"));
+            return Err(fail(
+                code!("LLI9001"),
+                "phase proofs: descriptor without a type",
+            ));
         };
         // Every constructor exactly once; order canonicalizes to descriptor
         // order (§16.8).
@@ -1406,10 +1408,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 } else {
                     (
                         self.alloc.fresh(),
-                        ih_types
-                            .get(position - field_ids.len())
-                            .cloned()
-                            .flatten(),
+                        ih_types.get(position - field_ids.len()).cloned().flatten(),
                     )
                 };
                 self.scopes.declare(spelling, id, ty);

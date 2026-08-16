@@ -280,7 +280,9 @@ pub(crate) fn run(id: &str) {
             );
             // A component converting to a pinned-Lean keyword is rejected
             // by name (C9); tactic names are not keywords.
-            for keyword in ["def", "theorem", "at", "where", "instance", "with", "then", "let"] {
+            for keyword in [
+                "def", "theorem", "at", "where", "instance", "with", "then", "let",
+            ] {
                 let project = P::example();
                 project.edit(
                     "src/Main.lex.tex",
@@ -503,7 +505,9 @@ pub(crate) fn run(id: &str) {
                 .diagnostics
                 .iter()
                 .find(|d| d.code.as_str() == "LLT4001")
-                .unwrap_or_else(|| panic!("a numeral without a unique expected type is LLT4001: {error}"));
+                .unwrap_or_else(|| {
+                    panic!("a numeral without a unique expected type is LLT4001: {error}")
+                });
             assert!(
                 diagnostic.message.contains("numeral `1`") && diagnostic.primary.is_some(),
                 "the numeral is named: {}",

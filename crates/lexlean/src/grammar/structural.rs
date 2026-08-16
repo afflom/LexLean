@@ -616,9 +616,11 @@ impl<'a> Parser<'a> {
     /// `depth` counts nested proof environments against `max_scope_depth`
     /// (§25.5).
     fn proof_body(&mut self, begin: usize, env_name: &str, depth: u64) -> PResult<ProofEnvAst> {
-        if let Err(diagnostic) =
-            crate::grammar::chart::depth_check(depth, self.max_scope_depth, "parse (proof environment nesting)")
-        {
+        if let Err(diagnostic) = crate::grammar::chart::depth_check(
+            depth,
+            self.max_scope_depth,
+            "parse (proof environment nesting)",
+        ) {
             let span = self.here_span();
             return Err(diagnostic.with_span(span));
         }

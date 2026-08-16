@@ -61,7 +61,10 @@ pub(crate) fn run(id: &str) {
                         "A count is defined as \\(ℕ\\).",
                         "A count is defined as \\(\\lexeme{lexlean.std.nat::nat}\\).",
                     )
-                    .replace("natural number \\(", "\\(\\lexeme{lexlean.std.nat::nat}\\) \\("),
+                    .replace(
+                        "natural number \\(",
+                        "\\(\\lexeme{lexlean.std.nat::nat}\\) \\(",
+                    ),
             );
             let checked = support::checked_project(&ambiguous);
             let canonical =

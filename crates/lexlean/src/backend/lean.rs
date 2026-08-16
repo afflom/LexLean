@@ -339,7 +339,11 @@ fn print_term(
             function,
             explicit_args,
             ..
-        } if matches!(&**function, Term::Global(GlobalRef::Core(CoreRef::ExistsUnique), _)) => {
+        } if matches!(
+            &**function,
+            Term::Global(GlobalRef::Core(CoreRef::ExistsUnique), _)
+        ) =>
+        {
             // Pinned Lean 4.32.1's `Init` declares no `ExistsUnique`; the
             // core constructor lowers to its definition (§15.6, §18.4):
             // `ExistsUnique (fun x => P x)` is
