@@ -20,3 +20,19 @@ features = []
 
 [render]
 math = "(seq (slot 0) (space) (token logical-or) (space) (slot 1))"
+
+[eliminator]
+cases_lean_name = "Or.casesOn"
+induction_lean_name = "Or.rec"
+
+[[eliminator.constructor]]
+entry = "lexlean.core::or-inl"
+lean_name = "Or.inl"
+fields = ["h"]
+induction_hypotheses = []
+
+[[eliminator.constructor]]
+entry = "lexlean.core::or-inr"
+lean_name = "Or.inr"
+fields = ["h"]
+induction_hypotheses = []

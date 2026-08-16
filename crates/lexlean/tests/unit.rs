@@ -48,16 +48,16 @@ fn scanner_enforces_the_atom_limit() {
 #[test]
 fn lse_roundtrips_canonically() {
     let text = "(pi ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.core::eq (0)) (const lexlean.std.nat::nat) (local n) (local n)))";
-    let parsed = lse::parse(text).expect("parses");
+    let parsed = lse::parse(text, 64).expect("parses");
     let printed = parsed.print(false);
-    let reparsed = lse::parse(&printed).expect("reparses");
+    let reparsed = lse::parse(&printed, 64).expect("reparses");
     assert_eq!(reparsed.print(false), printed, "printing is a fixpoint");
 }
 
 /// §13.8: unbound locals are rejected at scope checking.
 #[test]
 fn lse_rejects_unbound_locals() {
-    let parsed = lse::parse("(local ghost)").expect("parses structurally");
+    let parsed = lse::parse("(local ghost)", 64).expect("parses structurally");
     assert!(
         parsed
             .check_scopes(&std::collections::BTreeSet::new())

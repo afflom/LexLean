@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "iff-intro"
+category = "proof-constant"
+signature = "(pi ((implicit a (sort prop)) (implicit b (sort prop)) (explicit mp (pi ((explicit h (local a))) (local b))) (explicit mpr (pi ((explicit h (local b))) (local a)))) (app (const lexlean.core::iff) (local a) (local b)))"
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Iff.intro"
+
+[[form]]
+id = "iffintro"
+channel = "math"
+surface = "iffintro"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name iffintro) (paren (seq (slot 0) (token comma) (space) (slot 1))))"

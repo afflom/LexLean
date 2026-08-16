@@ -74,7 +74,7 @@ fn mutated_entry(from: &str, to: &str) -> String {
 
 pub(crate) fn run(id: &str) {
     match id {
-        // §13.1: layout, schema, ID-to-path, exact imports.
+        // §13.1: layout, schema, ID-to-path, exact imports, import closure.
         "GL-01" => {
             let misplaced = with_entries(&[("elsewhere.toml", &atom_entry("probe"))]);
             lock_fails_with(&misplaced, "LLR3004");
@@ -106,6 +106,87 @@ pub(crate) fn run(id: &str) {
                     .map(|d| d.code.as_str())
                     .collect::<Vec<_>>()
             );
+
+            // Comments and unknown fields in lexicon.toml are errors.
+            let commented = with_entries(&[("probe.toml", &atom_entry("probe"))]);
+            commented.edit(
+                "lexicons/test-pkg/lexicon.toml",
+                "language = \"1.0\"",
+                "language = \"1.0\" # the language",
+            );
+            lock_fails_with(&commented, "LLR3004");
+            let unknown_field = with_entries(&[("probe.toml", &atom_entry("probe"))]);
+            unknown_field.edit(
+                "lexicons/test-pkg/lexicon.toml",
+                "language = \"1.0\"",
+                "language = \"1.0\"\nauthor = \"nobody\"",
+            );
+            lock_fails_with(&unknown_field, "LLR3004");
+
+            // Imports sort bytewise as `package@version` text.
+            let unsorted = P::example();
+            unsorted.add_package(
+                "lexicons/test-pkg",
+                "test.pkg",
+                &["lexlean.std.nat@1.0.0", "lexlean.core@1.0.0"],
+                &[("probe.toml", &atom_entry("probe"))],
+            );
+            lock_fails_with(&unsorted, "LLR3004");
+            let duplicated = P::example();
+            duplicated.add_package(
+                "lexicons/test-pkg",
+                "test.pkg",
+                &["lexlean.core@1.0.0", "lexlean.core@1.0.0"],
+                &[("probe.toml", &atom_entry("probe"))],
+            );
+            lock_fails_with(&duplicated, "LLR3004");
+
+            // References resolve only within the package's transitive import
+            // closure: a package that imports nothing cannot see std.nat, and
+            // a package that imports only core cannot see std.nat either.
+            let isolated = P::example();
+            isolated.add_package(
+                "lexicons/test-pkg",
+                "test.pkg",
+                &[],
+                &[("probe.toml", &atom_entry("probe"))],
+            );
+            let error = closure_fails_with(&isolated, "LLR3005");
+            let message = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLR3005")
+                .map(|d| d.message.clone())
+                .unwrap_or_default();
+            assert!(
+                message.contains("lexlean.std.nat::nat") && message.contains("import closure"),
+                "the diagnostic names the reference and the closure: {message}"
+            );
+            let core_only = P::example();
+            core_only.add_package(
+                "lexicons/test-pkg",
+                "test.pkg",
+                &["lexlean.core@1.0.0"],
+                &[("probe.toml", &atom_entry("probe"))],
+            );
+            closure_fails_with(&core_only, "LLR3005");
+            // The transitive closure suffices: importing a package that
+            // imports std.nat brings std.nat into view.
+            let transitive = P::example();
+            transitive.add_package(
+                "lexicons/test-mid",
+                "test.mid",
+                &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+                &[("mid.toml", &atom_entry("mid"))],
+            );
+            transitive.add_package(
+                "lexicons/test-pkg",
+                "test.pkg",
+                &["lexlean.core@1.0.0", "test.mid@1.0.0"],
+                &[("probe.toml", &atom_entry("probe"))],
+            );
+            transitive.relock();
+            transitive.check_ok();
         }
         // §13.2: the exact entry schema with category-specific rules.
         "GL-02" => {
@@ -126,6 +207,37 @@ pub(crate) fn run(id: &str) {
                 &mutated_entry("category = \"term-constant\"", "category = \"grammar\""),
             )]);
             lock_fails_with(&core_only, "LLR3004");
+
+            // surface_arity must equal the explicit binders of the signature.
+            let arity = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    "signature = \"(pi ((explicit n (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))\"",
+                ),
+            )]);
+            let error = lock_fails_with(&arity, "LLR3004");
+            assert!(
+                error
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.message.contains("surface_arity 0") && d.message.contains("probe")),
+                "the arity diagnostic names the entry and the arity: {error}"
+            );
+
+            // A text render does not apply to a math-only category.
+            let text_render = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "category = \"term-constant\"",
+                    "category = \"predicate-constant\"",
+                )
+                .replace(
+                    "math = \"(operator-name probe)\"",
+                    "math = \"(operator-name probe)\"\ntext = \"(self-form probe)\"",
+                ),
+            )]);
+            lock_fails_with(&text_render, "LLR3004");
         }
         // §13.5: forms carry channel, features, and canonical sourcing.
         "GL-03" => {
@@ -141,11 +253,142 @@ pub(crate) fn run(id: &str) {
             )]);
             lock_fails_with(&feature, "LLR3004");
 
+            let unsorted_features = with_entries(&[(
+                "probe.toml",
+                &mutated_entry("features = []", "features = [\"singular\", \"lower-case\"]"),
+            )]);
+            lock_fails_with(&unsorted_features, "LLR3004");
+
             let no_canonical = with_entries(&[(
                 "probe.toml",
                 &mutated_entry("canonical_source = true", "canonical_source = false"),
             )]);
             lock_fails_with(&no_canonical, "LLR3004");
+
+            let two_canonical = with_entries(&[(
+                "probe.toml",
+                &atom_entry("probe").replace(
+                    "[render]",
+                    "[[form]]\nid = \"probe-two\"\nchannel = \"both\"\nsurface = \"probed\"\ncanonical_source = true\nfeatures = []\n\n[render]",
+                ),
+            )]);
+            lock_fails_with(&two_canonical, "LLR3004");
+
+            // A control-sequence form is an alias only for non-core entries.
+            let control_canonical = with_entries(&[(
+                "probe.toml",
+                &mutated_entry("surface = \"probe\"", "surface = \"\\\\probe\""),
+            )]);
+            lock_fails_with(&control_canonical, "LLR3004");
+
+            // Rules 4 and 5: an unsafe canonical surface is LLR3006.
+            for unsafe_surface in [
+                "pr{obe}",
+                "pr$obe",
+                "pr\\\\relax",
+                "probe%",
+                "x_1",
+                "\\\"q\\\"",
+            ] {
+                let unsafe_canonical = with_entries(&[(
+                    "probe.toml",
+                    &mutated_entry(
+                        "surface = \"probe\"",
+                        &format!("surface = \"{unsafe_surface}\""),
+                    ),
+                )]);
+                let error = lock_fails_with(&unsafe_canonical, "LLR3006");
+                let _ = error;
+            }
+            let text_symbol = with_entries(&[(
+                "probe.toml",
+                &mutated_entry("surface = \"probe\"", "surface = \"pr+obe\"")
+                    .replace("channel = \"both\"", "channel = \"text\"")
+                    .replace("[render]\nmath = \"(operator-name probe)\"\n", ""),
+            )]);
+            lock_fails_with(&text_symbol, "LLR3006");
+            let math_symbol = with_entries(&[(
+                "probe.toml",
+                &mutated_entry("surface = \"probe\"", "surface = \"pr+obe\"")
+                    .replace("channel = \"both\"", "channel = \"math\"")
+                    .replace(
+                        "category = \"term-constant\"",
+                        "category = \"predicate-constant\"",
+                    )
+                    .replace(
+                        "signature = \"(const lexlean.std.nat::nat)\"",
+                        "signature = \"(sort prop)\"",
+                    ),
+            )]);
+            math_symbol.relock();
+            math_symbol.check_ok();
+
+            // A non-canonical alias may spell raw TeX, but the moment an LRE
+            // references it (self-form or a cross-package form), the alias
+            // must satisfy the same safety predicate.
+            let alias_only = with_entries(&[(
+                "probe.toml",
+                &atom_entry("probe").replace(
+                    "[render]",
+                    "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\jobname{x} $ \\\\relax\"\ncanonical_source = false\nfeatures = []\n\n[render]",
+                ),
+            )]);
+            alias_only.relock();
+            alias_only.check_ok();
+            let self_injected = with_entries(&[(
+                "probe.toml",
+                &atom_entry("probe")
+                    .replace(
+                        "[render]",
+                        "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\jobname{x} $ \\\\relax\"\ncanonical_source = false\nfeatures = []\n\n[render]",
+                    )
+                    .replace("math = \"(operator-name probe)\"", "math = \"(self-form alias)\""),
+            )]);
+            lock_fails_with(&self_injected, "LLR3006");
+            let cross_injected = P::example();
+            cross_injected.add_package(
+                "lexicons/test-other",
+                "test.other",
+                &[
+                    "lexlean.core@1.0.0",
+                    "lexlean.std.nat@1.0.0",
+                    "test.pkg@1.0.0",
+                ],
+                &[(
+                    "other.toml",
+                    &atom_entry("other").replace(
+                        "math = \"(operator-name other)\"",
+                        "math = \"(form test.pkg::probe alias)\"",
+                    ),
+                )],
+            );
+            cross_injected.add_package(
+                "lexicons/test-pkg",
+                "test.pkg",
+                &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+                &[(
+                    "probe.toml",
+                    &atom_entry("probe").replace(
+                        "[render]",
+                        "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\jobname{x} $ \\\\relax\"\ncanonical_source = false\nfeatures = []\n\n[render]",
+                    ),
+                )],
+            );
+            closure_fails_with(&cross_injected, "LLR3006");
+
+            // Core structural and grammar surfaces are reserved.
+            for reserved in ["\\\\begin", "}", "\\\\lexeme", "the"] {
+                let aliased = with_entries(&[(
+                    "probe.toml",
+                    &atom_entry("probe").replace(
+                        "[render]",
+                        &format!(
+                            "[[form]]\nid = \"alias\"\nchannel = \"both\"\nsurface = \"{reserved}\"\ncanonical_source = false\nfeatures = []\n\n[render]"
+                        ),
+                    ),
+                )]);
+                closure_fails_with(&aliased, "LLR3002");
+            }
         }
         // §13.4: one fixed frame per entry; no package-defined grammar.
         "GL-04" => {
@@ -181,7 +424,7 @@ pub(crate) fn run(id: &str) {
             )]);
             lock_fails_with(&core_outside, "LLR3004");
         }
-        // §13.8: valid, scoped, canonical LSE signatures.
+        // §13.8: valid, scoped, canonical, well-typed LSE signatures.
         "GL-06" => {
             let unbound = with_entries(&[(
                 "probe.toml",
@@ -197,14 +440,282 @@ pub(crate) fn run(id: &str) {
                 &mutated_entry("signature = \"(const lexlean.std.nat::nat)\"\n", ""),
             )]);
             lock_fails_with(&no_signature, "LLR3004");
+
+            // Every grammar production parses and canonicalizes; alpha-
+            // equivalent signatures hash identically.
+            let full = format!(
+                "(pi ((implicit a (sort (type (max u (succ 0) (imax u 1))))) (explicit f (pi ((explicit x (local a))) (sort prop))) (explicit n (local a))) (let m (local a) (local n) (app (local f) (local m))))"
+            );
+            let productions = with_entries(&[
+                (
+                    "probe.toml",
+                    &atom_entry("probe")
+                        .replace(
+                            "signature = \"(const lexlean.std.nat::nat)\"",
+                            &format!("signature = \"{full}\"\nuniverses = [\"u\"]"),
+                        )
+                        .replace("surface_arity = 0", "surface_arity = 2")
+                        .replace("frame = \"atom\"", "frame = \"call\"")
+                        .replace("category = \"term-constant\"", "category = \"proof-constant\"")
+                        .replace(
+                            "math = \"(operator-name probe)\"",
+                            "math = \"(seq (operator-name probe) (paren (seq (slot 0) (token comma) (slot 1))))\"",
+                        ),
+                ),
+                (
+                    "alpha.toml",
+                    &atom_entry("alpha").replace(
+                        "signature = \"(const lexlean.std.nat::nat)\"",
+                        "signature = \"(pi ((explicit x (sort prop)) (explicit y (sort prop))) (local y))\"",
+                    ).replace("surface_arity = 0", "surface_arity = 2")
+                        .replace("frame = \"atom\"", "frame = \"call\"")
+                        .replace("category = \"term-constant\"", "category = \"proof-constant\"")
+                        .replace(
+                            "math = \"(operator-name alpha)\"",
+                            "math = \"(seq (operator-name alpha) (paren (seq (slot 0) (token comma) (slot 1))))\"",
+                        ),
+                ),
+                (
+                    "beta.toml",
+                    &atom_entry("beta").replace(
+                        "signature = \"(const lexlean.std.nat::nat)\"",
+                        "signature = \"(pi ((explicit p (sort prop)) (explicit q (sort prop))) (local q))\"",
+                    ).replace("surface_arity = 0", "surface_arity = 2")
+                        .replace("frame = \"atom\"", "frame = \"call\"")
+                        .replace("category = \"term-constant\"", "category = \"proof-constant\"")
+                        .replace(
+                            "math = \"(operator-name beta)\"",
+                            "math = \"(seq (operator-name beta) (paren (seq (slot 0) (token comma) (slot 1))))\"",
+                        ),
+                ),
+            ]);
+            productions.relock();
+            let checked = support::checked_project(&productions);
+            let entry = |id: &str| {
+                checked
+                    .closure
+                    .entry(
+                        &lexlean::lexicon::lse::QualifiedId::parse(&format!("test.pkg::{id}"))
+                            .expect("id"),
+                    )
+                    .expect("entry")
+                    .clone()
+            };
+            assert_eq!(
+                entry("probe").signature_canonical.as_deref(),
+                Some(
+                    "(pi ((implicit x0 (sort (type (max u (succ 0) (imax u 1))))) (explicit x1 (pi ((explicit x2 (local x0))) (sort prop))) (explicit x3 (local x0))) (let x4 (local x0) (local x3) (app (local x1) (local x4))))"
+                ),
+                "canonical LSE: one space, no redundant grouping, binders x0.."
+            );
+            assert_eq!(
+                entry("alpha").signature_hash,
+                entry("beta").signature_hash,
+                "alpha-equivalent signatures hash identically"
+            );
+
+            // A signature must be type-shaped.
+            let not_a_type = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    "signature = \"(nat 3)\"",
+                ),
+            )]);
+            closure_fails_with(&not_a_type, "LLR3004");
+            let term_not_type = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    "signature = \"(const lexlean.std.nat::zero)\"",
+                ),
+            )]);
+            closure_fails_with(&term_not_type, "LLR3004");
+            let no_signature_ref = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    "signature = \"(const lexlean.core::the)\"",
+                ),
+            )]);
+            closure_fails_with(&no_signature_ref, "LLR3004");
+
+            // Applications supply at most the explicit binders (S5): `eq`
+            // has one implicit and two explicit binders.
+            let over_applied = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    "signature = \"(app (const lexlean.core::eq) (const lexlean.std.nat::zero) (const lexlean.std.nat::zero) (const lexlean.std.nat::zero))\"",
+                )
+                .replace("category = \"term-constant\"", "category = \"predicate-constant\""),
+            )]);
+            let error = closure_fails_with(&over_applied, "LLR3004");
+            assert!(
+                error
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.message.contains("test.pkg::probe")
+                        && d.message.contains("3 explicit")),
+                "the diagnostic names the entry and the arity: {error}"
+            );
+            let well_applied = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    "signature = \"(app (const lexlean.core::eq) (const lexlean.std.nat::zero) (nat 0))\"",
+                )
+                .replace("category = \"term-constant\"", "category = \"predicate-constant\""),
+            )]);
+            well_applied.relock();
+            well_applied.check_ok();
+            let mistyped_arg = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    "signature = \"(app (const lexlean.std.nat::le) (const lexlean.std.nat::zero) (const lexlean.std.nat::nat))\"",
+                )
+                .replace("category = \"term-constant\"", "category = \"predicate-constant\""),
+            )]);
+            closure_fails_with(&mistyped_arg, "LLR3004");
+
+            // Defined values must match their signatures.
+            let defined = |value: &str| {
+                atom_entry("probe")
+                    .replace(
+                        "signature = \"(const lexlean.std.nat::nat)\"",
+                        "signature = \"(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))\"",
+                    )
+                    .replace("category = \"term-constant\"", "category = \"infix-function\"")
+                    .replace("frame = \"atom\"", "frame = \"infix\"\nprecedence = 65\nassociativity = \"left\"")
+                    .replace("surface_arity = 0", "surface_arity = 2")
+                    .replace("surface = \"probe\"", "surface = \"⊕\"")
+                    .replace("channel = \"both\"", "channel = \"math\"")
+                    .replace(
+                        "kind = \"lean\"\nmodule = \"Init\"\nname = \"Nat.zero\"",
+                        &format!("kind = \"defined\"\nvalue = \"{value}\""),
+                    )
+                    .replace(
+                        "math = \"(operator-name probe)\"",
+                        "math = \"(seq (slot 0) (space) (token plus) (space) (slot 1))\"",
+                    )
+            };
+            let good = with_entries(&[(
+                "probe.toml",
+                &defined("(lam ((explicit x (const lexlean.std.nat::nat)) (explicit y (const lexlean.std.nat::nat))) (app (const lexlean.std.nat::add) (local y) (local x)))"),
+            )]);
+            good.relock();
+            good.check_ok();
+            let wrong_binder = with_entries(&[(
+                "probe.toml",
+                &defined("(lam ((explicit x (const lexlean.std.nat::nat)) (explicit y (sort prop))) (local x))"),
+            )]);
+            closure_fails_with(&wrong_binder, "LLR3004");
+            let wrong_body = with_entries(&[(
+                "probe.toml",
+                &defined("(lam ((explicit x (const lexlean.std.nat::nat)) (explicit y (const lexlean.std.nat::nat))) (app (const lexlean.std.nat::le) (local x) (local y)))"),
+            )]);
+            closure_fails_with(&wrong_body, "LLR3004");
+            let too_few = with_entries(&[(
+                "probe.toml",
+                &defined("(lam ((explicit x (const lexlean.std.nat::nat))) (local x))"),
+            )]);
+            closure_fails_with(&too_few, "LLR3004");
+
+            // Nesting is bounded by max_scope_depth, an explicit limit.
+            let deep = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    &format!(
+                        "signature = \"{}(const lexlean.std.nat::nat){}\"",
+                        "(app ".repeat(200_000),
+                        ")".repeat(200_000)
+                    ),
+                ),
+            )]);
+            lock_fails_with(&deep, "LLS8002");
         }
-        // §13.9: complete slot use and no raw TeX in LRE.
+        // §13.9: complete slot use, valid references, and no raw TeX in LRE.
         "GL-07" => {
             let out_of_range = with_entries(&[(
                 "probe.toml",
                 &mutated_entry("math = \"(operator-name probe)\"", "math = \"(slot 0)\""),
             )]);
             lock_fails_with(&out_of_range, "LLR3004");
+
+            let call = |render: &str| {
+                atom_entry("probe")
+                    .replace(
+                        "signature = \"(const lexlean.std.nat::nat)\"",
+                        "signature = \"(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))\"",
+                    )
+                    .replace("category = \"term-constant\"", "category = \"function\"")
+                    .replace("frame = \"atom\"", "frame = \"call\"")
+                    .replace("surface_arity = 0", "surface_arity = 2")
+                    .replace("channel = \"both\"", "channel = \"math\"")
+                    .replace("math = \"(operator-name probe)\"", &format!("math = \"{render}\""))
+            };
+            let duplicate_slot = with_entries(&[(
+                "probe.toml",
+                &call("(seq (operator-name probe) (paren (seq (slot 0) (token comma) (slot 0))))"),
+            )]);
+            lock_fails_with(&duplicate_slot, "LLR3004");
+            let missing_slot = with_entries(&[(
+                "probe.toml",
+                &call("(seq (operator-name probe) (paren (slot 1)))"),
+            )]);
+            lock_fails_with(&missing_slot, "LLR3004");
+            let noncanonical_slot = with_entries(&[(
+                "probe.toml",
+                &call("(seq (operator-name probe) (paren (seq (slot 0) (token comma) (slot 01))))"),
+            )]);
+            lock_fails_with(&noncanonical_slot, "LLR3004");
+            let raw = with_entries(&[(
+                "probe.toml",
+                &call("(seq (raw \\\\relax) (slot 0) (slot 1))"),
+            )]);
+            lock_fails_with(&raw, "LLR3004");
+            let bad_operator = with_entries(&[(
+                "probe.toml",
+                &call("(seq (operator-name pr-obe) (paren (seq (slot 0) (token comma) (slot 1))))"),
+            )]);
+            lock_fails_with(&bad_operator, "LLR3004");
+            let unknown_self_form = with_entries(&[(
+                "probe.toml",
+                &call("(seq (self-form ghost) (paren (seq (slot 0) (token comma) (slot 1))))"),
+            )]);
+            lock_fails_with(&unknown_self_form, "LLR3004");
+            let unknown_form = with_entries(&[(
+                "probe.toml",
+                &call("(seq (form lexlean.std.nat::succ ghost) (paren (seq (slot 0) (token comma) (slot 1))))"),
+            )]);
+            closure_fails_with(&unknown_form, "LLR3004");
+            let text_token = with_entries(&[(
+                "probe.toml",
+                &call("(seq (token theorem) (paren (seq (slot 0) (token comma) (slot 1))))"),
+            )]);
+            closure_fails_with(&text_token, "LLR3004");
+            // sub, sup, and frac are grammar; their operands must render.
+            let scripts = with_entries(&[(
+                "probe.toml",
+                &call("(seq (operator-name probe) (sub (slot 0) (group (sup (slot 1) (frac (token plus) (token minus))))))"),
+            )]);
+            scripts.relock();
+            let empty_script = with_entries(&[(
+                "probe.toml",
+                &call("(seq (operator-name probe) (sub (slot 0) (space)) (slot 1))"),
+            )]);
+            lock_fails_with(&empty_script, "LLR3004");
+            let deep_render = with_entries(&[(
+                "probe.toml",
+                &call(&format!(
+                    "(seq (slot 0) (slot 1) {}(space){})",
+                    "(group ".repeat(100_000),
+                    ")".repeat(100_000)
+                )),
+            )]);
+            lock_fails_with(&deep_render, "LLS8002");
         }
         // §13.10: only the core registry authorizes output controls.
         "GL-08" => {
@@ -217,13 +728,91 @@ pub(crate) fn run(id: &str) {
             )]);
             closure_fails_with(&bad_token, "LLR3004");
 
-            let registry = support::repo_root().join("language/renderer-tokens.toml");
-            let text = std::fs::read_to_string(registry.as_std_path()).expect("registry");
-            let rows = text.matches("[[token]]").count();
-            assert!(
-                rows >= 70,
-                "the closed core registry is committed ({rows} rows)"
-            );
+            // The committed registry carries every §13.10 semantic ID with
+            // the fixed canonical bytes, and every row is core-authored.
+            let registry = lexlean::lexicon::load_token_registry().expect("registry loads");
+            for (id, bytes) in [
+                ("logical-and", "\\land"),
+                ("logical-or", "\\lor"),
+                ("logical-not", "\\lnot"),
+                ("implies", "\\to"),
+                ("iff", "\\leftrightarrow"),
+                ("forall", "\\forall"),
+                ("exists", "\\exists"),
+                ("exists-unique", "\\exists!"),
+                ("member", "\\in"),
+                ("subset-equal", "\\subseteq"),
+            ] {
+                assert_eq!(
+                    registry.get(id).map(|row| row.bytes.as_str()),
+                    Some(bytes),
+                    "§13.10 fixes the bytes of `{id}`"
+                );
+            }
+            for id in [
+                "documentclass",
+                "usepackage",
+                "newtheorem",
+                "theoremstyle",
+                "begin",
+                "end",
+                "center",
+                "large",
+                "section",
+                "subsection",
+                "label",
+                "texttt",
+                "operatorname",
+                "mathbb",
+                "mathrm",
+                "proof",
+                "definition",
+                "theorem",
+                "lemma",
+                "corollary",
+                "plus",
+                "minus",
+                "times",
+                "cdot",
+                "slash",
+                "equals",
+                "not-equals",
+                "less",
+                "less-equal",
+                "greater",
+                "greater-equal",
+                "member",
+                "not-member",
+                "subset",
+                "subset-equal",
+                "union",
+                "intersection",
+                "forall",
+                "exists",
+                "exists-unique",
+                "logical-and",
+                "logical-or",
+                "logical-not",
+                "implies",
+                "iff",
+                "mapsto",
+                "arrow",
+                "left-arrow",
+                "comma",
+                "period",
+                "colon",
+                "semicolon",
+                "left-paren",
+                "right-paren",
+                "left-bracket",
+                "right-bracket",
+            ] {
+                let row = registry
+                    .get(id)
+                    .unwrap_or_else(|| panic!("required token `{id}`"));
+                assert_eq!(row.authority, "lexlean.core");
+                assert!(!row.bytes.is_empty());
+            }
         }
         // §13.1: import cycles and excessive depth.
         "GL-09" => {
@@ -249,17 +838,17 @@ pub(crate) fn run(id: &str) {
                 "max_import_depth = 3",
             );
             let mut previous: Option<String> = None;
-            for index in 1..=6u32 {
-                let name = format!("test.chain{index}");
-                let file = format!("chain{index}.toml");
-                let content = atom_entry(&format!("chain{index}"));
+            for letter in ["a", "b", "c", "d", "e", "f"] {
+                let name = format!("test.chain{letter}");
+                let file = format!("chain{letter}.toml");
+                let content = atom_entry(&format!("chain{letter}"));
                 let imports: Vec<String> = match &previous {
                     Some(parent) => vec!["lexlean.core@1.0.0".to_owned(), parent.clone()],
                     None => vec!["lexlean.core@1.0.0".to_owned()],
                 };
                 let import_refs: Vec<&str> = imports.iter().map(String::as_str).collect();
                 deep.add_package(
-                    &format!("lexicons/test-chain{index}"),
+                    &format!("lexicons/test-chain{letter}"),
                     &name,
                     &import_refs,
                     &[(file.as_str(), content.as_str())],
@@ -403,7 +992,8 @@ math = "(operator-name {name})"
             overloads.relock();
             overloads.check_ok();
         }
-        // §16.11: eliminator descriptors validate structurally.
+        // §16.11: eliminator descriptors validate structurally and against
+        // the constructors' signatures.
         "GL-14" => {
             let nat_entry = std::fs::read_to_string(
                 support::repo_root()
@@ -411,24 +1001,208 @@ math = "(operator-name {name})"
                     .as_std_path(),
             )
             .expect("nat entry");
-            assert!(
-                nat_entry.contains("[eliminator]")
-                    && nat_entry.contains("Nat.rec")
-                    && nat_entry.contains("Nat.casesOn"),
-                "nat carries a complete eliminator descriptor"
+            let project = P::example();
+            let checked = support::checked_project(&project);
+            let nat = checked
+                .closure
+                .entry(
+                    &lexlean::lexicon::lse::QualifiedId::parse("lexlean.std.nat::nat").expect("id"),
+                )
+                .expect("nat");
+            let eliminator = nat.eliminator.as_ref().expect("nat carries a descriptor");
+            assert_eq!(eliminator.cases_lean_name, "Nat.casesOn");
+            assert_eq!(eliminator.induction_lean_name, "Nat.rec");
+            assert_eq!(
+                eliminator
+                    .constructors
+                    .iter()
+                    .map(|c| (
+                        c.entry.to_string(),
+                        c.lean_name.clone(),
+                        c.fields.clone(),
+                        c.induction_hypotheses.clone()
+                    ))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (
+                        "lexlean.std.nat::zero".to_owned(),
+                        "Nat.zero".to_owned(),
+                        vec![],
+                        vec![]
+                    ),
+                    (
+                        "lexlean.std.nat::succ".to_owned(),
+                        "Nat.succ".to_owned(),
+                        vec!["n".to_owned()],
+                        vec!["ih".to_owned()]
+                    ),
+                ]
+            );
+            // Core connectives carry descriptors on their head entries.
+            for (head, cases) in [
+                ("lexlean.core::land", "And.casesOn"),
+                ("lexlean.core::lor", "Or.casesOn"),
+                ("lexlean.core::iff", "Iff.casesOn"),
+                ("lexlean.core::exists-op", "Exists.casesOn"),
+            ] {
+                let id = lexlean::lexicon::lse::QualifiedId::parse(head).expect("id");
+                let (_, descriptor) = checked
+                    .closure
+                    .eliminator_for(&id)
+                    .unwrap_or_else(|| panic!("{head} carries a descriptor"));
+                assert_eq!(descriptor.cases_lean_name, cases);
+            }
+            assert_eq!(
+                checked
+                    .closure
+                    .core_entry_for_constructor("logic.or")
+                    .map(|id| id.to_string()),
+                Some("lexlean.core::lor".to_owned())
             );
 
-            let duplicated = with_entries(&[(
-                "gadget.toml",
-                &nat_entry
+            let gadget = |edit: &dyn Fn(String) -> String| {
+                let text = nat_entry
                     .replace("id = \"nat\"", "id = \"gadget\"")
                     .replace("surface = \"natural number\"", "surface = \"gadget\"")
-                    .replace(
+                    .replace("surface = \"Natural number\"", "surface = \"Gadget\"")
+                    .replace("surface = \"natural numbers\"", "surface = \"gadgets\"")
+                    .replace("surface = \"Natural numbers\"", "surface = \"Gadgets\"")
+                    .replace("surface = \"ℕ\"", "surface = \"𝔾\"");
+                edit(text)
+            };
+            let identity: &dyn Fn(String) -> String = &|t| t;
+            // A foreign type's constructors are rejected: they construct
+            // `nat`, not `gadget`.
+            let foreign = with_entries(&[("gadget.toml", &gadget(identity))]);
+            closure_fails_with(&foreign, "LLR3004");
+            let duplicated = with_entries(&[(
+                "gadget.toml",
+                &gadget(&|t| {
+                    t.replace(
                         "entry = \"lexlean.std.nat::succ\"",
                         "entry = \"lexlean.std.nat::zero\"",
-                    ),
+                    )
+                }),
             )]);
             lock_fails_with(&duplicated, "LLR3004");
+            let absent = with_entries(&[(
+                "gadget.toml",
+                &gadget(&|t| {
+                    t.replace(
+                        "entry = \"lexlean.std.nat::succ\"",
+                        "entry = \"lexlean.std.nat::ghost\"",
+                    )
+                }),
+            )]);
+            closure_fails_with(&absent, "LLR3004");
+            let non_type = with_entries(&[(
+                "probe.toml",
+                &format!(
+                    "{}\n[eliminator]\ncases_lean_name = \"Nat.casesOn\"\ninduction_lean_name = \"Nat.rec\"\n\n[[eliminator.constructor]]\nentry = \"lexlean.std.nat::zero\"\nlean_name = \"Nat.zero\"\nfields = []\ninduction_hypotheses = []\n",
+                    atom_entry("probe")
+                ),
+            )]);
+            lock_fails_with(&non_type, "LLR3004");
+
+            // A well-formed local type with its own constructors.
+            let zero_ctor = |name: &str, target: &str, extra: &str| {
+                format!(
+                    r#"spec = "lexlean/entry/1"
+id = "{name}"
+category = "term-constant"
+signature = "(const test.pkg::{target})"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.zero"
+
+[[form]]
+id = "{name}"
+channel = "both"
+surface = "{name}"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name {name})"
+{extra}"#
+                )
+            };
+            let succ_ctor = |fields_ty: &str| {
+                format!(
+                    r#"spec = "lexlean/entry/1"
+id = "gsucc"
+category = "function"
+signature = "(pi ((explicit n {fields_ty})) (const test.pkg::gadget))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.succ"
+
+[[form]]
+id = "gsucc"
+channel = "math"
+surface = "gsucc"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name gsucc) (paren (slot 0)))"
+"#
+                )
+            };
+            let local_gadget = |fields: &str, hypotheses: &str| {
+                gadget(&|t| {
+                    t.replace(
+                        "entry = \"lexlean.std.nat::zero\"",
+                        "entry = \"test.pkg::gzero\"",
+                    )
+                    .replace(
+                        "entry = \"lexlean.std.nat::succ\"",
+                        "entry = \"test.pkg::gsucc\"",
+                    )
+                    .replace("fields = [\"n\"]", &format!("fields = [{fields}]"))
+                    .replace(
+                        "induction_hypotheses = [\"ih\"]",
+                        &format!("induction_hypotheses = [{hypotheses}]"),
+                    )
+                })
+            };
+            let coherent = with_entries(&[
+                ("gadget.toml", &local_gadget("\"n\"", "\"ih\"")),
+                ("gzero.toml", &zero_ctor("gzero", "gadget", "")),
+                ("gsucc.toml", &succ_ctor("(const test.pkg::gadget)")),
+            ]);
+            coherent.relock();
+            coherent.check_ok();
+            let wrong_fields = with_entries(&[
+                ("gadget.toml", &local_gadget("\"n\", \"m\"", "\"ih\"")),
+                ("gzero.toml", &zero_ctor("gzero", "gadget", "")),
+                ("gsucc.toml", &succ_ctor("(const test.pkg::gadget)")),
+            ]);
+            closure_fails_with(&wrong_fields, "LLR3004");
+            let wrong_hypotheses = with_entries(&[
+                ("gadget.toml", &local_gadget("\"n\"", "\"ih\"")),
+                ("gzero.toml", &zero_ctor("gzero", "gadget", "")),
+                ("gsucc.toml", &succ_ctor("(const lexlean.std.nat::nat)")),
+            ]);
+            closure_fails_with(&wrong_hypotheses, "LLR3004");
+            let bad_lean_name = with_entries(&[
+                (
+                    "gadget.toml",
+                    &local_gadget("\"n\"", "\"ih\"")
+                        .replace("lean_name = \"Nat.succ\"", "lean_name = \"Nat..succ\""),
+                ),
+                ("gzero.toml", &zero_ctor("gzero", "gadget", "")),
+                ("gsucc.toml", &succ_ctor("(const test.pkg::gadget)")),
+            ]);
+            lock_fails_with(&bad_lean_name, "LLR3004");
         }
         // §13.2: no free prose fields anywhere in glossary files.
         "GL-15" => {

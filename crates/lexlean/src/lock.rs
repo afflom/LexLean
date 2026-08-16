@@ -10,7 +10,9 @@ use crate::artifact::content_id::Sha256Digest;
 use crate::code;
 use crate::config::LexiconSource;
 use crate::diagnostic::Diagnostic;
-use crate::lexicon::package::{load_package, toml_comment_at, LexiconPackage, PackageRef};
+use crate::lexicon::package::{
+    load_package, toml_comment_at, LexiconPackage, LoadContext, PackageRef,
+};
 use crate::project::Project;
 
 /// One locked package row (§11.1).
@@ -426,6 +428,10 @@ pub fn resolve_packages(
     let mut rows = Vec::new();
 
     let bootstrap = crate::lexicon::load_bootstrap().map_err(|d| vec![d])?;
+    let load_ctx = LoadContext {
+        forbidden_controls: &bootstrap.structural.forbidden_controls,
+        max_scope_depth: project.config.limits.max_scope_depth,
+    };
     let semantics_hex = crate::compiler_semantics_id();
 
     // Builtins: always core, plus every configured builtin source.
@@ -449,7 +455,7 @@ pub fn resolve_packages(
             ));
             continue;
         };
-        match crate::lexicon::load_builtin_package(row) {
+        match crate::lexicon::load_builtin_package(row, &load_ctx) {
             Ok(package) => {
                 rows.push(LockPackage {
                     id: package.id.clone(),
@@ -474,7 +480,7 @@ pub fn resolve_packages(
             LexiconSource::Path { package: id, path } => {
                 let root = project.root.join(path);
                 match collect_package_files(&root) {
-                    Ok(files) => match load_package(path, &files, None) {
+                    Ok(files) => match load_package(path, &files, None, &load_ctx) {
                         Ok(package) => {
                             if package.id != *id {
                                 diagnostics.push(Diagnostic::new(
@@ -511,7 +517,15 @@ pub fn resolve_packages(
                 revision,
                 subdirectory,
             } => {
-                match resolve_git_package(project, id, url, revision, subdirectory, allow_network) {
+                match resolve_git_package(
+                    project,
+                    id,
+                    url,
+                    revision,
+                    subdirectory,
+                    allow_network,
+                    &load_ctx,
+                ) {
                     Ok((package, cache_relative)) => {
                         rows.push(LockPackage {
                             id: package.id.clone(),
@@ -548,6 +562,7 @@ fn resolve_git_package(
     revision: &str,
     subdirectory: &str,
     allow_network: bool,
+    load_ctx: &LoadContext<'_>,
 ) -> Result<(LexiconPackage, String), Vec<Diagnostic>> {
     let cache_base = project
         .root
@@ -567,7 +582,7 @@ fn resolve_git_package(
                 continue;
             };
             if let Ok(files) = collect_package_files(&candidate) {
-                if let Ok(package) = load_package(candidate.as_str(), &files, None) {
+                if let Ok(package) = load_package(candidate.as_str(), &files, None, load_ctx) {
                     if package.id == id
                         && candidate.file_name() == Some(package.tree_sha256.to_hex().as_str())
                     {
@@ -592,7 +607,15 @@ fn resolve_git_package(
             ),
         )]);
     }
-    acquire_git_package(project, id, url, revision, subdirectory, &cache_base)
+    acquire_git_package(
+        project,
+        id,
+        url,
+        revision,
+        subdirectory,
+        &cache_base,
+        load_ctx,
+    )
 }
 
 fn git_failure(step: &str, detail: impl std::fmt::Display) -> Vec<Diagnostic> {
@@ -609,6 +632,7 @@ fn acquire_git_package(
     revision: &str,
     subdirectory: &str,
     cache_base: &Utf8Path,
+    load_ctx: &LoadContext<'_>,
 ) -> Result<(LexiconPackage, String), Vec<Diagnostic>> {
     let staging = tempfile::tempdir_in(
         project
@@ -693,7 +717,7 @@ fn acquire_git_package(
     }
 
     let files = collect_package_files(&package_root)?;
-    let package = load_package(&format!("git:{id}"), &files, None)?;
+    let package = load_package(&format!("git:{id}"), &files, None, load_ctx)?;
     if package.id != id {
         return Err(vec![Diagnostic::new(
             code!("LLR3001"),

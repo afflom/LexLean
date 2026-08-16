@@ -156,6 +156,70 @@ pub(crate) fn run(id: &str) {
                 cursor = atom.byte_end;
             }
             assert_eq!(cursor, text.len(), "atoms cover the whole file");
+
+            // Class 1: letters, or exactly one ASCII nonletter; a backslash
+            // before a non-ASCII scalar or at end of file matches no class.
+            let controls = lexlean::source::scan::scan("m.lex.tex", "\\(x\\)\\\\ \\1\\ab12", 100)
+                .expect("scan");
+            let control_texts: Vec<(AtomClass, &str)> = controls
+                .iter()
+                .map(|atom| (atom.class, atom.text.as_str()))
+                .collect();
+            assert_eq!(
+                control_texts,
+                vec![
+                    (AtomClass::Control, "\\("),
+                    (AtomClass::Word, "x"),
+                    (AtomClass::Control, "\\)"),
+                    (AtomClass::Control, "\\\\"),
+                    (AtomClass::Control, "\\ "),
+                    (AtomClass::Control, "\\1"),
+                    (AtomClass::Control, "\\ab"),
+                    (AtomClass::Numeral, "12"),
+                ]
+            );
+            assert_eq!(
+                lexlean::source::scan::scan("m.lex.tex", "\\\u{2115}", 100)
+                    .expect_err("no atom class")
+                    .code
+                    .as_str(),
+                "LLL1004"
+            );
+            assert_eq!(
+                lexlean::source::scan::scan("m.lex.tex", "a\\", 100)
+                    .expect_err("no atom class")
+                    .code
+                    .as_str(),
+                "LLL1004"
+            );
+            // Class 3 identifiers compose from byte-adjacent atoms only where
+            // the grammar requests one; the scanner itself keeps them apart.
+            let identifier =
+                lexlean::source::scan::scan("m.lex.tex", "x1_2' y", 100).expect("scan");
+            assert_eq!(
+                lexlean::source::scan::compose_identifier(&identifier, 0),
+                Some(("x1_2'".to_owned(), 5))
+            );
+            assert_eq!(
+                lexlean::source::scan::compose_identifier(&identifier, 6),
+                Some(("y".to_owned(), 7))
+            );
+            // DEL and other ASCII controls are no class; normalization
+            // rejects them first and the scanner never accepts them.
+            assert_eq!(
+                lexlean::source::scan::scan("m.lex.tex", "a\u{7F}", 100)
+                    .expect_err("DEL")
+                    .code
+                    .as_str(),
+                "LLL1001"
+            );
+            assert_eq!(
+                lexlean::source::normalize::normalize("m.lex.tex", b"a\x7F\n", false)
+                    .expect_err("DEL")[0]
+                    .code
+                    .as_str(),
+                "LLL1001"
+            );
         }
         // §12.3: core syntax is glossary-covered, not TeX-trusted.
         "LX-05" => {
@@ -242,6 +306,55 @@ pub(crate) fn run(id: &str) {
                 message(&ba_error),
                 "import order does not change the outcome"
             );
+
+            // The lattice keeps every edge: a title whose longest match at
+            // the first atom leads nowhere still parses through the shorter
+            // path. A greedy longest-match scanner would fail here.
+            let overlap = P::example();
+            overlap.add_package(
+                "lexicons/test-overlap",
+                "test.overlap",
+                &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+                &[
+                    (
+                        "long.toml",
+                        &support::label_word_entry("long", "Natural number addition extra"),
+                    ),
+                    (
+                        "extra-words.toml",
+                        &support::label_word_entry("extra-words", "extra words"),
+                    ),
+                ],
+            );
+            overlap.edit(
+                "src/Main.lex.tex",
+                "\\useglossary{lexlean.std.nat@1.0.0}",
+                "\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.overlap@1.0.0}",
+            );
+            overlap.edit(
+                "src/Main.lex.tex",
+                "\\title{Natural number addition}",
+                "\\title{Natural number addition extra words}",
+            );
+            overlap.relock();
+            overlap.check_ok();
+            let checked = support::checked_project(&overlap);
+            let module = &checked.modules["Main"];
+            let title_forms: Vec<String> = module
+                .coverage_source
+                .iter()
+                .filter_map(|row| match &row.binding {
+                    Origin::Form { entry, .. } => Some(entry.clone()),
+                    _ => None,
+                })
+                .filter(|entry| entry == "long" || entry == "extra-words" || entry == "addition")
+                .collect();
+            assert!(
+                title_forms.contains(&"extra-words".to_owned())
+                    && title_forms.contains(&"addition".to_owned())
+                    && !title_forms.contains(&"long".to_owned()),
+                "the non-greedy path is selected: {title_forms:?}"
+            );
         }
         // I1: every accepted non-whitespace atom is covered exactly once.
         "LX-09" => {
@@ -270,27 +383,51 @@ pub(crate) fn run(id: &str) {
         }
         // §14.2: locals exist only through binders and resolve by scope.
         "LX-10" => {
+            // An identifier outside a binder position is not a local: with
+            // no glossary form spelling `m`, it is an unknown atom with an
+            // exact span.
             let unbound = mutated("\\(n + 0 = n\\)", "\\(n + 0 = m\\)");
-            let error = unbound.check_err();
-            assert!(
-                error
-                    .diagnostics
-                    .iter()
-                    .any(|d| matches!(d.code.as_str(), "LLP2002" | "LLL1004" | "LLT4001")),
-                "an unbound local fails resolution: {:?}",
-                error
-                    .diagnostics
-                    .iter()
-                    .map(|d| d.code.as_str())
-                    .collect::<Vec<_>>()
-            );
-            // The bound spelling resolves throughout its scope.
+            let error = unbound.check_fails_with("LLL1004");
+            let diagnostic = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLL1004")
+                .expect("matched");
+            let span = diagnostic.primary.as_ref().expect("span");
+            let text = unbound.read("src/Main.lex.tex");
+            assert_eq!(&text[span.byte_start..span.byte_end], "m");
+            // The bound spelling resolves throughout its scope, and an inner
+            // binder shadows an outer one.
             P::example().check_ok();
+            let shadowed = mutated(
+                "For every natural number \\(n\\), \\(n + 0 = n\\).",
+                "For every natural number \\(n\\), for every natural number \\(n\\), \\(n + 0 = n\\).",
+            );
+            shadowed.check_ok();
         }
         // §12.4: TeX definition/expansion/IO controls stay rejected.
         "LX-11" => {
-            mutated("For every", "\\def For every").check_fails_with("LLL1004");
-            mutated("For every", "\\input{other} For every").check_fails_with("LLL1004");
+            // §12.4: the forbidden controls are rejected as TeX escapes
+            // before any lexical resolution, with an exact span, from the
+            // bootstrap list.
+            let bootstrap = lexlean::lexicon::load_bootstrap().expect("bootstrap");
+            assert_eq!(bootstrap.structural.forbidden_controls.len(), 23);
+            for control in &bootstrap.structural.forbidden_controls {
+                let project = mutated("For every", &format!("{control} For every"));
+                let error = project.check_fails_with("LLL1002");
+                let diagnostic = error
+                    .diagnostics
+                    .iter()
+                    .find(|d| d.code.as_str() == "LLL1002")
+                    .expect("matched");
+                let span = diagnostic.primary.as_ref().expect("span");
+                let text = project.read("src/Main.lex.tex");
+                assert_eq!(&text[span.byte_start..span.byte_end], control.as_str());
+            }
+            mutated("For every", "\\input{other} For every").check_fails_with("LLL1002");
+            // A control that merely extends a forbidden name is not forbidden
+            // (it is unknown instead).
+            mutated("For every", "\\define For every").check_fails_with("LLL1004");
 
             let smuggler = P::example();
             smuggler.add_package(
@@ -359,10 +496,17 @@ features = []
                 .iter()
                 .find(|d| d.code.as_str() == "LLP2002")
                 .expect("matched");
-            let rendered = format!("{diagnostic:?}");
             assert!(
-                rendered.contains("dupa") && rendered.contains("dupb"),
-                "the ambiguity diagnostic names both candidates: {rendered}"
+                diagnostic.message.contains("test.dupa::nzz")
+                    && diagnostic.message.contains("test.dupb::nzz"),
+                "the ambiguity diagnostic names both qualified candidate IDs: {}",
+                diagnostic.message
+            );
+            assert!(
+                !diagnostic.message.contains("lexlean.std.nat::zero")
+                    && !diagnostic.message.contains("test.dupa::z"),
+                "shared candidates are not differentiating: {}",
+                diagnostic.message
             );
         }
         // §23.5: canonical formatting, with linked-IR preservation.

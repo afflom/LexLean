@@ -311,10 +311,143 @@ fn sorted(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// The §13.10 required semantic token IDs, exactly as the specification
+/// lists them (56 IDs). Preamble options, package names, environment names,
+/// and titles the fixed backend emits are additional core rows justified by
+/// §13.10's second sentence and are checked through the backend source
+/// rather than this list.
+const REQUIRED_TOKENS: [&str; 56] = [
+    "documentclass",
+    "usepackage",
+    "newtheorem",
+    "theoremstyle",
+    "begin",
+    "end",
+    "center",
+    "large",
+    "section",
+    "subsection",
+    "label",
+    "texttt",
+    "operatorname",
+    "mathbb",
+    "mathrm",
+    "proof",
+    "definition",
+    "theorem",
+    "lemma",
+    "corollary",
+    "plus",
+    "minus",
+    "times",
+    "cdot",
+    "slash",
+    "equals",
+    "not-equals",
+    "less",
+    "less-equal",
+    "greater",
+    "greater-equal",
+    "member",
+    "not-member",
+    "subset",
+    "subset-equal",
+    "union",
+    "intersection",
+    "forall",
+    "exists",
+    "exists-unique",
+    "logical-and",
+    "logical-or",
+    "logical-not",
+    "implies",
+    "iff",
+    "mapsto",
+    "arrow",
+    "left-arrow",
+    "comma",
+    "period",
+    "colon",
+    "semicolon",
+    "left-paren",
+    "right-paren",
+    "left-bracket",
+    "right-bracket",
+];
+
+/// Every string literal in `text` (Rust source, no raw strings needed): the
+/// bytes between unescaped double quotes.
+fn string_literals(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut chars = text.chars().peekable();
+    let mut in_line_comment = false;
+    let mut previous = '\0';
+    while let Some(c) = chars.next() {
+        if in_line_comment {
+            if c == '\n' {
+                in_line_comment = false;
+            }
+            previous = c;
+            continue;
+        }
+        if c == '/' && chars.peek() == Some(&'/') {
+            in_line_comment = true;
+            previous = c;
+            continue;
+        }
+        if c == '"' && previous != '\\' && previous != '\'' {
+            let mut literal = String::new();
+            let mut escaped = false;
+            for inner in chars.by_ref() {
+                if escaped {
+                    literal.push(inner);
+                    escaped = false;
+                } else if inner == '\\' {
+                    escaped = true;
+                } else if inner == '"' {
+                    break;
+                } else {
+                    literal.push(inner);
+                }
+            }
+            out.push(literal);
+            previous = '"';
+            continue;
+        }
+        previous = c;
+    }
+    out
+}
+
+/// The literals passed directly to `sink.tok("...")`, `.tok("...")`, or
+/// `tok!("...")`-style calls: the certain backend references.
+fn direct_tok_literals(text: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut at = 0usize;
+    while let Some(position) = text[at..].find(".tok(\"") {
+        let start = at + position + ".tok(\"".len();
+        if let Some(end) = text[start..].find('"') {
+            out.insert(text[start..start + end].to_owned());
+            at = start + end;
+        } else {
+            break;
+        }
+    }
+    out
+}
+
 /// §13.10, §27.10: the renderer-token registry equals the minimal transitive
-/// closure of tokens referenced by the preamble and backend constructs
-/// (language/bootstrap.toml) and every shipped LRE, and carries every
-/// required semantic ID.
+/// closure of tokens referenced by the fixed backend (its preamble and
+/// deterministic constructs, read from the backend source) and every shipped
+/// LRE, and carries every required semantic ID.
+///
+/// The backend's references are derived from `crates/lexlean/src/backend`:
+/// every literal passed directly to `sink.tok("...")` is a certain
+/// reference; `language/bootstrap.toml [backend].tokens` is the backend's
+/// declared reference list, and the audit requires the two to agree in both
+/// directions — every direct literal is declared, and every declared token
+/// occurs as a string literal in the backend source (tokens selected through
+/// a variable, such as environment names, are still literals there).
 pub fn audit_language_closure(root: &Path) -> Result<(), Fail> {
     let registry_text = std::fs::read_to_string(root.join("language/renderer-tokens.toml"))?;
     let registry: toml::Value = registry_text.parse()?;
@@ -332,7 +465,7 @@ pub fn audit_language_closure(root: &Path) -> Result<(), Fail> {
 
     let bootstrap_text = std::fs::read_to_string(root.join("language/bootstrap.toml"))?;
     let bootstrap: toml::Value = bootstrap_text.parse()?;
-    let mut referenced: BTreeSet<String> = bootstrap
+    let declared: BTreeSet<String> = bootstrap
         .get("backend")
         .and_then(|backend| backend.get("tokens"))
         .and_then(|tokens| tokens.as_array())
@@ -345,6 +478,47 @@ pub fn audit_language_closure(root: &Path) -> Result<(), Fail> {
         })
         .unwrap_or_default();
 
+    // The backend source: direct `sink.tok("...")` literals and every string
+    // literal (for variable-selected tokens).
+    let mut backend_files = Vec::new();
+    gather(
+        root,
+        &["crates/lexlean/src/backend"],
+        &[".rs"],
+        &mut backend_files,
+    );
+    let mut direct: BTreeSet<String> = BTreeSet::new();
+    let mut literals: BTreeSet<String> = BTreeSet::new();
+    for path in backend_files
+        .iter()
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+    {
+        let text = std::fs::read_to_string(path)?;
+        direct.extend(direct_tok_literals(&text));
+        literals.extend(string_literals(&text));
+    }
+    if direct.is_empty() {
+        return Err("R8: the backend source contains no `sink.tok(\"...\")` reference; the audit is not armed".into());
+    }
+    let undeclared: Vec<&String> = direct.difference(&declared).collect();
+    if !undeclared.is_empty() {
+        return Err(format!(
+            "R8: the backend emits tokens that language/bootstrap.toml [backend].tokens does not declare: {undeclared:?}"
+        )
+        .into());
+    }
+    let stale: Vec<&String> = declared
+        .iter()
+        .filter(|token| !literals.contains(*token))
+        .collect();
+    if !stale.is_empty() {
+        return Err(format!(
+            "R8: language/bootstrap.toml [backend].tokens declares tokens the backend source never names: {stale:?}"
+        )
+        .into());
+    }
+
+    let mut referenced: BTreeSet<String> = declared;
     for entry in walkdir::WalkDir::new(root.join("language"))
         .into_iter()
         .flatten()
@@ -372,67 +546,7 @@ pub fn audit_language_closure(root: &Path) -> Result<(), Fail> {
         }
     }
 
-    const REQUIRED: [&str; 58] = [
-        "documentclass",
-        "usepackage",
-        "newtheorem",
-        "theoremstyle",
-        "begin",
-        "end",
-        "center",
-        "large",
-        "section",
-        "subsection",
-        "label",
-        "texttt",
-        "operatorname",
-        "mathbb",
-        "mathrm",
-        "proof",
-        "definition",
-        "theorem",
-        "lemma",
-        "corollary",
-        "plus",
-        "minus",
-        "times",
-        "cdot",
-        "slash",
-        "equals",
-        "not-equals",
-        "less",
-        "less-equal",
-        "greater",
-        "greater-equal",
-        "member",
-        "not-member",
-        "subset",
-        "subset-equal",
-        "union",
-        "intersection",
-        "forall",
-        "exists",
-        "exists-unique",
-        "logical-and",
-        "logical-or",
-        "logical-not",
-        "implies",
-        "iff",
-        "mapsto",
-        "arrow",
-        "left-arrow",
-        "comma",
-        "period",
-        "colon",
-        "semicolon",
-        "left-paren",
-        "right-paren",
-        "left-bracket",
-        "right-bracket",
-        "operatorname",
-        "section-counter",
-    ];
-    for required in REQUIRED {
+    for required in REQUIRED_TOKENS {
         if !registry_ids.contains(required) {
             return Err(format!("R8: required renderer token `{required}` is missing").into());
         }
@@ -449,8 +563,10 @@ pub fn audit_language_closure(root: &Path) -> Result<(), Fail> {
         .into());
     }
     println!(
-        "audit-language-closure: {} tokens, registry equals the referenced closure (R8)",
-        registry_ids.len()
+        "audit-language-closure: {} tokens, registry equals the referenced closure ({} backend, {} required) (R8)",
+        registry_ids.len(),
+        direct.len(),
+        REQUIRED_TOKENS.len()
     );
     Ok(())
 }

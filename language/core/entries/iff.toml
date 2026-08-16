@@ -20,3 +20,13 @@ features = []
 
 [render]
 math = "(seq (slot 0) (space) (token iff) (space) (slot 1))"
+
+[eliminator]
+cases_lean_name = "Iff.casesOn"
+induction_lean_name = "Iff.rec"
+
+[[eliminator.constructor]]
+entry = "lexlean.core::iff-intro"
+lean_name = "Iff.intro"
+fields = ["mp", "mpr"]
+induction_hypotheses = []

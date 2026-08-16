@@ -2,7 +2,7 @@ spec = "lexlean/negative-case/1"
 class = "tex-macro"
 kind = "mutation"
 command = "check"
-codes = ["LLL1004"]
+codes = ["LLL1002"]
 
 [[edit]]
 file = "src/Main.lex.tex"

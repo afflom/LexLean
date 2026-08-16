@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "exists-intro"
+category = "proof-constant"
+signature = "(pi ((implicit a (sort (type u))) (implicit p (pi ((explicit x (local a))) (sort prop))) (explicit w (local a)) (explicit h (app (local p) (local w)))) (app (const lexlean.core::exists-op) (lam ((explicit x (local a))) (app (local p) (local x)))))"
+universes = ["u"]
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Exists.intro"
+
+[[form]]
+id = "existsintro"
+channel = "math"
+surface = "existsintro"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name existsintro) (paren (seq (slot 0) (token comma) (space) (slot 1))))"
