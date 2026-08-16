@@ -187,16 +187,11 @@ pub(crate) fn run(id: &str) {
                 "src/Main.lex.tex",
                 &support::nzz_module(&["test.arity@1.0.0"]),
             );
-            // An over-applied signature is rejected when the package loads
-            // (§13.7: the signature is checked as an interface), so it never
-            // reaches source elaboration.
-            let error = match overapplied.engine().lock(lexlean::LockRequest {
-                check_only: false,
-                allow_network: false,
-            }) {
-                Ok(_) => panic!("an over-applied signature must fail package loading"),
-                Err(error) => error,
-            };
+            // An over-applied signature is rejected when the lexicon closure
+            // is built (§13.7: the signature is checked as an interface), so
+            // it never reaches source elaboration.
+            overapplied.relock();
+            let error = overapplied.check_err();
             let diagnostic = error
                 .diagnostics
                 .iter()
