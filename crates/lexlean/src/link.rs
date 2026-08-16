@@ -17,7 +17,7 @@ use crate::elaborate::{
 };
 use crate::error::LexLeanError;
 use crate::grammar::chart::{text_tokens, Budget, TextToken};
-use crate::grammar::proposition::{parse_phrase, PhraseItemAst, TextParser};
+use crate::grammar::proposition::{parse_phrase, ArticleRule, PhraseItemAst, TextParser};
 use crate::grammar::structural::{self, AtomRange, BlockAst, DeclAst, ModuleAst, PolicyKind};
 use crate::ir::declaration::{AxiomPolicy, DeclBody, Declaration};
 use crate::ir::document::{Block, DocumentModule, LinkedProject, Phrase, PhraseItem, Section};
@@ -88,6 +88,21 @@ fn err(diagnostics: Vec<Diagnostic>) -> LexLeanError {
     LexLeanError::from_diagnostics(diagnostics)
 }
 
+/// The span of an atom range, for linker diagnostics.
+fn span_of_range(path: &str, atoms: &[Atom], range: AtomRange) -> crate::diagnostic::Span {
+    let first = &atoms[range.0.min(atoms.len().saturating_sub(1))];
+    let last = &atoms[range.1.saturating_sub(1).max(range.0).min(atoms.len().saturating_sub(1))];
+    crate::diagnostic::Span {
+        path: path.to_owned(),
+        byte_start: first.byte_start,
+        byte_end: last.byte_end,
+        line_start: first.line_start,
+        column_start: first.column_start,
+        line_end: last.line_end,
+        column_end: last.column_end,
+    }
+}
+
 fn bytes_of(atoms: &[Atom], range: AtomRange) -> (usize, usize) {
     if range.0 >= atoms.len() {
         return (0, 0);
@@ -97,39 +112,152 @@ fn bytes_of(atoms: &[Atom], range: AtomRange) -> (usize, usize) {
     (first.byte_start, last.byte_end)
 }
 
-/// The conservative Lean keyword set for generated-name collision checks
-/// (§17.8). Component IDs are lowercase, so only lowercase keywords matter.
-const LEAN_KEYWORDS: [&str; 30] = [
+/// The Lean 4 reserved keyword and token set for generated-name collision
+/// checks (§17.8): every keyword of `Lean.Parser.Term`, `.Command`, and
+/// `.Tactic` in pinned Lean 4.32.1 plus the builtin type and constant names
+/// that cannot be redeclared. Component IDs are lowercase ASCII, so a
+/// mixed-case token can never collide, but the list is complete regardless
+/// so the check reads as the closed set it is.
+const LEAN_KEYWORDS: &[&str] = &[
+    "abbrev",
+    "admit",
+    "all_goals",
+    "and",
+    "any_goals",
     "apply",
+    "assumption",
     "at",
+    "attribute",
     "axiom",
+    "binder_predicate",
+    "break",
+    "builtin_initialize",
     "by",
+    "by_cases",
     "calc",
+    "case",
     "cases",
+    "catch",
+    "change",
+    "class",
     "constructor",
+    "contradiction",
+    "continue",
+    "decide",
+    "declare_syntax_cat",
+    "decreasing_by",
     "def",
+    "deriving",
     "do",
+    "elab",
+    "elab_rules",
     "else",
     "end",
     "exact",
+    "exact?",
     "example",
+    "exfalso",
+    "exists",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "first",
+    "for",
+    "from",
     "fun",
+    "generalize",
     "have",
+    "hiding",
     "if",
     "import",
     "in",
+    "include",
     "induction",
+    "inductive",
+    "infix",
+    "infixl",
+    "infixr",
+    "init_quot",
+    "injection",
+    "instance",
     "intro",
+    "intros",
     "left",
+    "lemma",
     "let",
+    "local",
+    "macro",
+    "macro_rules",
     "match",
     "module",
+    "mut",
+    "mutual",
     "namespace",
+    "native_decide",
+    "next",
+    "nofun",
+    "nomatch",
+    "noncomputable",
+    "notation",
+    "obtain",
+    "omega",
+    "omit",
+    "opaque",
     "open",
+    "partial",
+    "postfix",
+    "prefix",
+    "private",
+    "protected",
+    "public",
+    "rcases",
+    "rec",
+    "refine",
+    "rename",
+    "renaming",
+    "repeat",
+    "return",
+    "revert",
     "rfl",
     "right",
+    "rintro",
+    "rw",
+    "rwa",
+    "scoped",
+    "section",
+    "set_option",
+    "show",
+    "simp",
+    "simp_all",
+    "simpa",
+    "sorry",
+    "specialize",
+    "split",
+    "structure",
+    "subst",
+    "suffices",
+    "symm",
+    "syntax",
+    "termination_by",
+    "then",
     "theorem",
+    "this",
+    "trivial",
+    "true",
+    "try",
+    "unfold",
+    "universe",
+    "unless",
+    "unsafe",
+    "using",
+    "variable",
+    "where",
     "with",
+    "Prop",
+    "Sort",
+    "Type",
+    "λ",
 ];
 
 struct ModuleLoad {
@@ -139,9 +267,45 @@ struct ModuleLoad {
     ast: ModuleAst,
 }
 
-/// Run the complete check pipeline for a selection.
-#[allow(clippy::too_many_lines)]
+/// The stack reserved for the compile pipeline: every recursion is bounded
+/// by `max_scope_depth` (§25.5), and running the pipeline on its own thread
+/// with a large stack is defense in depth against a configured limit that
+/// exceeds what the caller's thread could otherwise host.
+const COMPILE_STACK_BYTES: usize = 256 * 1024 * 1024;
+
+/// Run the complete check pipeline for a selection on a dedicated
+/// large-stack thread (§25.5). When the thread cannot be spawned the
+/// pipeline runs inline.
 pub fn check_project(
+    project: &Project,
+    selection: &Selection,
+    lock: &Lock,
+    packages: Vec<LexiconPackage>,
+) -> Result<CheckedProject, LexLeanError> {
+    std::thread::scope(|scope| {
+        let handle = std::thread::Builder::new()
+            .name("lexlean-compile".to_owned())
+            .stack_size(COMPILE_STACK_BYTES)
+            .spawn_scoped(scope, || check_project_inline(project, selection, lock, packages));
+        match handle {
+            Ok(joined) => match joined.join() {
+                Ok(result) => result,
+                Err(_) => Err(err(vec![Diagnostic::new(
+                    code!("LLI9001"),
+                    "phase check: the compile thread terminated abnormally",
+                )])),
+            },
+            Err(spawn_error) => Err(err(vec![Diagnostic::new(
+                code!("LLS8001"),
+                format!("cannot spawn the compile thread: {spawn_error}"),
+            )])),
+        }
+    })
+}
+
+/// The check pipeline proper.
+#[allow(clippy::too_many_lines)]
+fn check_project_inline(
     project: &Project,
     selection: &Selection,
     lock: &Lock,
@@ -272,7 +436,11 @@ pub fn check_project(
 
     for module_name in &order {
         let load = &loaded[module_name];
-        let mut budget = Budget::new(limits.max_token_lattice_edges, limits.max_parse_states);
+        let mut budget = Budget::new(
+            limits.max_token_lattice_edges,
+            limits.max_parse_states,
+            limits.max_scope_depth,
+        );
 
         // Glossary uses: exact `package@version` rows matching the lock and
         // the loaded closure (§15.1, LLR3001).
@@ -303,7 +471,8 @@ pub fn check_project(
                 return Err(err(vec![Diagnostic::new(
                     code!("LLP2003"),
                     format!("duplicate \\useglossary{{{}}}", use_arg.text),
-                )]));
+                )
+                .with_span(span_of_range(&load.path, &load.atoms, use_arg.range))]));
             }
             glossary.push(use_arg.text.clone());
             used_ids.push(reference.package.clone());
@@ -319,7 +488,8 @@ pub fn check_project(
                 return Err(err(vec![Diagnostic::new(
                     code!("LLP2003"),
                     format!("duplicate \\importmodule{{{}}}", import.text),
-                )]));
+                )
+                .with_span(span_of_range(&load.path, &load.atoms, import.range))]));
             }
             imports.push(import.text.clone());
         }
@@ -535,6 +705,7 @@ fn elab_phrase(
         tokens: &tokens,
         closure: shared.closure,
         visible: shared.visible,
+        sentence_initial: true,
     };
     let items = parse_phrase(&parser, budget)?;
     let mut rows = Vec::new();
@@ -587,6 +758,28 @@ fn elab_phrase(
                 rows.extend(result.rows);
                 phrase.items.push(PhraseItem::Math(result.term));
             }
+            PhraseItemAst::TermPhrase(term_phrase) => {
+                // The canonical nominal form of a function entry with its
+                // arguments (§15.3): its IR is the application term.
+                let result = crate::elaborate::elab_term_phrase(
+                    shared,
+                    scopes,
+                    alloc,
+                    budget,
+                    &term_phrase,
+                    None,
+                )?;
+                if matches!(&result.ty, Some(ty) if crate::ir::term::is_prop(ty)) {
+                    let first = &shared.atoms[term_phrase.first_atom()];
+                    return Err(Diagnostic::new(
+                        code!("LLP2003"),
+                        "a phrase cannot contain a proposition",
+                    )
+                    .with_span(first.span(shared.path)));
+                }
+                rows.extend(result.rows);
+                phrase.items.push(PhraseItem::Math(result.term));
+            }
             PhraseItemAst::Punctuation { atom, entry } => {
                 let a = &shared.atoms[atom];
                 rows.push(SourceRow {
@@ -625,11 +818,12 @@ fn elab_binder_list(
         tokens: &tokens,
         closure: shared.closure,
         visible: shared.visible,
+        sentence_initial: true,
     };
     let mut binders = Vec::new();
     let mut pos = 0usize;
     loop {
-        let alternatives = parser.binder(pos, budget, false)?;
+        let alternatives = parser.binder(pos, budget, ArticleRule::Forbidden)?;
         // A parameter binder must end at `;` or the end of the list; a
         // surviving split is ambiguity (I5).
         let valid: Vec<(usize, crate::grammar::proposition::BinderAst)> = alternatives
@@ -646,16 +840,24 @@ fn elab_binder_list(
         match valid.len() {
             1 => {}
             0 => {
+                let at = tokens
+                    .get(pos)
+                    .map_or(range.0, crate::grammar::chart::TextToken::first_atom);
                 return Err(Diagnostic::new(
                     code!("LLP2001"),
-                    "no parse for a parameter binder",
-                ));
+                    "no parse for a parameter binder: expected a type phrase and one fresh identifier island, `;`-separated",
+                )
+                .with_span(span_of_range(shared.path, shared.atoms, (at, at + 1))));
             }
             _ => {
+                let at = tokens
+                    .get(pos)
+                    .map_or(range.0, crate::grammar::chart::TextToken::first_atom);
                 return Err(Diagnostic::new(
                     code!("LLP2002"),
                     "ambiguous parameter binder",
-                ));
+                )
+                .with_span(span_of_range(shared.path, shared.atoms, (at, at + 1))));
             }
         }
         let (end, ast) = valid.into_iter().next().expect("one");
@@ -715,7 +917,8 @@ fn link_block(
                 return Err(Diagnostic::new(
                     code!("LLP2003"),
                     format!("component `{}` is declared twice", component.text),
-                ));
+                )
+                .with_span(span_of_range(&load.path, &load.atoms, component.range)));
             }
             let shared = Shared {
                 path: &load.path,
@@ -827,15 +1030,30 @@ fn link_declaration(
         return Err(Diagnostic::new(
             code!("LLP2003"),
             format!("component `{}` is declared twice", decl.component.text),
-        ));
+        )
+        .with_span(span_of_range(&load.path, &load.atoms, decl.component.range)));
     }
     // Name generation (§17.8): `-` to `_`, collision and keyword checked.
     let lean_name = decl.component.text.replace('-', "_");
-    if LEAN_KEYWORDS.contains(&lean_name.as_str()) || !lean_names.insert(lean_name.clone()) {
+    if LEAN_KEYWORDS.contains(&lean_name.as_str()) {
         return Err(Diagnostic::new(
             code!("LLP2003"),
-            format!("generated Lean name `{lean_name}` collides"),
-        ));
+            format!(
+                "component `{}` converts to the generated Lean name `{lean_name}`, which is a Lean keyword",
+                decl.component.text
+            ),
+        )
+        .with_span(span_of_range(&load.path, &load.atoms, decl.component.range)));
+    }
+    if !lean_names.insert(lean_name.clone()) {
+        return Err(Diagnostic::new(
+            code!("LLP2003"),
+            format!(
+                "component `{}` converts to the generated Lean name `{lean_name}`, which collides with another component",
+                decl.component.text
+            ),
+        )
+        .with_span(span_of_range(&load.path, &load.atoms, decl.component.range)));
     }
     let policy = match decl.policy.kind {
         PolicyKind::None => AxiomPolicy::None,
@@ -878,6 +1096,7 @@ fn link_declaration(
             tokens: &tokens,
             closure,
             visible,
+            sentence_initial: true,
         };
         let alternatives = parser.proposition_sentence(budget)?;
         let (statement, statement_rows) =
@@ -902,9 +1121,11 @@ fn link_declaration(
                 code!("LLF5005"),
                 "a theorem-like declaration without a proof is not valid",
             )
+            .with_span(span_of_range(&load.path, &load.atoms, (decl.begin, decl.begin + 1)))
         })?;
         scopes.push_frame();
         let mut goal = statement.clone();
+        let mut lifted: BTreeSet<String> = BTreeSet::new();
         loop {
             match goal {
                 Term::Pi { ref binders, .. }
@@ -915,6 +1136,7 @@ fn link_declaration(
                     };
                     for binder in &binders {
                         scopes.declare(&binder.spelling, binder.id, Some(binder.ty.clone()));
+                        lifted.insert(binder.spelling.clone());
                     }
                     goal = *body;
                 }
@@ -928,8 +1150,10 @@ fn link_declaration(
             budget,
             rows: Vec::new(),
             spellings: BTreeMap::new(),
+            lifted,
         };
-        let proof_result = proof_elab.elab_env(proof_ast, Some(goal));
+        let proof_result =
+            proof_elab.elab_env(proof_ast, crate::elaborate::proofs::Goal::Known(goal));
         let proof_rows = std::mem::take(&mut proof_elab.rows);
         let step_spellings = std::mem::take(&mut proof_elab.spellings);
         scopes.pop_frame();
@@ -980,10 +1204,22 @@ fn link_declaration(
         })
         .collect();
 
+    // The declaration's type as a reference sees it (§14.3, §17.7): the
+    // Lean backend emits the used inherited parameters as leading explicit
+    // binders, in scope order, before the statement's own binders (§18.3),
+    // so the reference type is the Pi over exactly those parameters.
     let full_lean_name = format!("{lean_module}.{lean_name}");
-    let info_ty = match &body {
+    let body_ty = match &body {
         DeclBody::TheoremLike { statement, .. } => statement.clone(),
         DeclBody::Definition { ty, .. } => ty.clone(),
+    };
+    let info_ty = if params.is_empty() {
+        body_ty
+    } else {
+        Term::Pi {
+            binders: params.clone(),
+            body: Box::new(body_ty),
+        }
     };
     let info = DeclInfo {
         module: module_name.to_owned(),
@@ -1305,5 +1541,5 @@ pub fn signature_term_of(
         .signature
         .as_ref()
         .ok_or_else(|| "entry has no signature".to_owned())?;
-    lse_to_term(signature, shared, alloc, &BTreeMap::new())
+    lse_to_term(signature, shared, alloc, &BTreeMap::new(), None).map_err(|failure| failure.to_string())
 }

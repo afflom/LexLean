@@ -194,9 +194,12 @@ impl Proof {
                     "at",
                     match target {
                         RewriteTarget::Goal => Json::Str("goal".to_owned()),
-                        RewriteTarget::Hypothesis(local) => {
-                            Json::from_usize(renumber.resolve(*local))
-                        }
+                        RewriteTarget::Hypothesis(local) => match renumber.resolve(*local) {
+                            crate::ir::term::Resolved::Bound(index) => Json::from_usize(index),
+                            crate::ir::term::Resolved::Free(free) => {
+                                Json::Int(i64::try_from(free.0).unwrap_or(i64::MAX))
+                            }
+                        },
                     },
                 ),
                 (
@@ -220,9 +223,12 @@ impl Proof {
                     "at",
                     match target {
                         RewriteTarget::Goal => Json::Str("goal".to_owned()),
-                        RewriteTarget::Hypothesis(local) => {
-                            Json::from_usize(renumber.resolve(*local))
-                        }
+                        RewriteTarget::Hypothesis(local) => match renumber.resolve(*local) {
+                            crate::ir::term::Resolved::Bound(index) => Json::from_usize(index),
+                            crate::ir::term::Resolved::Free(free) => {
+                                Json::Int(i64::try_from(free.0).unwrap_or(i64::MAX))
+                            }
+                        },
                     },
                 ),
                 (

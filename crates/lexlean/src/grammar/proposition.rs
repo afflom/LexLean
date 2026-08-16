@@ -52,6 +52,47 @@ pub enum TypePhraseAst {
     Math(TextToken),
 }
 
+/// One term phrase in the text channel (§15.3, §13.4): a mathematical
+/// island, or a noun-of / binary-noun-of frame `the SELF of ARG [and ARG]`
+/// whose arguments are themselves term phrases.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TermPhraseAst {
+    /// One mathematical island.
+    Island(TextToken),
+    /// `the SELF of ARG_0` or `the SELF of ARG_0 and ARG_1`.
+    NounOf {
+        /// The noun-function candidates sharing this surface.
+        candidates: Vec<FormRef>,
+        /// The SELF surface atoms.
+        surface_atoms: AtomRange,
+        /// The arguments, in slot order.
+        args: Vec<TermPhraseAst>,
+        /// The frame keywords (`the`, `of`, `and`), for coverage.
+        keywords: Vec<Keyword>,
+    },
+}
+
+impl TermPhraseAst {
+    /// The first atom of the phrase, for spans.
+    #[must_use]
+    pub fn first_atom(&self) -> usize {
+        match self {
+            Self::Island(token) => token.first_atom(),
+            Self::NounOf { keywords, .. } => keywords.first().map_or(0, |keyword| keyword.atom),
+        }
+    }
+}
+
+/// Whether a binder slot takes an article (§15.6): `there exists a x` requires
+/// one; every other binder position forbids one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArticleRule {
+    /// No article is accepted.
+    Forbidden,
+    /// Exactly one article (`a` or `an`) is required.
+    Required,
+}
+
 /// One proposition parse (§15.6).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PropAst {
@@ -125,14 +166,14 @@ pub enum PropAst {
     },
     /// A math island whose linked result must be `Prop`.
     Math(TextToken),
-    /// A fixed predicate frame (§13.4) applied to island arguments.
+    /// A fixed predicate frame (§13.4) applied to term-phrase arguments.
     Predicate {
         /// The predicate entry candidates.
         candidates: Vec<FormRef>,
         /// The predicate surface atoms.
         surface_atoms: AtomRange,
-        /// The argument islands, in slot order.
-        args: Vec<TextToken>,
+        /// The argument term phrases, in slot order.
+        args: Vec<TermPhraseAst>,
         /// Frame keywords (`is`), for coverage.
         keywords: Vec<Keyword>,
     },
@@ -186,6 +227,11 @@ pub struct TextParser<'a> {
     pub closure: &'a Closure,
     /// The packages visible to this module.
     pub visible: &'a BTreeSet<String>,
+    /// Does token 0 begin a sentence? Sentence-case keyword spellings
+    /// (`If`, `Not`, `There`, `For`) are accepted only at token 0 of a
+    /// sentence (§15.6); a proposition embedded after `holds exactly when`
+    /// is not sentence-initial.
+    pub sentence_initial: bool,
 }
 
 impl<'a> TextParser<'a> {
@@ -262,8 +308,9 @@ impl<'a> TextParser<'a> {
         }
     }
 
-    /// A keyword that may open a sentence: the lower-case spelling or its
-    /// sentence-case form (§15.6).
+    /// A keyword that may open a sentence: the lower-case spelling
+    /// anywhere, or its sentence-case form exactly at token 0 of a
+    /// sentence (§15.6).
     fn is_initial_word(&self, pos: usize, word: &str) -> Option<Keyword> {
         let (text, atom) = self.word_at(pos)?;
         let mut capitalized = String::new();
@@ -272,7 +319,7 @@ impl<'a> TextParser<'a> {
             capitalized.extend(first.to_uppercase());
             capitalized.push_str(chars.as_str());
         }
-        if text == word || text == capitalized {
+        if text == word || (pos == 0 && self.sentence_initial && text == capitalized) {
             keyword_entry(word).map(|entry| Keyword { atom, entry })
         } else {
             None
@@ -323,20 +370,24 @@ impl<'a> TextParser<'a> {
     }
 
     /// One binder: type-phrase then a fresh-identifier island (§15.4).
-    /// `article` optionally consumes a leading article keyword.
+    /// `article` says whether a leading article keyword is required or
+    /// forbidden.
     pub fn binder(
         &self,
         pos: usize,
         budget: &mut Budget,
-        article: bool,
+        article: ArticleRule,
     ) -> Result<Alts<BinderAst>, Diagnostic> {
         budget.state()?;
         let mut alternatives = Vec::new();
-        let mut starts: Vec<(usize, Vec<Keyword>)> = vec![(pos, Vec::new())];
-        if article {
-            for word in ["a", "an"] {
-                if let Some(keyword) = self.is_word(pos, word) {
-                    starts.push((pos + 1, vec![keyword]));
+        let mut starts: Vec<(usize, Vec<Keyword>)> = Vec::new();
+        match article {
+            ArticleRule::Forbidden => starts.push((pos, Vec::new())),
+            ArticleRule::Required => {
+                for word in ["a", "an"] {
+                    if let Some(keyword) = self.is_word(pos, word) {
+                        starts.push((pos + 1, vec![keyword]));
+                    }
                 }
             }
         }
@@ -424,12 +475,33 @@ impl<'a> TextParser<'a> {
         ))
     }
 
-    fn proposition(&self, pos: usize, budget: &mut Budget) -> Result<Alts<PropAst>, Diagnostic> {
+    /// The depth diagnostic for grammatical proposition nesting (§25.5).
+    fn depth_check(&self, budget: &Budget, depth: u64, pos: usize) -> Result<(), Diagnostic> {
+        budget
+            .depth(depth, "parse (proposition nesting)")
+            .map_err(|diagnostic| match self.tokens.get(pos) {
+                Some(token) => {
+                    diagnostic.with_span(self.atoms[token.first_atom()].span(self.path))
+                }
+                None => diagnostic,
+            })
+    }
+
+    /// One proposition; `depth` counts nested connectives and quantifier
+    /// bodies against `max_scope_depth` (§25.5).
+    fn proposition(
+        &self,
+        pos: usize,
+        budget: &mut Budget,
+        depth: u64,
+    ) -> Result<Alts<PropAst>, Diagnostic> {
         budget.state()?;
+        self.depth_check(budget, depth, pos)?;
+        let nested = depth.saturating_add(1);
         let mut alternatives = Vec::new();
         // conditional = "if" proposition "," "then" proposition
         if let Some(if_kw) = self.is_initial_word(pos, "if") {
-            for (after_p, antecedent) in self.proposition(pos + 1, budget)? {
+            for (after_p, antecedent) in self.proposition(pos + 1, budget, nested)? {
                 let Some(TextToken::Atom(comma_index)) = self.tokens.get(after_p) else {
                     continue;
                 };
@@ -443,7 +515,7 @@ impl<'a> TextParser<'a> {
                     atom: *comma_index,
                     entry: "comma",
                 };
-                for (after_q, consequent) in self.proposition(after_p + 2, budget)? {
+                for (after_q, consequent) in self.proposition(after_p + 2, budget, nested)? {
                     budget.state()?;
                     alternatives.push((
                         after_q,
@@ -456,13 +528,18 @@ impl<'a> TextParser<'a> {
                 }
             }
         }
-        alternatives.extend(self.equivalence(pos, budget)?);
+        alternatives.extend(self.equivalence(pos, budget, depth)?);
         Ok(alternatives)
     }
 
-    fn equivalence(&self, pos: usize, budget: &mut Budget) -> Result<Alts<PropAst>, Diagnostic> {
+    fn equivalence(
+        &self,
+        pos: usize,
+        budget: &mut Budget,
+        depth: u64,
+    ) -> Result<Alts<PropAst>, Diagnostic> {
         let mut alternatives = Vec::new();
-        for (after_left, left) in self.implication(pos, budget)? {
+        for (after_left, left) in self.implication(pos, budget, depth)? {
             // Optional "if and only if".
             if let (Some(k1), Some(k2), Some(k3), Some(k4)) = (
                 self.is_word(after_left, "if"),
@@ -470,7 +547,9 @@ impl<'a> TextParser<'a> {
                 self.is_word(after_left + 2, "only"),
                 self.is_word(after_left + 3, "if"),
             ) {
-                for (after_right, right) in self.implication(after_left + 4, budget)? {
+                for (after_right, right) in
+                    self.implication(after_left + 4, budget, depth.saturating_add(1))?
+                {
                     budget.state()?;
                     alternatives.push((
                         after_right,
@@ -487,11 +566,19 @@ impl<'a> TextParser<'a> {
         Ok(alternatives)
     }
 
-    fn implication(&self, pos: usize, budget: &mut Budget) -> Result<Alts<PropAst>, Diagnostic> {
+    fn implication(
+        &self,
+        pos: usize,
+        budget: &mut Budget,
+        depth: u64,
+    ) -> Result<Alts<PropAst>, Diagnostic> {
+        self.depth_check(budget, depth, pos)?;
         let mut alternatives = Vec::new();
-        for (after_left, left) in self.disjunction(pos, budget)? {
+        for (after_left, left) in self.disjunction(pos, budget, depth)? {
             if let Some(keyword) = self.is_word(after_left, "implies") {
-                for (after_right, right) in self.implication(after_left + 1, budget)? {
+                for (after_right, right) in
+                    self.implication(after_left + 1, budget, depth.saturating_add(1))?
+                {
                     budget.state()?;
                     alternatives.push((
                         after_right,
@@ -508,14 +595,24 @@ impl<'a> TextParser<'a> {
         Ok(alternatives)
     }
 
-    fn disjunction(&self, pos: usize, budget: &mut Budget) -> Result<Alts<PropAst>, Diagnostic> {
-        self.chain(pos, budget, "or", Self::conjunction, |items, keywords| {
+    fn disjunction(
+        &self,
+        pos: usize,
+        budget: &mut Budget,
+        depth: u64,
+    ) -> Result<Alts<PropAst>, Diagnostic> {
+        self.chain(pos, budget, depth, "or", Self::conjunction, |items, keywords| {
             PropAst::Or { items, keywords }
         })
     }
 
-    fn conjunction(&self, pos: usize, budget: &mut Budget) -> Result<Alts<PropAst>, Diagnostic> {
-        self.chain(pos, budget, "and", Self::negation, |items, keywords| {
+    fn conjunction(
+        &self,
+        pos: usize,
+        budget: &mut Budget,
+        depth: u64,
+    ) -> Result<Alts<PropAst>, Diagnostic> {
+        self.chain(pos, budget, depth, "and", Self::negation, |items, keywords| {
             PropAst::And { items, keywords }
         })
     }
@@ -524,14 +621,15 @@ impl<'a> TextParser<'a> {
         &self,
         pos: usize,
         budget: &mut Budget,
+        depth: u64,
         word: &str,
-        next: impl Fn(&Self, usize, &mut Budget) -> Result<Alts<PropAst>, Diagnostic> + Copy,
+        next: impl Fn(&Self, usize, &mut Budget, u64) -> Result<Alts<PropAst>, Diagnostic> + Copy,
         build: impl Fn(Vec<PropAst>, Vec<Keyword>) -> PropAst + Copy,
     ) -> Result<Alts<PropAst>, Diagnostic> {
         let mut alternatives = Vec::new();
         // Every chain length is a live alternative; the sentence boundary
         // kills the wrong ones and the elaborator collapses the rest.
-        let mut frontier: Alts<(Vec<PropAst>, Vec<Keyword>)> = next(self, pos, budget)?
+        let mut frontier: Alts<(Vec<PropAst>, Vec<Keyword>)> = next(self, pos, budget, depth)?
             .into_iter()
             .map(|(end, item)| (end, (vec![item], Vec::new())))
             .collect();
@@ -544,7 +642,7 @@ impl<'a> TextParser<'a> {
                     alternatives.push((*end, build(items.clone(), keywords.clone())));
                 }
                 if let Some(keyword) = self.is_word(*end, word) {
-                    for (next_end, item) in next(self, *end + 1, budget)? {
+                    for (next_end, item) in next(self, *end + 1, budget, depth)? {
                         budget.state()?;
                         let mut new_items = items.clone();
                         new_items.push(item);
@@ -560,11 +658,18 @@ impl<'a> TextParser<'a> {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn negation(&self, pos: usize, budget: &mut Budget) -> Result<Alts<PropAst>, Diagnostic> {
+    fn negation(
+        &self,
+        pos: usize,
+        budget: &mut Budget,
+        depth: u64,
+    ) -> Result<Alts<PropAst>, Diagnostic> {
         budget.state()?;
+        self.depth_check(budget, depth, pos)?;
+        let nested = depth.saturating_add(1);
         let mut alternatives = Vec::new();
         if let Some(keyword) = self.is_initial_word(pos, "not") {
-            for (end, inner) in self.negation(pos + 1, budget)? {
+            for (end, inner) in self.negation(pos + 1, budget, nested)? {
                 alternatives.push((
                     end,
                     PropAst::Not {
@@ -575,15 +680,12 @@ impl<'a> TextParser<'a> {
             }
         }
         // quantified: For/for every binder { and binder } , proposition
-        for spelling in ["For", "for"] {
-            let Some(for_kw) = self.is_word(pos, spelling) else {
-                continue;
-            };
-            let Some(every_kw) = self.is_word(pos + 1, "every") else {
-                continue;
-            };
+        if let (Some(for_kw), Some(every_kw)) = (
+            self.is_initial_word(pos, "for"),
+            self.is_word(pos + 1, "every"),
+        ) {
             let mut binder_frontier: Alts<(Vec<BinderAst>, Vec<Keyword>)> = self
-                .binder(pos + 2, budget, false)?
+                .binder(pos + 2, budget, ArticleRule::Forbidden)?
                 .into_iter()
                 .map(|(end, binder)| (end, (vec![binder], Vec::new())))
                 .collect();
@@ -597,7 +699,7 @@ impl<'a> TextParser<'a> {
                                 atom: *comma_index,
                                 entry: "comma",
                             };
-                            for (body_end, body) in self.proposition(*end + 1, budget)? {
+                            for (body_end, body) in self.proposition(*end + 1, budget, nested)? {
                                 budget.state()?;
                                 let mut keywords =
                                     vec![for_kw.clone(), every_kw.clone(), comma_kw.clone()];
@@ -614,7 +716,9 @@ impl<'a> TextParser<'a> {
                         }
                     }
                     if let Some(and_kw) = self.is_word(*end, "and") {
-                        for (next_end, binder) in self.binder(*end + 1, budget, false)? {
+                        for (next_end, binder) in
+                            self.binder(*end + 1, budget, ArticleRule::Forbidden)?
+                        {
                             let mut new_binders = binders.clone();
                             new_binders.push(binder);
                             let mut new_keywords = and_keywords.clone();
@@ -642,14 +746,23 @@ impl<'a> TextParser<'a> {
                 }
                 heads.push((pos + 2, false, vec![there_kw.clone(), exists_kw.clone()]));
                 for (binder_pos, unique, head_keywords) in heads {
-                    for (after_binder, binder) in self.binder(binder_pos, budget, !unique)? {
+                    // §15.6: `there exists article binder`; the article is
+                    // required, and `exactly one` takes none.
+                    let article = if unique {
+                        ArticleRule::Forbidden
+                    } else {
+                        ArticleRule::Required
+                    };
+                    for (after_binder, binder) in self.binder(binder_pos, budget, article)? {
                         let (Some(such_kw), Some(that_kw)) = (
                             self.is_word(after_binder, "such"),
                             self.is_word(after_binder + 1, "that"),
                         ) else {
                             continue;
                         };
-                        for (body_end, body) in self.proposition(after_binder + 2, budget)? {
+                        for (body_end, body) in
+                            self.proposition(after_binder + 2, budget, nested)?
+                        {
                             budget.state()?;
                             let mut keywords = head_keywords.clone();
                             keywords.push(such_kw.clone());
@@ -672,8 +785,76 @@ impl<'a> TextParser<'a> {
         if let Some(island) = self.island_at(pos) {
             alternatives.push((pos + 1, PropAst::Math(island)));
         }
-        // atomic: predicate frames over island arguments
-        alternatives.extend(self.predicate_frame(pos, budget)?);
+        // atomic: predicate frames over term-phrase arguments
+        alternatives.extend(self.predicate_frame(pos, budget, nested)?);
+        Ok(alternatives)
+    }
+
+    /// One term phrase (§15.3, §13.4): a mathematical island, or the
+    /// noun-of / binary-noun-of frame `the SELF of ARG [and ARG]` whose
+    /// arguments are term phrases. Every alternative is returned; the
+    /// enclosing grammar and conservative elaboration select (§14.4).
+    pub fn term_phrase(
+        &self,
+        pos: usize,
+        budget: &mut Budget,
+        depth: u64,
+    ) -> Result<Alts<TermPhraseAst>, Diagnostic> {
+        budget.state()?;
+        self.depth_check(budget, depth, pos)?;
+        let nested = depth.saturating_add(1);
+        let mut alternatives = Vec::new();
+        if let Some(island) = self.island_at(pos) {
+            alternatives.push((pos + 1, TermPhraseAst::Island(island)));
+        }
+        let Some(the_kw) = self.is_word(pos, "the") else {
+            return Ok(alternatives);
+        };
+        for (reference, after_noun) in self.form_matches(pos + 1, budget, |category| {
+            matches!(
+                category,
+                Category::NounFunction | Category::BinaryNounFunction
+            )
+        })? {
+            let Some((entry, _)) = self.closure.form(&reference) else {
+                continue;
+            };
+            let Some(of_kw) = self.is_word(after_noun, "of") else {
+                continue;
+            };
+            let surface_atoms = self.token_atom_range(pos + 1, after_noun);
+            for (after_first, first) in self.term_phrase(after_noun + 1, budget, nested)? {
+                if entry.category == Category::NounFunction {
+                    alternatives.push((
+                        after_first,
+                        TermPhraseAst::NounOf {
+                            candidates: vec![reference.clone()],
+                            surface_atoms,
+                            args: vec![first],
+                            keywords: vec![the_kw.clone(), of_kw.clone()],
+                        },
+                    ));
+                    continue;
+                }
+                let Some(and_kw) = self.is_word(after_first, "and") else {
+                    continue;
+                };
+                for (after_second, second) in
+                    self.term_phrase(after_first + 1, budget, nested)?
+                {
+                    budget.state()?;
+                    alternatives.push((
+                        after_second,
+                        TermPhraseAst::NounOf {
+                            candidates: vec![reference.clone()],
+                            surface_atoms,
+                            args: vec![first.clone(), second],
+                            keywords: vec![the_kw.clone(), of_kw.clone(), and_kw.clone()],
+                        },
+                    ));
+                }
+            }
+        }
         Ok(alternatives)
     }
 
@@ -681,57 +862,60 @@ impl<'a> TextParser<'a> {
         &self,
         pos: usize,
         budget: &mut Budget,
+        depth: u64,
     ) -> Result<Alts<PropAst>, Diagnostic> {
         let mut alternatives = Vec::new();
-        let Some(first_arg) = self.island_at(pos) else {
-            return Ok(alternatives);
-        };
-        // adjective: ARG is SELF
-        if let Some(is_kw) = self.is_word(pos + 1, "is") {
-            for (reference, end) in self.form_matches(pos + 2, budget, |category| {
-                category == Category::AdjectivePredicate
-            })? {
-                alternatives.push((
-                    end,
-                    PropAst::Predicate {
-                        surface_atoms: self.token_atom_range(pos + 2, end),
-                        candidates: vec![reference],
-                        args: vec![first_arg.clone()],
-                        keywords: vec![is_kw.clone()],
-                    },
-                ));
+        for (after_first, first_arg) in self.term_phrase(pos, budget, depth)? {
+            // adjective: ARG is SELF
+            if let Some(is_kw) = self.is_word(after_first, "is") {
+                for (reference, end) in self.form_matches(after_first + 1, budget, |category| {
+                    category == Category::AdjectivePredicate
+                })? {
+                    alternatives.push((
+                        end,
+                        PropAst::Predicate {
+                            surface_atoms: self.token_atom_range(after_first + 1, end),
+                            candidates: vec![reference],
+                            args: vec![first_arg.clone()],
+                            keywords: vec![is_kw.clone()],
+                        },
+                    ));
+                }
             }
-        }
-        // intransitive: ARG SELF ; transitive: ARG SELF ARG
-        for (reference, end) in self.form_matches(pos + 1, budget, |category| {
-            matches!(
-                category,
-                Category::IntransitivePredicate | Category::TransitivePredicate
-            )
-        })? {
-            let Some((entry, _)) = self.closure.form(&reference) else {
-                continue;
-            };
-            if entry.category == Category::IntransitivePredicate {
-                alternatives.push((
-                    end,
-                    PropAst::Predicate {
-                        surface_atoms: self.token_atom_range(pos + 1, end),
-                        candidates: vec![reference],
-                        args: vec![first_arg.clone()],
-                        keywords: Vec::new(),
-                    },
-                ));
-            } else if let Some(second_arg) = self.island_at(end) {
-                alternatives.push((
-                    end + 1,
-                    PropAst::Predicate {
-                        surface_atoms: self.token_atom_range(pos + 1, end),
-                        candidates: vec![reference],
-                        args: vec![first_arg.clone(), second_arg],
-                        keywords: Vec::new(),
-                    },
-                ));
+            // intransitive: ARG SELF ; transitive: ARG SELF ARG
+            for (reference, end) in self.form_matches(after_first, budget, |category| {
+                matches!(
+                    category,
+                    Category::IntransitivePredicate | Category::TransitivePredicate
+                )
+            })? {
+                let Some((entry, _)) = self.closure.form(&reference) else {
+                    continue;
+                };
+                if entry.category == Category::IntransitivePredicate {
+                    alternatives.push((
+                        end,
+                        PropAst::Predicate {
+                            surface_atoms: self.token_atom_range(after_first, end),
+                            candidates: vec![reference],
+                            args: vec![first_arg.clone()],
+                            keywords: Vec::new(),
+                        },
+                    ));
+                    continue;
+                }
+                for (after_second, second_arg) in self.term_phrase(end, budget, depth)? {
+                    budget.state()?;
+                    alternatives.push((
+                        after_second,
+                        PropAst::Predicate {
+                            surface_atoms: self.token_atom_range(after_first, end),
+                            candidates: vec![reference.clone()],
+                            args: vec![first_arg.clone(), second_arg],
+                            keywords: Vec::new(),
+                        },
+                    ));
+                }
             }
         }
         Ok(alternatives)
@@ -739,7 +923,7 @@ impl<'a> TextParser<'a> {
 
     /// Every full-consumption proposition parse of the token range.
     pub fn proposition_sentence(&self, budget: &mut Budget) -> Result<Vec<PropAst>, Diagnostic> {
-        let alternatives = self.proposition(0, budget)?;
+        let alternatives = self.proposition(0, budget, 1)?;
         let complete: Vec<PropAst> = alternatives
             .into_iter()
             .filter(|(end, _)| *end == self.tokens.len())
@@ -779,6 +963,9 @@ pub enum PhraseItemAst {
     },
     /// A non-`Prop` math island.
     Math(TextToken),
+    /// A noun-of term phrase, `the SELF of ARG [and ARG]` (§15.3: the
+    /// canonical nominal form of a function entry with its arguments).
+    TermPhrase(TermPhraseAst),
     /// Core phrase punctuation `:`, `-`, `(`, `)`.
     Punctuation {
         /// The atom index.
@@ -818,6 +1005,27 @@ pub fn parse_phrase(
                     });
                     pos += 1;
                     continue;
+                }
+                // `the SELF of ARG [and ARG]`: a noun-of term phrase. A
+                // phrase is a fixed sequence, so its extent must be unique.
+                if atom.class == AtomClass::Word && atom.text == "the" {
+                    let mut noun_of: Vec<(usize, TermPhraseAst)> = parser
+                        .term_phrase(pos, budget, 1)?
+                        .into_iter()
+                        .filter(|(_, phrase)| matches!(phrase, TermPhraseAst::NounOf { .. }))
+                        .collect();
+                    if noun_of.len() > 1 {
+                        return Err(Diagnostic::new(
+                            code!("LLP2002"),
+                            "ambiguous noun-of term phrase in a phrase",
+                        )
+                        .with_span(atom.span(parser.path)));
+                    }
+                    if let Some((end, phrase)) = noun_of.pop() {
+                        items.push(PhraseItemAst::TermPhrase(phrase));
+                        pos = end;
+                        continue;
+                    }
                 }
                 let matches = parser.form_matches(pos, budget, |category| {
                     matches!(

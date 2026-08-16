@@ -628,3 +628,684 @@ pub fn tex_text(build: &lexlean::api::RenderedBuild, module: &str) -> String {
         .tex_text
         .clone()
 }
+
+// ---- WS-A helpers: the Lean-verified proof corpus ----
+
+/// One fixture entry of the corpus package: `(file name, TOML text)`.
+type FixtureEntry = (&'static str, String);
+
+/// A proof-constant entry over `Init` with an explicit LSE signature.
+fn corpus_proof_constant(id: &str, surface: &str, signature: &str, lean_name: &str) -> String {
+    let arity = signature.matches("(explicit ").count();
+    let slots: Vec<String> = (0..arity).map(|index| format!("(slot {index})")).collect();
+    let arguments = if arity == 1 {
+        slots[0].clone()
+    } else {
+        format!("(seq {})", slots.join(" (space) "))
+    };
+    format!(
+        r#"spec = "lexlean/entry/1"
+id = "{id}"
+category = "proof-constant"
+signature = "{signature}"
+surface_arity = {arity}
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "{lean_name}"
+
+[[form]]
+id = "{id}"
+channel = "math"
+surface = "{surface}"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name {surface}) (paren {arguments}))"
+"#
+    )
+}
+
+/// The `test.corpus` fixture package: `Init` proof constants whose
+/// signatures carry numerals (`Nat.zero_add`) and quantified equations
+/// (`Nat.add_comm`), document-denoting `even` (adjective predicate) and
+/// `double` (noun function) entries, and glossary-declared structures with
+/// eliminator descriptors mirroring `Or` (`disj`) and `And` (`conj`) so
+/// cases on a hypothesis and constructor over a structure are exercised.
+#[must_use]
+pub fn corpus_entries() -> Vec<FixtureEntry> {
+    let nat = "(const lexlean.std.nat::nat)";
+    let zeroadd = corpus_proof_constant(
+        "zeroadd",
+        "zeroadd",
+        &format!("(pi ((explicit n {nat})) (app (const lexlean.core::eq) (app (const lexlean.std.nat::add) (nat 0) (local n)) (local n)))"),
+        "Nat.zero_add",
+    );
+    let addcomm = corpus_proof_constant(
+        "addcomm",
+        "addcomm",
+        &format!("(pi ((explicit n {nat}) (explicit m {nat})) (app (const lexlean.core::eq) (app (const lexlean.std.nat::add) (local n) (local m)) (app (const lexlean.std.nat::add) (local m) (local n))))"),
+        "Nat.add_comm",
+    );
+    let even = format!(
+        r#"spec = "lexlean/entry/1"
+id = "even"
+category = "adjective-predicate"
+signature = "(pi ((explicit n {nat})) (sort prop))"
+surface_arity = 1
+frame = "adjective"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "even"
+
+[[form]]
+id = "even"
+channel = "text"
+surface = "even"
+canonical_source = true
+features = ["lower-case"]
+"#
+    );
+    let double = format!(
+        r#"spec = "lexlean/entry/1"
+id = "double"
+category = "noun-function"
+signature = "(pi ((explicit n {nat})) {nat})"
+surface_arity = 1
+frame = "noun-of"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "double"
+
+[[form]]
+id = "double"
+channel = "text"
+surface = "double"
+canonical_source = true
+features = ["lower-case", "singular"]
+"#
+    );
+    let structure = |id: &str, text: &str, lean: &str, ctors: &str| {
+        format!(
+            r#"spec = "lexlean/entry/1"
+id = "{id}"
+category = "type-noun"
+signature = "(pi ((explicit p (sort prop)) (explicit q (sort prop))) (sort prop))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "{lean}"
+
+[[form]]
+id = "{id}-text"
+channel = "text"
+surface = "{text}"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+
+[[form]]
+id = "{id}"
+channel = "math"
+surface = "{id}"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name {id})"
+
+[eliminator]
+cases_lean_name = "{lean}.casesOn"
+induction_lean_name = "{lean}.rec"
+{ctors}"#
+        )
+    };
+    let disj = structure(
+        "disj",
+        "disjunction",
+        "Or",
+        "\n[[eliminator.constructor]]\nentry = \"test.corpus::disj-inl\"\nlean_name = \"Or.inl\"\nfields = [\"h\"]\ninduction_hypotheses = []\n\n[[eliminator.constructor]]\nentry = \"test.corpus::disj-inr\"\nlean_name = \"Or.inr\"\nfields = [\"h\"]\ninduction_hypotheses = []\n",
+    );
+    let conj = structure(
+        "conj",
+        "conjunction",
+        "And",
+        "\n[[eliminator.constructor]]\nentry = \"test.corpus::conj-intro\"\nlean_name = \"And.intro\"\nfields = [\"left\", \"right\"]\ninduction_hypotheses = []\n",
+    );
+    let inl = corpus_proof_constant(
+        "disj-inl",
+        "inl",
+        "(pi ((implicit a (sort prop)) (implicit b (sort prop)) (explicit h (local a))) (app (const test.corpus::disj) (local a) (local b)))",
+        "Or.inl",
+    );
+    let inr = corpus_proof_constant(
+        "disj-inr",
+        "inr",
+        "(pi ((implicit a (sort prop)) (implicit b (sort prop)) (explicit h (local b))) (app (const test.corpus::disj) (local a) (local b)))",
+        "Or.inr",
+    );
+    let intro = corpus_proof_constant(
+        "conj-intro",
+        "cintro",
+        "(pi ((implicit a (sort prop)) (implicit b (sort prop)) (explicit left (local a)) (explicit right (local b))) (app (const test.corpus::conj) (local a) (local b)))",
+        "And.intro",
+    );
+    vec![
+        ("zeroadd.toml", zeroadd),
+        ("addcomm.toml", addcomm),
+        ("even.toml", even),
+        ("double.toml", double),
+        ("disj.toml", disj),
+        ("conj.toml", conj),
+        ("disj-inl.toml", inl),
+        ("disj-inr.toml", inr),
+        ("conj-intro.toml", intro),
+    ]
+}
+
+/// The corpus module: one multi-theorem module exercising every §16.2
+/// simple sentence, have, rewrite (forward and backward, at goal and at a
+/// hypothesis), simplify (goal and hypothesis), structured apply with two
+/// premises, constructor (conjunction, biconditional, and a glossary
+/// structure), cases and induction on `Nat`, cases on a hypothesis,
+/// calculate with two steps, every §15.6 connective and quantifier, section
+/// parameters referenced inside and outside their section, and definitions
+/// with predicate-frame and noun-of self heads.
+pub const CORPUS_MODULE: &str = r"\begin{lexlean}{Main}
+\useglossary{lexlean.std.nat@1.0.0}
+\useglossary{test.corpus@1.0.0}
+\title{Natural number addition}
+
+\begin{predicatedefinition}{even}{test.corpus::even}
+\noaxioms
+For every natural number \(n\), \(n\) is even holds exactly when there exists a natural number \(k\) such that \(n = k + k\).
+\end{predicatedefinition}
+
+\begin{termdefinition}{double}{test.corpus::double}
+\noaxioms
+For every natural number \(n\), the double of \(n\) is defined as \(n + n\).
+\end{termdefinition}
+
+\begin{theorem}{add-zero}
+\noaxioms
+For every natural number \(m\), \(m + 0 = m\).
+\begin{proof}
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{add-succ}
+\noaxioms
+For every natural number \(a\) and natural number \(b\), \(a + succ(b) = succ(a + b)\).
+\begin{proof}
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{lemma}{succ-congr}
+\noaxioms
+For every natural number \(a\) and natural number \(b\), if \(a = b\), then \(succ(a) = succ(b)\).
+\begin{proof}
+Assume \(h\).
+\begin{rewrite}{goal}
+\forward{h}
+\end{rewrite}
+\end{proof}
+\end{lemma}
+
+\begin{theorem}{zero-add}
+\noaxioms
+For every natural number \(n\), \(0 + n = n\).
+\begin{proof}
+\begin{induction}{n}
+\begin{case}{lexlean.std.nat::zero}
+\bind{}
+Close the goal by reflexivity.
+\end{case}
+\begin{case}{lexlean.std.nat::succ}
+\bind{m;ih}
+\begin{rewrite}{goal}
+\forward{\reference{Main::add-succ}}
+\end{rewrite}
+Apply \(\reference{Main::succ-congr}\).
+Close the goal with \(ih\).
+\end{case}
+\end{induction}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{apply-known}
+\noaxioms
+For every natural number \(n\), \(succ(0 + n) = succ(n)\).
+\begin{proof}
+Apply \(\reference{Main::succ-congr}\).
+Close the goal with \(\reference{Main::zero-add}(n)\).
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{init-zero-add}
+\noaxioms
+For every natural number \(n\), \(0 + n = n\).
+\begin{proof}
+Close the goal with \(zeroadd(n)\).
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{init-add-comm}
+\noaxioms
+For every natural number \(a\) and natural number \(b\), \(a + b = b + a\).
+\begin{proof}
+Close the goal with \(addcomm(a, b)\).
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{rewrite-hypothesis}
+\noaxioms
+For every natural number \(n\), if \(n + 0 = 1\), then \(n = 1\).
+\begin{proof}
+Assume \(h\).
+\begin{rewrite}{h}
+\forward{\reference{Main::add-zero}}
+\end{rewrite}
+Close the goal with \(h\).
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{rewrite-backward}
+\noaxioms
+For every natural number \(a\) and natural number \(b\), \(succ(a + b) = a + succ(b)\).
+\begin{proof}
+\begin{rewrite}{goal}
+\backward{\reference{Main::add-succ}}
+\end{rewrite}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{implies-rewrite}
+\noaxioms
+For every natural number \(n\), \(n = 1\) implies \(n + 0 = 1\).
+\begin{proof}
+Assume \(h\).
+\begin{rewrite}{goal}
+\forward{\reference{Main::add-zero}}
+\end{rewrite}
+Close the goal with \(h\).
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{simplify-both}
+\noaxioms
+For every natural number \(n\), if \(0 + n = 1\), then \(n + 0 = 1\).
+\begin{proof}
+Assume \(h\).
+\begin{simplify}{h}
+\rule{\reference{Main::zero-add}}
+\end{simplify}
+\begin{simplify}{goal}
+\rule{\reference{Main::add-zero}}
+\end{simplify}
+Close the goal with \(h\).
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{simplify-closes}
+\noaxioms
+For every natural number \(n\), if \(n = 1\), then \(n + 0 = 1\).
+\begin{proof}
+Assume \(h\).
+\begin{simplify}{goal}
+\rule{\reference{Main::add-zero}}
+\rule{h}
+\end{simplify}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{have-step}
+\noaxioms
+For every natural number \(n\), \(0 + n = n + 0\).
+\begin{proof}
+\begin{have}{h}
+\(0 + n = n\).
+\begin{proof}
+Close the goal with \(zeroadd(n)\).
+\end{proof}
+\end{have}
+\begin{rewrite}{goal}
+\forward{h}
+\forward{\reference{Main::add-zero}}
+\end{rewrite}
+\end{proof}
+\end{theorem}
+
+\begin{lemma}{two-premises}
+\noaxioms
+For every natural number \(n\), if \(n = n\), then if \(0 + n = n\), then \(n + 0 = n\).
+\begin{proof}
+Assume \(h\).
+Assume \(g\).
+Close the goal by reflexivity.
+\end{proof}
+\end{lemma}
+
+\begin{theorem}{structured-apply}
+\noaxioms
+For every natural number \(n\), \(n + 0 = n\).
+\begin{proof}
+\begin{apply}{\reference{Main::two-premises}}
+\begin{premise}{1}
+Close the goal by reflexivity.
+\end{premise}
+\begin{premise}{2}
+Close the goal with \(zeroadd(n)\).
+\end{premise}
+\end{apply}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{constructor-and}
+\noaxioms
+For every natural number \(n\), \(n + 0 = n\) and \(0 + n = n\).
+\begin{proof}
+\begin{constructor}
+\begin{branch}{1}
+Close the goal by reflexivity.
+\end{branch}
+\begin{branch}{2}
+Close the goal with \(zeroadd(n)\).
+\end{branch}
+\end{constructor}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{constructor-iff}
+\noaxioms
+For every natural number \(n\), \(n + 0 = n\) if and only if \(n = n\).
+\begin{proof}
+\begin{constructor}
+\begin{branch}{1}
+Assume \(h\).
+Close the goal by reflexivity.
+\end{branch}
+\begin{branch}{2}
+Assume \(h\).
+Close the goal by reflexivity.
+\end{branch}
+\end{constructor}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{constructor-structure}
+\noaxioms
+For every natural number \(n\), \(conj(n + 0 = n, 0 + n = n)\).
+\begin{proof}
+\begin{constructor}
+\begin{branch}{1}
+Close the goal by reflexivity.
+\end{branch}
+\begin{branch}{2}
+Close the goal with \(zeroadd(n)\).
+\end{branch}
+\end{constructor}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{cases-nat}
+\noaxioms
+For every natural number \(n\), \(n + 0 = n\) or \(n = 1\).
+\begin{proof}
+\begin{cases}{n}
+\begin{case}{lexlean.std.nat::zero}
+\bind{}
+Select the left alternative.
+Close the goal by reflexivity.
+\end{case}
+\begin{case}{lexlean.std.nat::succ}
+\bind{m}
+Select the left alternative.
+Close the goal by reflexivity.
+\end{case}
+\end{cases}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{or-comm}
+\noaxioms
+For every natural number \(n\), if \(disj(n = 0, n = 1)\), then \(disj(n = 1, n = 0)\).
+\begin{proof}
+Assume \(h\).
+\begin{cases}{h}
+\begin{case}{test.corpus::disj-inl}
+\bind{x}
+Select the right alternative.
+Close the goal with \(x\).
+\end{case}
+\begin{case}{test.corpus::disj-inr}
+\bind{y}
+Select the left alternative.
+Close the goal with \(y\).
+\end{case}
+\end{cases}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{and-comm}
+\noaxioms
+For every natural number \(n\), if \(conj(n = 0, n + 0 = n)\), then \(conj(n + 0 = n, n = 0)\).
+\begin{proof}
+Assume \(h\).
+\begin{cases}{h}
+\begin{case}{test.corpus::conj-intro}
+\bind{l;r}
+\begin{constructor}
+\begin{branch}{1}
+Close the goal with \(r\).
+\end{branch}
+\begin{branch}{2}
+Close the goal with \(l\).
+\end{branch}
+\end{constructor}
+\end{case}
+\end{cases}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{not-both}
+\noaxioms
+For every natural number \(n\), not \(conj(n = n, ¬ (n = n))\).
+\begin{proof}
+Assume \(h\).
+\begin{cases}{h}
+\begin{case}{test.corpus::conj-intro}
+\bind{l;r}
+Apply \(r\).
+Close the goal with \(l\).
+\end{case}
+\end{cases}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{exists-witness}
+\noaxioms
+There exists a natural number \(k\) such that \(k + 0 = 0\).
+\begin{proof}
+Use \(0\) as the witness.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{exists-unique}
+\noaxioms
+There exists exactly one natural number \(k\) such that \(k = 0\).
+\begin{proof}
+Use \(0\) as the witness.
+\begin{constructor}
+\begin{branch}{1}
+Close the goal by reflexivity.
+\end{branch}
+\begin{branch}{2}
+Assume \(y\), \(h\).
+Close the goal with \(h\).
+\end{branch}
+\end{constructor}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{select-right}
+\noaxioms
+For every natural number \(n\), \(n = 1\) or \(n + 0 = n\).
+\begin{proof}
+Select the right alternative.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{calculation}
+\noaxioms
+For every natural number \(n\), \(0 + (n + 0) = n\).
+\begin{proof}
+\begin{calculate}
+\start{0 + (n + 0)}
+\step{lexlean.core::eq}{n + 0}{\reference{Main::zero-add}(n + 0)}
+\step{lexlean.core::eq}{n}{\reference{Main::add-zero}(n)}
+\end{calculate}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{double-even}
+\noaxioms
+For every natural number \(n\), the double of \(n\) is even.
+\begin{proof}
+Use \(n\) as the witness.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{zero-even}
+\noaxioms
+\(0\) is even.
+\begin{proof}
+Use \(0\) as the witness.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{section}{parameters}
+\heading{Natural number addition}
+\parameters{natural number \(p\)}
+\begin{theorem}{param-add-zero}
+\noaxioms
+\(p + 0 = p\).
+\begin{proof}
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{use-inside}
+\noaxioms
+\(succ(p + 0) = succ(p)\).
+\begin{proof}
+Apply \(\reference{Main::succ-congr}\).
+Close the goal with \(\reference{Main::param-add-zero}(p)\).
+\end{proof}
+\end{theorem}
+\end{section}
+
+\begin{corollary}{use-outside}
+\noaxioms
+For every natural number \(q\), \(q + 0 = q\).
+\begin{proof}
+Close the goal with \(\reference{Main::param-add-zero}(q)\).
+\end{proof}
+\end{corollary}
+\end{lexlean}
+";
+
+/// A project holding the corpus module and its fixture package (relocked).
+#[must_use]
+pub fn corpus_project() -> P {
+    let project = P::example();
+    let entries = corpus_entries();
+    let entry_refs: Vec<(&str, &str)> = entries
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect();
+    project.add_package(
+        "lexicons/test-corpus",
+        "test.corpus",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &entry_refs,
+    );
+    project.write("src/Main.lex.tex", CORPUS_MODULE);
+    project.relock();
+    project
+}
+
+/// The one shared Lean-verified run of the proof corpus (C11): built and
+/// verified with the pinned toolchain; the per-form assertions read its
+/// generated Lean and attestation.
+pub fn verified_corpus() -> &'static VerifiedFixture {
+    static FIXTURE: OnceLock<VerifiedFixture> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let _guard = env_lock();
+        let project = corpus_project();
+        let outcome = project
+            .engine()
+            .verify(VerifyRequest {
+                selection: Selection::Entrypoints,
+            })
+            .unwrap_or_else(|error| {
+                panic!("the proof corpus verifies under pinned Lean 4.32.1: {error}")
+            });
+        let attestation: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(outcome.root.join("attestation.json").as_std_path())
+                .expect("attestation exists"),
+        )
+        .expect("attestation parses");
+        VerifiedFixture {
+            project,
+            outcome,
+            attestation,
+        }
+    })
+}
+
+/// The generated Lean text of the verified corpus module.
+#[must_use]
+pub fn corpus_lean() -> String {
+    let fixture = verified_corpus();
+    lean_text(&rendered(&fixture.project), "Main")
+}
+
+/// The generated Lean lines of one corpus declaration: from its `theorem`
+/// or `def` line to the line before the next declaration or the closing
+/// `end`, without trailing blank lines.
+#[must_use]
+pub fn corpus_declaration_lean(lean_name: &str) -> String {
+    let lean = corpus_lean();
+    let lines: Vec<&str> = lean.lines().collect();
+    let start = lines
+        .iter()
+        .position(|line| {
+            line.starts_with(&format!("public theorem {lean_name} "))
+                || line.starts_with(&format!("public def {lean_name} "))
+        })
+        .unwrap_or_else(|| panic!("`{lean_name}` in the corpus Lean:\n{lean}"));
+    let end = lines[start + 1..]
+        .iter()
+        .position(|line| line.starts_with("public ") || line.starts_with("end "))
+        .map_or(lines.len(), |offset| start + 1 + offset);
+    let mut block = lines[start..end].join("\n");
+    while block.ends_with('\n') {
+        block.pop();
+    }
+    block.trim_end().to_owned()
+}
