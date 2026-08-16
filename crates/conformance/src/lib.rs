@@ -12,6 +12,7 @@ pub mod cases;
 pub mod fixtures;
 pub mod meta;
 pub mod runner;
+pub mod schema;
 
 pub mod support;
 

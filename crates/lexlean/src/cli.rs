@@ -128,10 +128,7 @@ enum CommandKind {
 
 /// The embedded diagnostic registry, for `explain` (§23.4). The registry
 /// file is the single source (R1); the binary carries a copy.
-const ERRORS_TOML: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../model/errors.toml"
-));
+const ERRORS_TOML: &str = include_str!(concat!(env!("OUT_DIR"), "/errors.toml"));
 
 fn selection_from(all: bool, inputs: Vec<Utf8PathBuf>) -> Result<Selection, LexLeanError> {
     match (all, inputs.is_empty()) {

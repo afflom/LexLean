@@ -772,3 +772,153 @@ fn make_executable(path: &Path) {
     #[cfg(not(unix))]
     let _ = path;
 }
+
+/// The committed schema `schemas/<name>.schema.json`, parsed.
+#[must_use]
+pub fn schema(name: &str) -> serde_json::Value {
+    let path = repo_root().join("schemas").join(format!("{name}.schema.json"));
+    serde_json::from_slice(&std::fs::read(path.as_std_path()).expect("schema exists"))
+        .expect("schema parses")
+}
+
+/// Assert `instance` validates against `schemas/<name>.schema.json`,
+/// naming `what` on failure (§30.4: schemas are exercised).
+pub fn assert_schema(name: &str, what: &str, instance: &serde_json::Value) {
+    let violations = crate::schema::validate(&schema(name), instance);
+    assert!(
+        violations.is_empty(),
+        "{what} violates schemas/{name}.schema.json:\n{}",
+        violations
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+/// Assert a JSON file validates against a schema.
+pub fn assert_json_file_schema(name: &str, path: &Utf8Path) {
+    let value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(path.as_std_path()).expect("json file"))
+            .unwrap_or_else(|error| panic!("{path}: {error}"));
+    assert_schema(name, path.as_str(), &value);
+}
+
+/// Assert a TOML file, converted to JSON, validates against a schema.
+pub fn assert_toml_file_schema(name: &str, path: &Utf8Path) {
+    let text = std::fs::read_to_string(path.as_std_path()).expect("toml file");
+    let value: toml::Value = text.parse().unwrap_or_else(|error| panic!("{path}: {error}"));
+    let json = serde_json::to_value(&value).expect("toml converts to json");
+    assert_schema(name, path.as_str(), &json);
+}
+
+/// A `lake` wrapper script that behaves as the pinned lake except that,
+/// for `lake env lean` on a path matching `glob_fragment`, it prints
+/// `injected` to the named stream first (`stdout` or `stderr`) and then
+/// runs the real command; with `replace = true` it prints and exits 0
+/// without running lean. The real lake is found through the sibling
+/// `lean` symlink of the fake bin directory.
+#[must_use]
+pub fn lake_wrapper(glob_fragment: &str, injected: &str, stream: &str, replace: bool) -> String {
+    let redirect = if stream == "stderr" { " >&2" } else { "" };
+    let tail = if replace { "exit 0" } else { "" };
+    format!(
+        "#!/bin/sh\nreal=\"$(dirname \"$(readlink -f \"$(dirname \"$0\")/lean\")\")/lake\"\nif [ \"$1\" = \"env\" ] && [ \"$2\" = \"lean\" ]; then\n  case \"$3\" in\n    {glob_fragment})\n      printf '%s\\n' '{injected}'{redirect}\n      {tail}\n      ;;\n  esac\nfi\nexec \"$real\" \"$@\"\n"
+    )
+}
+
+/// §30.3 "crate package", RP-12: package the shipped crate, extract the
+/// `.crate`, build it offline in isolation, and return the packaged
+/// binary's `--version` text. The build reuses `target/package-verify`
+/// (never the workspace build directory, which the running test holds).
+///
+/// # Errors
+///
+/// Any step failing, with the captured output.
+pub fn packaged_crate_version(root: &Utf8Path) -> Result<String, String> {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    let target_dir = root.join("target/package-verify");
+    let run = |program: &str, args: &[&str], cwd: &Utf8Path, envs: &[(&str, &str)]| {
+        let mut command = std::process::Command::new(program);
+        command.args(args).current_dir(cwd.as_std_path());
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        let output = command
+            .output()
+            .map_err(|error| format!("{program} {}: {error}", args.join(" ")))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        if !output.status.success() {
+            return Err(format!(
+                "{program} {} exited {:?}\n{stdout}\n{stderr}",
+                args.join(" "),
+                output.status.code()
+            ));
+        }
+        Ok(stdout)
+    };
+    run(
+        &cargo,
+        &[
+            "package",
+            "-p",
+            "lexlean",
+            "--no-verify",
+            "--allow-dirty",
+            "--offline",
+            "--target-dir",
+            target_dir.as_str(),
+        ],
+        root,
+        &[],
+    )?;
+    let package_dir = target_dir.join("package");
+    let crate_file = std::fs::read_dir(package_dir.as_std_path())
+        .map_err(|error| format!("{package_dir}: {error}"))?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.extension().is_some_and(|extension| extension == "crate")
+                && path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("lexlean-"))
+        })
+        .ok_or_else(|| format!("{package_dir}: no lexlean-*.crate was produced"))?;
+    let extract = tempfile::Builder::new()
+        .prefix("lexlean-package-")
+        .tempdir()
+        .map_err(|error| error.to_string())?;
+    let extract_dir = Utf8PathBuf::from_path_buf(extract.path().to_path_buf())
+        .map_err(|_| "non-UTF-8 temporary directory".to_owned())?;
+    run(
+        "tar",
+        &["xzf", &crate_file.to_string_lossy()],
+        &extract_dir,
+        &[],
+    )?;
+    let unpacked = std::fs::read_dir(extract_dir.as_std_path())
+        .map_err(|error| error.to_string())?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.is_dir())
+        .ok_or("the crate archive unpacked nothing")?;
+    let unpacked = Utf8PathBuf::from_path_buf(unpacked).map_err(|_| "non-UTF-8 path".to_owned())?;
+    for required in ["language", "schemas", "tests/golden", "model/errors.toml", "build.rs"] {
+        if !unpacked.join(required).as_std_path().exists() {
+            return Err(format!(
+                "the packaged crate lacks `{required}`; the normative data must ship inside the crate (§7, §21.2)"
+            ));
+        }
+    }
+    run(
+        &cargo,
+        &["build", "--offline", "--bin", "lexlean"],
+        &unpacked,
+        &[("CARGO_TARGET_DIR", target_dir.as_str())],
+    )?;
+    let binary = target_dir
+        .join("debug")
+        .join(if cfg!(windows) { "lexlean.exe" } else { "lexlean" });
+    run(binary.as_str(), &["--version"], &unpacked, &[])
+}

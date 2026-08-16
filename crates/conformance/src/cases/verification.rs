@@ -12,55 +12,6 @@ fn quoted_name(line: &str) -> String {
         .to_owned()
 }
 
-/// Build a fake elan home whose pinned toolchain mirrors the real one but
-/// replaces the named executables with scripts. Returns the fake root.
-fn fake_toolchain(replacements: &[(&str, &str)]) -> tempfile::TempDir {
-    // Deliberately ignore ELAN_HOME here: concurrent tests may hold the
-    // environment lock with a fake value; the real toolchain lives under
-    // the home elan directory.
-    let real_elan = std::path::PathBuf::from(std::env::var("HOME").expect("HOME")).join(".elan");
-    let mangled = lexlean::LEAN_TOOLCHAIN
-        .replace('/', "--")
-        .replace(':', "---");
-    let real_toolchain = real_elan.join("toolchains").join(&mangled);
-    let fake = tempfile::Builder::new()
-        .prefix("lexlean-fake-elan-")
-        .tempdir()
-        .expect("tempdir");
-    let fake_toolchain_dir = fake.path().join("toolchains").join(&mangled);
-    let fake_bin = fake_toolchain_dir.join("bin");
-    std::fs::create_dir_all(&fake_bin).expect("mkdir");
-    // Mirror everything except bin/ by symlink.
-    for entry in std::fs::read_dir(&real_toolchain)
-        .expect("real toolchain")
-        .flatten()
-    {
-        if entry.file_name() == "bin" {
-            continue;
-        }
-        std::os::unix::fs::symlink(entry.path(), fake_toolchain_dir.join(entry.file_name()))
-            .expect("symlink");
-    }
-    for entry in std::fs::read_dir(real_toolchain.join("bin"))
-        .expect("real bin")
-        .flatten()
-    {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if replacements.iter().any(|(replaced, _)| *replaced == name) {
-            continue;
-        }
-        std::os::unix::fs::symlink(entry.path(), fake_bin.join(&name)).expect("symlink");
-    }
-    for (name, script) in replacements {
-        let path = fake_bin.join(name);
-        std::fs::write(&path, script).expect("script");
-        let mut permissions = std::fs::metadata(&path).expect("stat").permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod");
-    }
-    fake
-}
-
 fn process_records(dir: &camino::Utf8Path) -> Vec<serde_json::Value> {
     support::file_set(dir)
         .into_iter()
@@ -71,7 +22,18 @@ fn process_records(dir: &camino::Utf8Path) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// The cases whose assertions need the pinned toolchain (§8.3); every
+/// other case is platform independent and runs on every supported host.
+const LEAN_BACKED: [&str; 14] = [
+    "VR-01", "VR-02", "VR-03", "VR-04", "VR-05", "VR-06", "VR-07", "VR-08", "VR-09", "VR-11",
+    "VR-13", "VR-14", "VR-15", "VR-16",
+];
+
 pub(crate) fn run(id: &str) {
+    if LEAN_BACKED.contains(&id) && !support::lean_backed(id) {
+        run_platform_independent(id);
+        return;
+    }
     match id {
         // §22.1: every stage runs; no suppression option exists.
         "VR-01" => {
@@ -128,7 +90,7 @@ pub(crate) fn run(id: &str) {
             }
 
             // A wrong-version toolchain fails preflight before use.
-            let lying = fake_toolchain(&[(
+            let lying = support::fake_toolchain(&[(
                 "lean",
                 "#!/bin/sh\necho Lean \\(version 4.31.0, release\\)\n",
             )]);
@@ -200,7 +162,9 @@ pub(crate) fn run(id: &str) {
                 );
             }
         }
-        // §22.3: any unexpected output fails verification.
+        // §22.3: any unexpected output fails verification: a clean run has
+        // none, and a planted warning on module compilation (exit 0) is
+        // LLV7006 with nothing published.
         "VR-07" => {
             let fixture = support::verified();
             let records = process_records(&fixture.outcome.root.join("process/lean"));
@@ -216,18 +180,28 @@ pub(crate) fn run(id: &str) {
                     "and no stderr"
                 );
             }
-            // The enforcement site is registered: LLV7006 is the closed code
-            // for it and the verifier emits it.
-            let source = std::fs::read_to_string(
-                support::repo_root()
-                    .join("crates/lexlean/src/verify/mod.rs")
-                    .as_std_path(),
-            )
-            .expect("verify source");
-            assert!(
-                source.contains("LLV7006"),
-                "the warning/unexpected-output rejection is wired"
-            );
+            let warning = support::fake_toolchain(&[(
+                "lake",
+                &support::lake_wrapper(
+                    "*/modules/*.lean",
+                    "warning: fixture-planted warning on a successful compilation",
+                    "stderr",
+                    false,
+                ),
+            )]);
+            let fake_path = warning.path().to_string_lossy().into_owned();
+            support::with_env(&[("ELAN_HOME", Some(&fake_path))], || {
+                let project = P::example();
+                let error = project.verify_fails_with("LLV7006");
+                assert!(
+                    format!("{error}").contains("fixture-planted warning"),
+                    "the diagnostic quotes the unexpected output: {error}"
+                );
+                assert!(
+                    support::file_set(&project.root.join(".lexlean/verified")).is_empty(),
+                    "nothing is published after a warning"
+                );
+            });
         }
         // §22.4: separate-process replay for every module, and a replay
         // failure fails verification.
@@ -247,7 +221,7 @@ pub(crate) fn run(id: &str) {
                 );
             }
 
-            let broken = fake_toolchain(&[("leanchecker", "#!/bin/sh\nexit 1\n")]);
+            let broken = support::fake_toolchain(&[("leanchecker", "#!/bin/sh\nexit 1\n")]);
             let fake_path = broken.path().to_string_lossy().into_owned();
             support::with_env(&[("ELAN_HOME", Some(&fake_path))], || {
                 let project = P::example();
@@ -343,6 +317,52 @@ pub(crate) fn run(id: &str) {
                 vec!["Classical.choice", "Quot.sound", "propext"],
                 "the observed set is recorded sorted"
             );
+            assert_eq!(
+                attestation["declarations"][0]["policy"]["kind"].as_str(),
+                Some("allow")
+            );
+            drop(_guard);
+
+            // `exact`: equality succeeds and records the policy; a superset
+            // allow-list is a violation (§22.6), both through the CLI
+            // fixtures under tests/fixtures/verification.
+            let root = support::repo_root();
+            let success = crate::fixtures::check(
+                &root.join("tests/fixtures/verification/vr-11-exact-success"),
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+            assert_eq!(success.exit, 0);
+            let verified = success.project.root.join(".lexlean/verified");
+            let attestation_path = support::file_set(&verified)
+                .into_iter()
+                .find(|file| file.ends_with("/attestation.json"))
+                .map(|file| verified.join(file))
+                .expect("the exact-success attestation");
+            let exact: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(attestation_path.as_std_path()).expect("attestation"),
+            )
+            .expect("parses");
+            let row = &exact["declarations"][0];
+            assert_eq!(row["policy"]["kind"].as_str(), Some("exact"));
+            assert_eq!(row["result"].as_str(), Some("success"), "{row}");
+            let allowed: Vec<&str> = row["policy"]["axioms"]
+                .as_array()
+                .expect("allowed set")
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect();
+            let observed: Vec<&str> = row["observed"]
+                .as_array()
+                .expect("observed set")
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect();
+            assert_eq!(allowed, observed, "exact: O = A");
+            let mismatch = crate::fixtures::check(
+                &root.join("tests/fixtures/verification/vr-11-exact-mismatch"),
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+            assert_eq!(mismatch.codes, ["LLV7005"], "exact with a superset fails");
         }
         // §22.7: the exact output normalization rules.
         "VR-12" => {
@@ -443,6 +463,17 @@ pub(crate) fn run(id: &str) {
                     "§22.8: the `{pattern}` slot is populated"
                 );
             }
+            // §30.4: every JSON artifact kind validates against its schema.
+            let root = &fixture.outcome.root;
+            support::assert_json_file_schema("attestation", &root.join("attestation.json"));
+            support::assert_json_file_schema("build-manifest", &root.join("build-manifest.json"));
+            for file in &files {
+                if file.starts_with("maps/") {
+                    support::assert_json_file_schema("source-map", &root.join(file));
+                } else if file.starts_with("coverage/") {
+                    support::assert_json_file_schema("coverage", &root.join(file));
+                }
+            }
         }
         // §22.9: the attestation ID is computed over the body without its
         // own field.
@@ -471,7 +502,9 @@ pub(crate) fn run(id: &str) {
             );
             assert!(!body.contains("timestamp"), "no timestamp is hashed");
         }
-        // §22.1: a failed stage removes staging and publishes nothing.
+        // §22.1, I11: a failure in any stage (probe, module elaboration,
+        // leanchecker replay, axiom audit, policy) removes staging and
+        // publishes no verified artifact.
         "VR-15" => {
             let (project, _error) = support::broken_proof();
             let verified_root = project.root.join(".lexlean/verified");
@@ -481,6 +514,38 @@ pub(crate) fn run(id: &str) {
                     leftovers.is_empty(),
                     "a failed verification leaves no staging or artifacts: {leftovers:?}"
                 );
+            }
+            let root = support::repo_root();
+            let stages = [
+                ("probe", "tests/fixtures/verification/vr-15-probe-failure", "LLT4003"),
+                ("module", "tests/negative/lean-elaboration-failure", "LLV7002"),
+                ("leanchecker", "tests/negative/leanchecker-failure", "LLV7003"),
+                ("audit", "tests/negative/malformed-axiom-output", "LLV7004"),
+                ("policy", "tests/negative/axiom-policy-excess", "LLV7005"),
+            ];
+            for (stage, fixture, code) in stages {
+                let observed = crate::fixtures::check(&root.join(fixture))
+                    .unwrap_or_else(|error| panic!("{stage}: {error}"));
+                assert_eq!(observed.codes, [code], "{stage} stage failure code");
+                let lexlean_root = observed.project.root.join(".lexlean");
+                let leftovers: Vec<String> = support::file_set(&lexlean_root)
+                    .into_iter()
+                    .filter(|file| file.starts_with("verified/") || file.contains(".staging-"))
+                    .collect();
+                assert!(
+                    leftovers.is_empty(),
+                    "{stage} failure left staging or verified files: {leftovers:?}"
+                );
+                for entry in std::fs::read_dir(lexlean_root.join("verified").as_std_path())
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                {
+                    panic!(
+                        "{stage} failure left {} under .lexlean/verified",
+                        entry.file_name().to_string_lossy()
+                    );
+                }
             }
         }
         // §5.4: imported-theorem axioms stay subject to the policy.
@@ -510,17 +575,10 @@ pub(crate) fn run(id: &str) {
                 })
                 .err()
                 .expect("a drifted workspace fails preflight");
+            support::expect_code(&error, "LLV7007");
             assert!(
-                error
-                    .diagnostics
-                    .iter()
-                    .any(|d| matches!(d.code.as_str(), "LLV7007" | "LLC0102")),
-                "found {:?}",
-                error
-                    .diagnostics
-                    .iter()
-                    .map(|d| d.code.as_str())
-                    .collect::<Vec<_>>()
+                support::file_set(&project.root.join(".lexlean/verified")).is_empty(),
+                "preflight failure publishes nothing"
             );
         }
         // §5.3: check and build never claim verified status.
@@ -540,5 +598,44 @@ pub(crate) fn run(id: &str) {
             );
         }
         other => panic!("no verification case is wired for {other}"),
+    }
+}
+
+/// The platform-independent half of each Lean-backed case, run on hosts
+/// without the pinned toolchain (§8.3): the format and option contracts
+/// that need no Lean process.
+fn run_platform_independent(id: &str) {
+    match id {
+        "VR-01" => {
+            let project = P::example();
+            for forbidden in [
+                ["verify", "--skip-audit"],
+                ["verify", "--no-replay"],
+                ["verify", "--output"],
+            ] {
+                let (exit, _, _) = project.cli(&forbidden);
+                assert_eq!(exit, 2, "verify rejects {forbidden:?}");
+            }
+        }
+        "VR-04" => {
+            let (probe, audit) = lexlean::verify::reserved_module_names(
+                lexlean::artifact::content_id::Sha256Digest::of(b"x"),
+            );
+            assert!(probe.starts_with("LexLeanProbe.P") && audit.starts_with("LexLeanAudit.A"));
+            assert_ne!(probe, audit);
+        }
+        "VR-13" | "VR-14" => {
+            for name in ["attestation", "build-manifest", "source-map", "coverage"] {
+                let schema = support::schema(name);
+                assert_eq!(
+                    schema["$schema"].as_str(),
+                    Some("https://json-schema.org/draft/2020-12/schema")
+                );
+            }
+        }
+        _ => {
+            // Every other Lean-backed case has no assertion that is
+            // meaningful without the toolchain; the host gate reported that.
+        }
     }
 }
