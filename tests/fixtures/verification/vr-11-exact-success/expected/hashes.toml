@@ -1,0 +1,26 @@
+# Platform-independent artifact hashes (compared exactly) and the
+# process-bound files whose bytes vary per host, toolchain build, and
+# compiler executable (presence only). SPEC.md §28.2, §28.4.
+
+[platform_independent]
+".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.Ac296d73b1bf603e729685e20fcecb7ad.lean" = "ce72b0930147248dfa799553ba634a7da3d05df24977acc9873052cdc47d91a2"
+".lexlean/verified/$ATTESTATION/audit/output.txt" = "e0a31c670eac06f52782d864e0a948c11d06d4901077474ddcc6afb86817ac0a"
+".lexlean/verified/$ATTESTATION/build-manifest.json" = "5b2934521fd173f64fde7719b1a7df210dff19781a08076ed6843de98be5fd26"
+".lexlean/verified/$ATTESTATION/coverage/LexLeanExample/Main.coverage.json" = "685cfa23267ba4bb46a9019662cc18d340596c78c30d3577d62bde0ecc93f08f"
+".lexlean/verified/$ATTESTATION/lexicons/Main.closure.json" = "5f1cbb7931b756c81f00e8e6c51855f352c3f92489c3f3b12be208cf77838055"
+".lexlean/verified/$ATTESTATION/maps/LexLeanExample/Main.map.json" = "6433813f6687465db72ee5dfd58836e9a984dc8c18840cfd76af4d6f2e99bbb6"
+".lexlean/verified/$ATTESTATION/modules/LexLeanExample/Main.lean" = "bf7410e2b99d305d23a46ca3506da73e561b26c7c880da4796f6ec2aa25d8b9b"
+".lexlean/verified/$ATTESTATION/modules/LexLeanExample/Main.tex" = "8de0caeff94f772f520b5acfa68458761dd2bdf96f78488ec3872ff3d07864e8"
+".lexlean/verified/$ATTESTATION/probe/LexLeanProbe.Pc296d73b1bf603e729685e20fcecb7ad.lean" = "27014ed05597f556b7dbe9c6d9a5c86d9ef6db203e419fe3b9c8dd5a76a1d13d"
+
+[process_bound]
+files = [
+    ".lexlean/verified/$ATTESTATION/attestation.json",
+    ".lexlean/verified/$ATTESTATION/audit/process.json",
+    ".lexlean/verified/$ATTESTATION/oleans/LexLeanExample/Main.olean",
+    ".lexlean/verified/$ATTESTATION/oleans/LexLeanExample/Main.olean.private",
+    ".lexlean/verified/$ATTESTATION/oleans/LexLeanExample/Main.olean.server",
+    ".lexlean/verified/$ATTESTATION/probe/process.json",
+    ".lexlean/verified/$ATTESTATION/process/lean/LexLeanExample.Main.json",
+    ".lexlean/verified/$ATTESTATION/process/leanchecker/LexLeanExample.Main.json",
+]

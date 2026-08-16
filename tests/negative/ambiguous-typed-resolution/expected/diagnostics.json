@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLP2002","help":[],"labels":[],"message":"2 distinct linked interpretations survive; the differentiating candidates are: test.dupa::nzz, test.dupb::nzz","notes":[],"primary":{"byte_end":245,"byte_start":239,"column_end":29,"column_start":23,"line_end":11,"line_start":11,"path":"src/Main.lex.tex"},"severity":"error","spec":"lexlean/diagnostic/1"}]

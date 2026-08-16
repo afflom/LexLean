@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLV7005","help":[],"labels":[],"message":"`LexLeanExample.Main.excluded` violates its allow axiom policy: observed [Classical.choice, Quot.sound, propext]","notes":[],"severity":"error","spec":"lexlean/diagnostic/1"}]

@@ -1,4 +1,5 @@
-spec = "lexlean/negative-case/1"
-class = "malformed-axiom-output"
-kind = "delegated"
-test = "conformance_vr_10"
+spec = "lexlean/test-case/1"
+command = "verify"
+args = []
+expected_exit = 1
+expect_artifacts = false

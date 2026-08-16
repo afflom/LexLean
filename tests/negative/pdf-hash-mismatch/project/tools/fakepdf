@@ -1,0 +1,5 @@
+#!/bin/sh
+if [ "$1" = "--version" ]; then exit 0; fi
+name=$(basename "$3" .tex)
+printf '%%PDF-fake\n' > "$2/$name.pdf"
+exit 0

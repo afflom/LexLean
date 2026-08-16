@@ -1,0 +1,4 @@
+#!/bin/sh
+# A replay that always fails (SPEC.md 28.5: a leanchecker failure fixture).
+echo "leanchecker: fixture failure" >&2
+exit 1

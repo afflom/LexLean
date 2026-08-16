@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLF5005","help":[],"labels":[],"message":"a theorem-like declaration without a proof is not valid","notes":[],"primary":{"byte_end":178,"byte_start":174,"column_end":5,"column_start":1,"line_end":8,"line_start":8,"path":"src/Main.lex.tex"},"severity":"error","spec":"lexlean/diagnostic/1"}]

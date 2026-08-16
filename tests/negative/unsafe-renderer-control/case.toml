@@ -1,11 +1,5 @@
-spec = "lexlean/negative-case/1"
-class = "unsafe-renderer-control"
-kind = "mutation"
+spec = "lexlean/test-case/1"
 command = "check"
-relock = true
-codes = ["LLR3004"]
-
-[[edit]]
-file = "lexlean.toml"
-from = "\n[limits]"
-to = "\n[[lexicon_source]]\npackage = \"test.evil\"\nkind = \"path\"\npath = \"lexicons/test-evil\"\n\n[limits]"
+args = []
+expected_exit = 1
+expect_artifacts = false

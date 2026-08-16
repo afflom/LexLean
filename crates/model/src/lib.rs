@@ -39,7 +39,7 @@ pub enum ModelError {
     Io(PathBuf, std::io::Error),
     /// A model file could not be parsed.
     Parse(PathBuf, toml::de::Error),
-    /// The model disagrees with itself, or with a derivation (CM-01).
+    /// The model disagrees with itself, or with a derivation (R1).
     Inconsistent(String),
 }
 
@@ -74,7 +74,7 @@ impl Model {
 
     /// Cross-check the model against itself: every ID well formed, every claim
     /// well formed for its level, and every `some-true` claim bound to an
-    /// authority that exists (`CM-01` .. `CM-03`, R2).
+    /// authority that exists (R1, R2, §27.5 step 2).
     pub fn check(&self) -> Result<(), ModelError> {
         self.ledger.check()?;
         self.check_ids()?;
@@ -83,13 +83,9 @@ impl Model {
         Ok(())
     }
 
-    /// `CM-02`: every registered ID is well formed.
-    ///
-    /// The structural rules only. Rules about a *class* of ID --- that a fitted
-    /// exponent is always `open`, that a cross-library result is never
-    /// `some-true` --- belong to the repository that has those classes, and they
-    /// belong to the repository that has those classes. A repository adding one adds
-    /// its rule here, in the same commit that adds the first ID in it.
+    /// §27.5: every registered ID is well formed and, per §27.3, at level
+    /// `build`; the ID shape is `<two upper-case letters>-<two digits>`
+    /// (§27.8 derives the test name from it).
     fn check_ids(&self) -> Result<(), ModelError> {
         let bad = |m: String| ModelError::Inconsistent(m);
         let mut seen: Vec<&str> = Vec::new();
@@ -111,11 +107,43 @@ impl Model {
                     row.id
                 )));
             }
+            if row.level != Level::Build {
+                return Err(bad(format!(
+                    "{}: every LexLean capability ID is level `build` (§27.3), found `{}`",
+                    row.id,
+                    row.level.as_str()
+                )));
+            }
+            let bytes = row.id.as_bytes();
+            let shaped = bytes.len() == 5
+                && bytes[0].is_ascii_uppercase()
+                && bytes[1].is_ascii_uppercase()
+                && bytes[2] == b'-'
+                && bytes[3].is_ascii_digit()
+                && bytes[4].is_ascii_digit();
+            if !shaped {
+                return Err(bad(format!(
+                    "{}: a conformance ID is two upper-case letters, a hyphen, and two digits (§27.8)",
+                    row.id
+                )));
+            }
+        }
+        if self.ids.spec != "lexlean/ids/1" {
+            return Err(bad(format!("ids.toml has spec `{}`", self.ids.spec)));
+        }
+        if self.ledger.spec != "lexlean/ledger/1" {
+            return Err(bad(format!("ledger.toml has spec `{}`", self.ledger.spec)));
+        }
+        if self.authorities.spec != "lexlean/authorities/1" {
+            return Err(bad(format!(
+                "authorities.toml has spec `{}`",
+                self.authorities.spec
+            )));
         }
         Ok(())
     }
 
-    /// `CM-03`: every `some-true` claim has a row in `model/authorities.toml`
+    /// §27.4: every `some-true` claim has a row in `model/authorities.toml`
     /// with a citation, and every authority names IDs that exist.
     fn check_authorities(&self) -> Result<(), ModelError> {
         let bad = |m: String| ModelError::Inconsistent(m);
@@ -149,7 +177,7 @@ impl Model {
             };
             if !self.authorities.authority.iter().any(|a| &a.id == name) {
                 return Err(bad(format!(
-                    "{}: cites {name}, which has no row in model/authorities.toml (CM-03)",
+                    "{}: cites {name}, which has no row in model/authorities.toml (§27.4)",
                     c.id
                 )));
             }
@@ -177,32 +205,21 @@ pub fn repo_root() -> PathBuf {
 mod tests {
     use super::*;
 
-    /// CM-01: the model is self-consistent and every numeral in it derives.
+    /// R1: the committed model is self-consistent.
     #[test]
-    fn model_is_consistent_cm_01() {
+    fn the_committed_model_is_consistent() {
         let model = Model::load_from_repo_root().expect("model loads");
         model.check().expect("model checks");
+        assert!(!model.ids.id.is_empty(), "the register is populated");
+        assert!(
+            model.ids.id.iter().all(|row| row.level == Level::Build),
+            "every LexLean ID is `build` (§27.3)"
+        );
     }
 
-    /// CM-02: every registered ID is unique and well formed.
+    /// §27.4: every `some-true` claim cites an authority that exists.
     #[test]
-    fn the_id_register_is_well_formed_cm_02() {
-        let model = Model::load_from_repo_root().expect("model loads");
-        model.check().expect("model checks");
-        // No lower bound on the count. "More than fifty IDs" was a fact about
-        // the repository this template was cut from, not a property of a
-        // well-formed register, and a threshold copied forward would fail here
-        // for the whole time the register is being rebuilt --- teaching whoever
-        // is rebuilding it to delete the assertion. What `check` above enforces
-        // is the part that is true at every size: no duplicate, no untagged
-        // claim, no ID without a suite.
-        let ids = model.ids.id.len();
-        eprintln!("CM-02: {ids} registered IDs, each unique and tagged");
-    }
-
-    /// CM-03: every `some-true` claim cites an authority that exists.
-    #[test]
-    fn every_some_true_claim_cites_an_authority_cm_03() {
+    fn every_some_true_claim_cites_an_authority() {
         let model = Model::load_from_repo_root().expect("model loads");
         for c in &model.ledger.claim {
             if c.level == Level::SomeTrue {
@@ -213,6 +230,42 @@ mod tests {
                 assert!(
                     model.authorities.authority.iter().any(|a| &a.id == name),
                     "{name}"
+                );
+            }
+        }
+    }
+
+    /// §27.5 step 1: every model file is parsed with unknown-field
+    /// rejection, at the top level and inside every row.
+    #[test]
+    fn unknown_fields_are_rejected_in_every_model_file() {
+        let dir = repo_root().join("model");
+        let cases: [(&str, &[&str]); 4] = [
+            ("ids.toml", &["spec = \"lexlean/ids/1\"", "id = \"RP-01\""]),
+            ("ledger.toml", &["spec = \"lexlean/ledger/1\"", "level = \"some-true\""]),
+            (
+                "authorities.toml",
+                &["spec = \"lexlean/authorities/1\"", "checksum = \"none\""],
+            ),
+            ("errors.toml", &["spec = \"lexlean/errors/1\"", "class = \"language\""]),
+        ];
+        for (file, anchors) in cases {
+            let text = std::fs::read_to_string(dir.join(file)).expect("model file");
+            for anchor in anchors {
+                assert!(text.contains(anchor), "{file}: anchor {anchor}");
+                let planted = text.replacen(anchor, &format!("{anchor}\nsurprise = 1"), 1);
+                let outcome: Result<toml::Value, _> = toml::from_str(&planted);
+                assert!(outcome.is_ok(), "the planted TOML itself parses");
+                let typed = match file {
+                    "ids.toml" => toml::from_str::<Ids>(&planted).map(|_| ()),
+                    "ledger.toml" => toml::from_str::<Ledger>(&planted).map(|_| ()),
+                    "authorities.toml" => toml::from_str::<Authorities>(&planted).map(|_| ()),
+                    _ => toml::from_str::<Errors>(&planted).map(|_| ()),
+                };
+                let error = typed.expect_err("an unknown field is rejected");
+                assert!(
+                    error.to_string().contains("unknown field"),
+                    "{file}: {error}"
                 );
             }
         }

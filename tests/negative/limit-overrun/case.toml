@@ -1,11 +1,5 @@
-spec = "lexlean/negative-case/1"
-class = "limit-overrun"
-kind = "mutation"
+spec = "lexlean/test-case/1"
 command = "check"
-relock = true
-codes = ["LLS8002"]
-
-[[edit]]
-file = "lexlean.toml"
-from = "max_primitive_atoms = 2000000"
-to = "max_primitive_atoms = 10"
+args = []
+expected_exit = 4
+expect_artifacts = false

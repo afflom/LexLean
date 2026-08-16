@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "z"
+category = "term-constant"
+signature = "(const lexlean.std.nat::nat)"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.zero"
+
+[[form]]
+id = "z"
+channel = "both"
+surface = "z"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name z)"

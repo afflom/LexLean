@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLV7001","help":[],"labels":[],"message":"lean reports `Lean (version 4.31.0, x86_64-unknown-linux-gnu, commit 0000000000000000000000000000000000000000, Release)`, not version 4.32.1","notes":[],"severity":"error","spec":"lexlean/diagnostic/1"}]

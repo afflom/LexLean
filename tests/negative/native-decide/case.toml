@@ -1,10 +1,5 @@
-spec = "lexlean/negative-case/1"
-class = "native-decide"
-kind = "mutation"
+spec = "lexlean/test-case/1"
 command = "check"
-codes = ["LLF5005", "LLL1004"]
-
-[[edit]]
-file = "src/Main.lex.tex"
-from = "Close the goal by reflexivity."
-to = "Close the goal by native_decide."
+args = []
+expected_exit = 1
+expect_artifacts = false

@@ -1,15 +1,5 @@
-spec = "lexlean/negative-case/1"
-class = "extra-proof-branch"
-kind = "mutation"
+spec = "lexlean/test-case/1"
 command = "check"
-codes = ["LLF5003"]
-
-[[edit]]
-file = "src/Main.lex.tex"
-from = "For every natural number \\(n\\), \\(n + 0 = n\\)."
-to = "For every natural number \\(n\\), \\(n + 0 = n\\) and \\(n * 1 = n\\)."
-
-[[edit]]
-file = "src/Main.lex.tex"
-from = "Close the goal by reflexivity."
-to = "\\begin{constructor}\n\\begin{branch}{1}\nClose the goal by reflexivity.\n\\end{branch}\n\\begin{branch}{2}\nClose the goal by reflexivity.\n\\end{branch}\n\\begin{branch}{3}\nClose the goal by reflexivity.\n\\end{branch}\n\\end{constructor}"
+args = []
+expected_exit = 1
+expect_artifacts = false

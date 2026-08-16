@@ -628,3 +628,147 @@ pub fn tex_text(build: &lexlean::api::RenderedBuild, module: &str) -> String {
         .tex_text
         .clone()
 }
+
+// ---- WS-E1 helpers (fixture runner, host gate, fake toolchains) ----
+
+impl P {
+    /// An empty temporary project directory (the fixture runner fills it).
+    #[must_use]
+    pub fn empty() -> Self {
+        let temp = tempfile::Builder::new()
+            .prefix("lexlean-fixture-")
+            .tempdir()
+            .expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).expect("utf8 tempdir");
+        Self { temp, root }
+    }
+}
+
+/// The real elan home: `ELAN_HOME` is deliberately ignored because a
+/// concurrent test may hold the environment lock with a fake value; the
+/// pinned toolchain lives under the home elan directory.
+#[must_use]
+pub fn real_elan_home() -> std::path::PathBuf {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .expect("HOME");
+    std::path::PathBuf::from(home).join(".elan")
+}
+
+/// The pinned toolchain's mangled directory name under `toolchains/`.
+#[must_use]
+pub fn mangled_toolchain_name() -> String {
+    lexlean::LEAN_TOOLCHAIN
+        .replace('/', "--")
+        .replace(':', "---")
+}
+
+/// Is the pinned toolchain installed in the real elan home?
+#[must_use]
+pub fn lean_host_available() -> bool {
+    let bin = real_elan_home()
+        .join("toolchains")
+        .join(mangled_toolchain_name())
+        .join("bin");
+    bin.join("lean").is_file() || bin.join("lean.exe").is_file()
+}
+
+/// Is this the normative host (SPEC.md §8.3: Linux x86-64)?
+#[must_use]
+pub fn normative_host() -> bool {
+    cfg!(all(target_os = "linux", target_arch = "x86_64"))
+}
+
+/// The host gate for Lean-backed cases: on the normative host the pinned
+/// toolchain must be present (the case panics otherwise, R2: a vacuous
+/// pass there is dishonest); on any other host without the toolchain the
+/// case runs only its platform-independent assertions and says so.
+#[must_use]
+pub fn lean_backed(id: &str) -> bool {
+    if lean_host_available() {
+        return true;
+    }
+    assert!(
+        !normative_host(),
+        "{id}: the normative host (Linux x86-64) must have leanprover/lean4:v4.32.1 installed; a Lean-backed case never passes vacuously here (§8.3)"
+    );
+    eprintln!(
+        "{id}: platform-bound host without the pinned toolchain; only the platform-independent assertions ran (§8.3)"
+    );
+    false
+}
+
+/// Build a fake elan home whose pinned toolchain mirrors the real one by
+/// symlink but replaces the named executables under `bin/` with the given
+/// bytes (made executable). Returns the fake home root.
+#[must_use]
+pub fn fake_elan_home(replacements: &[(String, Vec<u8>)]) -> tempfile::TempDir {
+    let mangled = mangled_toolchain_name();
+    let real_toolchain = real_elan_home().join("toolchains").join(&mangled);
+    let fake = tempfile::Builder::new()
+        .prefix("lexlean-fake-elan-")
+        .tempdir()
+        .expect("tempdir");
+    let fake_toolchain_dir = fake.path().join("toolchains").join(&mangled);
+    let fake_bin = fake_toolchain_dir.join("bin");
+    std::fs::create_dir_all(&fake_bin).expect("mkdir");
+    for entry in std::fs::read_dir(&real_toolchain)
+        .expect("the pinned toolchain is installed")
+        .flatten()
+    {
+        if entry.file_name() == "bin" {
+            continue;
+        }
+        symlink_any(&entry.path(), &fake_toolchain_dir.join(entry.file_name()));
+    }
+    for entry in std::fs::read_dir(real_toolchain.join("bin"))
+        .expect("real bin")
+        .flatten()
+    {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if replacements.iter().any(|(replaced, _)| *replaced == name) {
+            continue;
+        }
+        symlink_any(&entry.path(), &fake_bin.join(&name));
+    }
+    for (name, bytes) in replacements {
+        let path = fake_bin.join(name);
+        std::fs::write(&path, bytes).expect("script");
+        make_executable(&path);
+    }
+    fake
+}
+
+/// A fake elan home from `(name, script text)` pairs.
+#[must_use]
+pub fn fake_toolchain(replacements: &[(&str, &str)]) -> tempfile::TempDir {
+    let owned: Vec<(String, Vec<u8>)> = replacements
+        .iter()
+        .map(|(name, script)| ((*name).to_owned(), script.as_bytes().to_vec()))
+        .collect();
+    fake_elan_home(&owned)
+}
+
+fn symlink_any(target: &Path, link: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).expect("symlink");
+    #[cfg(windows)]
+    {
+        if target.is_dir() {
+            std::os::windows::fs::symlink_dir(target, link).expect("symlink");
+        } else {
+            std::os::windows::fs::symlink_file(target, link).expect("symlink");
+        }
+    }
+}
+
+fn make_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        let mut permissions = std::fs::metadata(path).expect("stat").permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+        std::fs::set_permissions(path, permissions).expect("chmod");
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}

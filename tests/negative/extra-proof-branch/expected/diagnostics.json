@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLF5003","help":[],"labels":[],"message":"the target constructor has 2 explicit proof fields, found 3 branches","notes":[],"severity":"error","spec":"lexlean/diagnostic/1"}]

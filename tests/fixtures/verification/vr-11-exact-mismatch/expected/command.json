@@ -1,0 +1,1 @@
+{"artifacts":[],"command":"verify","diagnostics":[{"causes":[],"code":"LLV7005","help":[],"labels":[],"message":"`LexLeanExample.Main.excluded` violates its exact axiom policy: observed [Classical.choice, Quot.sound, propext]","notes":[],"severity":"error","spec":"lexlean/diagnostic/1"}],"exit_code":1,"modules":[],"spec":"lexlean/command-result/1","success":false}

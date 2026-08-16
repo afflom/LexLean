@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLL1004","help":[],"labels":[],"message":"`banana` is not a declared atom in any visible glossary","notes":[],"primary":{"byte_end":143,"byte_start":137,"column_end":17,"column_start":11,"line_end":7,"line_start":7,"path":"src/Main.lex.tex"},"severity":"error","spec":"lexlean/diagnostic/1"}]
