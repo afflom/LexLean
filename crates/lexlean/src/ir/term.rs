@@ -282,10 +282,16 @@ impl Term {
                 ("k", Json::Str("sort".to_owned())),
                 ("u", universe_json(universe)),
             ]),
-            Self::Local(id) => Json::object(vec![
-                ("k", Json::Str("local".to_owned())),
-                ("id", Json::from_usize(renumber.resolve(*id))),
-            ]),
+            Self::Local(id) => match renumber.resolve(*id) {
+                Resolved::Bound(index) => Json::object(vec![
+                    ("k", Json::Str("local".to_owned())),
+                    ("id", Json::from_usize(index)),
+                ]),
+                Resolved::Free(free) => Json::object(vec![
+                    ("k", Json::Str("local".to_owned())),
+                    ("free", Json::Int(i64::try_from(free.0).unwrap_or(i64::MAX))),
+                ]),
+            },
             Self::Global(global, universes) => {
                 let mut fields = vec![
                     ("k", Json::Str("global".to_owned())),
@@ -389,10 +395,70 @@ impl Term {
         }
     }
 
-    /// The alpha-safe canonical key used to collapse semantically identical
-    /// interpretation alternatives (§14.4). Display spellings are excluded.
+    /// The alpha-safe canonical key used for hashing and serialization
+    /// (§17.9). Display spellings are excluded. Two terms that differ only
+    /// in which free locals they mention share one key, so this key is
+    /// never used to decide equality of terms inside one scope; see
+    /// [`Term::eq_key`].
     #[must_use]
     pub fn canonical_key(&self) -> String {
+        Self::strip_spellings(&self.to_json(&mut Renumber::default())).to_canonical_string()
+    }
+
+    /// The comparison key used wherever two terms of one scope are compared
+    /// for equality (residual premises, calculation endpoints, definition
+    /// binder types, alternative collapse; §14.4, §16.10): bound binders
+    /// are renumbered so alpha-renaming is invisible, and free locals keep
+    /// their `LocalId` verbatim so distinct locals never conflate.
+    #[must_use]
+    pub fn eq_key(&self) -> String {
+        Self::strip_spellings(&self.to_json(&mut Renumber::keeping_free())).to_canonical_string()
+    }
+
+    /// The nesting depth of a term, computed without recursion so a deep
+    /// term can be measured before any recursive walker touches it
+    /// (§25.5). A leaf has depth 1.
+    #[must_use]
+    pub fn depth(&self) -> u64 {
+        let mut max_depth: u64 = 0;
+        let mut stack: Vec<(&Term, u64)> = vec![(self, 1)];
+        while let Some((term, depth)) = stack.pop() {
+            max_depth = max_depth.max(depth);
+            let next = depth.saturating_add(1);
+            match term {
+                Self::Sort(_) | Self::Local(_) | Self::Global(..) => {}
+                Self::App {
+                    function,
+                    explicit_args,
+                    ..
+                } => {
+                    stack.push((function, next));
+                    for argument in explicit_args {
+                        stack.push((argument, next));
+                    }
+                }
+                Self::Pi { binders, body } | Self::Lambda { binders, body } => {
+                    for binder in binders {
+                        stack.push((&binder.ty, next));
+                    }
+                    stack.push((body, next));
+                }
+                Self::Let {
+                    binder,
+                    value,
+                    body,
+                } => {
+                    stack.push((&binder.ty, next));
+                    stack.push((value, next));
+                    stack.push((body, next));
+                }
+                Self::NatLiteral { expected_type, .. } => stack.push((expected_type, next)),
+            }
+        }
+        max_depth
+    }
+
+    fn strip_spellings(json: &Json) -> Json {
         fn strip(json: &Json) -> Json {
             match json {
                 Json::Obj(object) => Json::Obj(
@@ -406,8 +472,18 @@ impl Term {
                 other => other.clone(),
             }
         }
-        strip(&self.to_json(&mut Renumber::default())).to_canonical_string()
+        strip(json)
     }
+}
+
+/// One resolved local occurrence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resolved {
+    /// A binder-bound (or, under the hashing renumbering, first-seen)
+    /// local, as its dense index.
+    Bound(usize),
+    /// A free local kept verbatim (comparison renumbering only).
+    Free(LocalId),
 }
 
 /// Dense renumbering of `LocalId`s in traversal order, for alpha-safe
@@ -415,19 +491,38 @@ impl Term {
 #[derive(Debug, Default)]
 pub struct Renumber {
     map: BTreeMap<LocalId, usize>,
+    keep_free: bool,
 }
 
 impl Renumber {
+    /// A renumbering that keeps free locals verbatim (comparison keys).
+    #[must_use]
+    pub fn keeping_free() -> Self {
+        Self {
+            map: BTreeMap::new(),
+            keep_free: true,
+        }
+    }
+
     /// Assign the next dense index to a binder.
     pub fn bind(&mut self, id: LocalId) -> usize {
         let next = self.map.len();
         *self.map.entry(id).or_insert(next)
     }
 
-    /// Resolve an occurrence; free locals (section parameters serialized at
-    /// declaration scope) enter the numbering on first use.
-    pub fn resolve(&mut self, id: LocalId) -> usize {
+    /// Resolve an occurrence. Under the hashing renumbering, free locals
+    /// (section parameters serialized at declaration scope) enter the
+    /// numbering on first use; under the comparison renumbering they stay
+    /// verbatim.
+    pub fn resolve(&mut self, id: LocalId) -> Resolved {
+        if let Some(index) = self.map.get(&id) {
+            return Resolved::Bound(*index);
+        }
+        if self.keep_free {
+            return Resolved::Free(id);
+        }
         let next = self.map.len();
-        *self.map.entry(id).or_insert(next)
+        self.map.insert(id, next);
+        Resolved::Bound(next)
     }
 }

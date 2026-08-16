@@ -2,6 +2,9 @@
 
 use crate::support::{self, P};
 
+/// The full generated Lean name prefix of the corpus module.
+const M: &str = "LexLeanExample.Main";
+
 /// The example with one replacement in `src/Main.lex.tex`.
 fn mutated(from: &str, to: &str) -> P {
     let project = P::example();
@@ -9,23 +12,42 @@ fn mutated(from: &str, to: &str) -> P {
     project
 }
 
-/// A module statement wrapped as `If P, then Q` over a bound local, with an
-/// `Assume`-then-reflexivity proof.
-fn conditional_module(condition: &str) -> String {
+/// A one-theorem module with the given statement and proof body.
+fn theorem_module(statement: &str, proof: &str) -> String {
     format!(
-        "\\begin{{lexlean}}{{Main}}\n\\useglossary{{lexlean.std.nat@1.0.0}}\n\\title{{Natural number addition}}\n\n\\begin{{theorem}}{{shape}}\n\\noaxioms\nFor every natural number \\(n\\), if {condition}, then \\(n + 0 = n\\).\n\\begin{{proof}}\nAssume \\(h\\).\nClose the goal by reflexivity.\n\\end{{proof}}\n\\end{{theorem}}\n\\end{{lexlean}}\n"
+        "\\begin{{lexlean}}{{Main}}\n\\useglossary{{lexlean.std.nat@1.0.0}}\n\\title{{Natural number addition}}\n\n\\begin{{theorem}}{{shape}}\n\\noaxioms\n{statement}\n\\begin{{proof}}\n{proof}\n\\end{{proof}}\n\\end{{theorem}}\n\\end{{lexlean}}\n"
     )
 }
 
-fn conditional_project(condition: &str) -> P {
-    let project = P::example();
-    project.write("src/Main.lex.tex", &conditional_module(condition));
-    project
+/// The generated Lean statement line of one corpus declaration.
+fn corpus_header(lean_name: &str) -> String {
+    let fixture = support::verified_corpus();
+    assert_eq!(fixture.attestation["status"], "verified");
+    support::corpus_declaration_lean(lean_name)
+        .lines()
+        .next()
+        .expect("a header line")
+        .to_owned()
 }
 
-/// The generated Lean for a proposition-form fixture.
-fn lean_for_condition(condition: &str) -> String {
-    let project = conditional_project(condition);
+/// Check a module, expecting the given failure code, and return the
+/// matching diagnostic.
+fn fails_with(module: &str, code: &str) -> lexlean::diagnostic::Diagnostic {
+    let project = P::example();
+    project.write("src/Main.lex.tex", module);
+    let error = project.check_err();
+    support::expect_code(&error, code);
+    error
+        .diagnostics
+        .into_iter()
+        .find(|d| d.code.as_str() == code)
+        .expect("matched")
+}
+
+/// The generated Lean of a checked one-theorem module.
+fn lean_of(module: &str) -> String {
+    let project = P::example();
+    project.write("src/Main.lex.tex", module);
     project.check_ok();
     support::lean_text(&support::rendered(&project), "Main")
 }
@@ -58,8 +80,9 @@ pub(crate) fn run(id: &str) {
 
             mutated("\\title{Natural number addition}\n", "").check_fails_with("LLP2003");
         }
-        // §15.1: nesting bounded by the configured scope limit; parameters
-        // introduce explicit inherited context.
+        // §15.1, §25.5: every nesting is bounded by the configured scope
+        // limit and reported, never a stack overflow; parameters introduce
+        // explicit inherited context.
         "GR-03" => {
             let sectioned = P::example();
             sectioned.write(
@@ -114,8 +137,63 @@ pub(crate) fn run(id: &str) {
             nested.push_str("\\end{lexlean}\n");
             within.write("src/Main.lex.tex", &nested);
             within.check_ok();
+
+            // 100000 nested grouping parentheses: LLS8002 naming the limit,
+            // its value, and the phase --- not an abort (C1).
+            let parens = format!("{}n{}", "(".repeat(100_000), ")".repeat(100_000));
+            let diagnostic = fails_with(
+                &theorem_module(
+                    &format!("For every natural number \\(n\\), \\({parens} + 0 = n\\)."),
+                    "Close the goal by reflexivity.",
+                ),
+                "LLS8002",
+            );
+            assert!(
+                diagnostic.message.contains("max_scope_depth")
+                    && diagnostic.message.contains("1024")
+                    && diagnostic.message.contains("parse"),
+                "the depth diagnostic names the limit, value, and phase: {}",
+                diagnostic.message
+            );
+            assert!(
+                diagnostic.primary.is_some(),
+                "the depth diagnostic has a span"
+            );
+            // 20000 nested `have` environments likewise.
+            let mut proof = String::new();
+            for _ in 0..20_000 {
+                proof.push_str("\\begin{have}{h}\n\\(n + 0 = n\\).\n\\begin{proof}\n");
+            }
+            proof.push_str("Close the goal by reflexivity.\n");
+            for _ in 0..20_000 {
+                proof.push_str("\\end{proof}\n\\end{have}\nClose the goal with \\(h\\).\n");
+            }
+            let diagnostic = fails_with(
+                &theorem_module("For every natural number \\(n\\), \\(n + 0 = n\\).", &proof),
+                "LLS8002",
+            );
+            assert!(
+                diagnostic.message.contains("proof environment nesting"),
+                "{}",
+                diagnostic.message
+            );
+            // 5000 nested negations in a proposition likewise.
+            let nots = format!("{}\\(n = n\\)", "not ".repeat(5_000));
+            let diagnostic = fails_with(
+                &theorem_module(
+                    &format!("For every natural number \\(n\\), {nots}."),
+                    "Close the goal by reflexivity.",
+                ),
+                "LLS8002",
+            );
+            assert!(
+                diagnostic.message.contains("proposition nesting"),
+                "{}",
+                diagnostic.message
+            );
         }
-        // §15.3: titles and headings cannot encode a proposition.
+        // §15.3: titles and headings cannot encode a proposition; a noun-of
+        // term phrase is a phrase item.
         "GR-04" => {
             let error =
                 mutated("\\title{Natural number addition}", "\\title{\\(ℕ = ℕ\\)}").check_err();
@@ -131,13 +209,60 @@ pub(crate) fn run(id: &str) {
                     .map(|d| d.code.as_str())
                     .collect::<Vec<_>>()
             );
+            // A predicate frame in a heading is rejected; a noun-of term
+            // phrase over a numeral is accepted and formats canonically.
+            let project = support::corpus_project();
+            project.edit(
+                "src/Main.lex.tex",
+                "\\heading{Natural number addition}",
+                "\\heading{Natural number addition: the double of \\(0\\)}",
+            );
+            let checked = support::checked_project(&project);
+            let canonical =
+                lexlean::fmt::canonical_source(&checked.modules["Main"], &checked.closure)
+                    .expect("formats");
+            assert!(
+                canonical.contains("\\heading{Natural number addition : the double of \\(0\\)}"),
+                "the noun-of phrase item round-trips: {canonical}"
+            );
+            project.edit(
+                "src/Main.lex.tex",
+                "\\heading{Natural number addition: the double of \\(0\\)}",
+                "\\heading{\\(0\\) is even}",
+            );
+            let error = project.check_err();
+            assert!(
+                error
+                    .diagnostics
+                    .iter()
+                    .any(|d| matches!(d.code.as_str(), "LLL1004" | "LLP2001" | "LLP2003")),
+                "a predicate frame is not a phrase: {error}"
+            );
         }
-        // §15.5: only \( \) and \[ \] make islands; dollars are rejected.
+        // §15.5: only \( \) and \[ \] make islands; dollars are rejected;
+        // nested calls and grouped arguments cover exactly their own
+        // delimiters (S1).
         "GR-05" => {
             mutated("\\(n + 0 = n\\)", "$n + 0 = n$").check_fails_with("LLP2001");
             mutated("\\(n + 0 = n\\)", "\\[n + 0 = n\\]").check_ok();
+            let lean = lean_of(&theorem_module(
+                "For every natural number \\(n\\), \\(succ(succ((n + 0))) = succ(succ(n))\\).",
+                "Close the goal by reflexivity.",
+            ));
+            assert!(
+                lean.contains(
+                    "Eq (Nat.succ (Nat.succ (Nat.add llv0 0))) (Nat.succ (Nat.succ llv0))"
+                ),
+                "nested calls with a grouped argument elaborate: {lean}"
+            );
+            assert_eq!(
+                corpus_header("nested_call"),
+                format!("public theorem nested_call (llv0 : Nat) (llv1 : Nat) : Eq (Nat.add (Nat.succ llv0) ({M}.combine (Nat.add llv1 0) llv0)) (Nat.add ({M}.combine (Nat.add llv1 0) llv0) (Nat.succ llv0)) := by"),
+                "a two-argument call with nested and grouped arguments"
+            );
         }
-        // §15.5: declared precedence and associativity govern operators.
+        // §15.5: declared precedence and associativity govern operators; the
+        // whole scale `0..255` is usable (C8).
         "GR-06" => {
             let precedence = mutated("\\(n + 0 = n\\)", "\\(n + n * n = n\\)");
             precedence.check_ok();
@@ -157,6 +282,34 @@ pub(crate) fn run(id: &str) {
 
             // `=` is nonassociative: an unparenthesized chain is an error.
             mutated("\\(n + 0 = n\\)", "\\(n = n = n\\)").check_fails_with("LLP2004");
+
+            // Precedence 255 (the top of the scale) parses and formats.
+            let top = P::example();
+            top.add_package(
+                "lexicons/test-prec",
+                "test.prec",
+                &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+                &[("bump.toml", BUMP_ENTRY)],
+            );
+            top.write(
+                "src/Main.lex.tex",
+                "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.prec@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{top}\n\\noaxioms\nFor every natural number \\(n\\), \\(n ⊕ n ⊕ 0 = n + n\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n",
+            );
+            top.relock();
+            top.check_ok();
+            let lean = support::lean_text(&support::rendered(&top), "Main");
+            assert!(
+                lean.contains("Eq (Nat.add (Nat.add llv0 llv0) 0) (Nat.add llv0 llv0)"),
+                "a precedence-255 left-associative operator chains: {lean}"
+            );
+            let checked = support::checked_project(&top);
+            let canonical =
+                lexlean::fmt::canonical_source(&checked.modules["Main"], &checked.closure)
+                    .expect("formats");
+            assert!(
+                canonical.contains("\\(n ⊕ n ⊕ 0 = n + n\\)"),
+                "precedence 255 formats without overflow: {canonical}"
+            );
         }
         // §15.5: juxtaposition is never multiplication or application.
         "GR-07" => {
@@ -174,45 +327,66 @@ pub(crate) fn run(id: &str) {
                     .collect::<Vec<_>>()
             );
         }
-        // §15.6: the compositional semantics of every proposition form.
+        // §15.6: the compositional semantics of every proposition form,
+        // Lean-verified in the corpus and exact in the generated statement.
         "GR-08" => {
-            let and = lean_for_condition("\\(n = n\\) and \\(n = 0\\)");
-            assert!(and.contains("And"), "conjunction lowers to And: {and}");
-            let or = lean_for_condition("\\(n = n\\) or \\(n = 0\\)");
-            assert!(or.contains("Or"), "disjunction lowers to Or: {or}");
-            let not = lean_for_condition("not \\(n = 0\\)");
-            assert!(not.contains("Not"), "negation lowers to Not: {not}");
-            let exists =
-                lean_for_condition("there exists a natural number \\(k\\) such that \\(k = 0\\)");
-            assert!(
-                exists.contains("Exists"),
-                "existential lowers to Exists: {exists}"
+            assert_eq!(
+                corpus_header("constructor_and"),
+                "public theorem constructor_and (llv0 : Nat) : And (Eq (Nat.add llv0 0) llv0) (Eq (Nat.add 0 llv0) llv0) := by"
             );
-            let unique = lean_for_condition(
-                "there exists exactly one natural number \\(k\\) such that \\(k = 0\\)",
+            assert_eq!(
+                corpus_header("cases_nat"),
+                "public theorem cases_nat (llv0 : Nat) : Or (Eq (Nat.add llv0 0) llv0) (Eq llv0 1) := by"
             );
-            assert!(
-                unique.contains("ExistsUnique"),
-                "unique existence lowers to ExistsUnique: {unique}"
+            assert_eq!(
+                corpus_header("not_both"),
+                "public theorem not_both (llv0 : Nat) : Not (And (Eq llv0 llv0) (Not (Eq llv0 llv0))) := by"
             );
-            // The conditional itself is a Pi/arrow with the universal binder
-            // peeled to a parameter.
-            assert!(
-                and.contains("(llv0 : Nat)") && (and.contains("->") || and.contains("\u{2192}")),
-                "universals become parameters and conditionals become arrows: {and}"
+            assert_eq!(
+                corpus_header("exists_witness"),
+                "public theorem exists_witness : Exists (fun llv0 => Eq (Nat.add llv0 0) 0) := by"
+            );
+            assert_eq!(
+                corpus_header("exists_unique"),
+                "public theorem exists_unique : Exists (fun llv0 => And (Eq llv0 0) ((llv1 : Nat) → (Eq llv1 0) → Eq llv1 llv0)) := by",
+                "unique existence lowers to its Exists definition"
+            );
+            assert_eq!(
+                corpus_header("or_comm"),
+                "public theorem or_comm (llv0 : Nat) : (Or (Eq llv0 0) (Eq llv0 1)) → Or (Eq llv0 1) (Eq llv0 0) := by",
+                "`if P, then Q` is an arrow"
+            );
+            assert_eq!(
+                corpus_header("implies_rewrite"),
+                "public theorem implies_rewrite (llv0 : Nat) : (Eq llv0 1) → Eq (Nat.add llv0 0) 1 := by",
+                "`P implies Q` is an arrow"
+            );
+            assert_eq!(
+                corpus_header("constructor_iff"),
+                "public theorem constructor_iff (llv0 : Nat) : Iff (Eq (Nat.add llv0 0) llv0) (Eq llv0 llv0) := by"
+            );
+            assert_eq!(
+                corpus_header("add_succ"),
+                "public theorem add_succ (llv0 : Nat) (llv1 : Nat) : Eq (Nat.add llv0 (Nat.succ llv1)) (Nat.succ (Nat.add llv0 llv1)) := by",
+                "a multi-binder universal lifts every binder to a parameter"
             );
         }
         // §15.6: fixed precedence yields one parse; `and` binds under `or`.
         "GR-09" => {
-            let lean = lean_for_condition("\\(n = n\\) and \\(n = 0\\) or \\(n = 0\\)");
-            let or_at = lean.find("Or").expect("an Or node");
-            let and_at = lean.find("And").expect("an And node");
+            let lean = lean_of(&theorem_module(
+                "For every natural number \\(n\\), if \\(n = n\\) and \\(n = 0\\) or \\(n = 0\\), then \\(n + 0 = n\\).",
+                "Assume \\(h\\).\nClose the goal by reflexivity.",
+            ));
             assert!(
-                and_at > or_at,
+                lean.contains(
+                    "(Or (And (Eq llv0 llv0) (Eq llv0 0)) (Eq llv0 0)) → Eq (Nat.add llv0 0) llv0"
+                ),
                 "`P and Q or R` parses as Or(And(P,Q),R): {lean}"
             );
         }
-        // §13.5: articles, plurals, and capitalization are lexicon data.
+        // §13.5, §15.6: articles, plurals, and capitalization are lexicon
+        // data; `there exists` requires its article; sentence-case keyword
+        // spellings are accepted only at the sentence start (C14).
         "GR-10" => {
             let error =
                 mutated("For every natural number", "For every natural numbers").check_err();
@@ -240,6 +414,27 @@ pub(crate) fn run(id: &str) {
                     "inflection `{datum}` is explicit lexicon data"
                 );
             }
+            fails_with(
+                &theorem_module(
+                    "There exists natural number \\(k\\) such that \\(k = 0\\).",
+                    "Use \\(0\\) as the witness.\nClose the goal by reflexivity.",
+                ),
+                "LLP2001",
+            );
+            fails_with(
+                &theorem_module(
+                    "For every natural number \\(n\\), If \\(n = n\\), then \\(n + 0 = n\\).",
+                    "Assume \\(h\\).\nClose the goal by reflexivity.",
+                ),
+                "LLP2001",
+            );
+            fails_with(
+                &theorem_module(
+                    "For every natural number \\(n\\), \\(n = n\\) and Not \\(n = 1\\).",
+                    "Close the goal by reflexivity.",
+                ),
+                "LLP2001",
+            );
         }
         // §15.6: a failed parse is a bounded structured diagnostic.
         "GR-11" => {
@@ -260,7 +455,8 @@ pub(crate) fn run(id: &str) {
                 "diagnostics respect max_diagnostics"
             );
         }
-        // §14.4: distinct parses are ambiguity; identical IR collapses.
+        // §14.4: distinct parses are ambiguity naming the differentiating
+        // candidates; identical IR collapses.
         "GR-12" => {
             let distinct = P::example();
             distinct.add_package(
@@ -283,7 +479,20 @@ pub(crate) fn run(id: &str) {
                 &support::nzz_module(&["test.dupa@1.0.0", "test.dupb@1.0.0"]),
             );
             distinct.relock();
-            distinct.check_fails_with("LLP2002");
+            let error = distinct.check_fails_with("LLP2002");
+            let diagnostic = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLP2002")
+                .expect("matched");
+            assert!(
+                diagnostic.message.contains("test.dupa::nzz")
+                    && diagnostic.message.contains("test.dupb::nzz")
+                    && !diagnostic.message.contains("test.dupa::z"),
+                "only the differentiating candidates are listed: {}",
+                diagnostic.message
+            );
+            assert!(diagnostic.primary.is_some(), "the ambiguity has a span");
 
             // Two forms of one entry share a surface: both candidates
             // elaborate to the same linked IR and collapse (§14.4).
@@ -364,14 +573,14 @@ pub(crate) fn run(id: &str) {
             let forward = P::example();
             forward.write(
                 "src/Main.lex.tex",
-                "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{first}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal with \\(\\reference{Main::second}\\).\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{second}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n",
+                "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{first-fact}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal with \\(\\reference{Main::second-fact}\\).\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{second-fact}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n",
             );
             forward.check_fails_with("LLR3005");
 
             let backward = P::example();
             backward.write(
                 "src/Main.lex.tex",
-                "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{first}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{second}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal with \\(\\reference{Main::first}\\).\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n",
+                "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{first-fact}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{second-fact}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal with \\(\\reference{Main::first-fact}\\).\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n",
             );
             backward.check_ok();
         }
@@ -401,4 +610,30 @@ features = []
 
 [render]
 math = "(operator-name z)"
+"#;
+
+/// A precedence-255 left-associative infix operator denoting `Nat.add`.
+const BUMP_ENTRY: &str = r#"spec = "lexlean/entry/1"
+id = "bump"
+category = "infix-function"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))"
+surface_arity = 2
+frame = "infix"
+precedence = 255
+associativity = "left"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.add"
+
+[[form]]
+id = "bump"
+channel = "math"
+surface = "⊕"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token plus) (space) (slot 1))"
 "#;

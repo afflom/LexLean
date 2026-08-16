@@ -4,7 +4,7 @@
 //! formatter compares pre- and post-render canonical IR and fails if they
 //! differ.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
@@ -12,13 +12,21 @@ use crate::ir::declaration::{AxiomPolicy, DeclBody, DeclKind, Declaration};
 use crate::ir::document::{Block, DocumentModule, Phrase, PhraseItem, Section};
 use crate::ir::proof::{Proof, RewriteTarget};
 use crate::ir::term::{Binder, CoreRef, GlobalRef, LocalId, Term};
-use crate::lexicon::entry::{Associativity, Channel, Entry};
+use crate::lexicon::entry::{Associativity, Category, Channel, Entry, Frame};
 use crate::lexicon::lse::QualifiedId;
 use crate::lexicon::resolve::Closure;
 use crate::link::CheckedModule;
 
 struct Fmt<'a> {
     closure: &'a Closure,
+    /// The packages visible to the module being formatted (§14.3): a bare
+    /// canonical surface is emitted only when it resolves to exactly one
+    /// visible entry in that channel; otherwise the explicit qualified
+    /// selector is retained so formatting never destroys a valid file.
+    visible: &'a BTreeSet<String>,
+    /// Lazily built: `(channel, surface)` to the visible entries carrying a
+    /// form with that surface in that channel.
+    surface_owners: std::cell::RefCell<BTreeMap<(Channel, String), BTreeSet<String>>>,
     spellings: BTreeMap<LocalId, String>,
     out: String,
 }
@@ -28,6 +36,46 @@ fn fmt_error(message: impl Into<String>) -> Diagnostic {
 }
 
 impl Fmt<'_> {
+    /// How many visible entries own a form with `surface` in `channel`?
+    fn surface_owner_count(&self, channel: Channel, surface: &str) -> usize {
+        let key = (channel, surface.to_owned());
+        if let Some(owners) = self.surface_owners.borrow().get(&key) {
+            return owners.len();
+        }
+        let mut owners = BTreeSet::new();
+        for package in &self.closure.packages {
+            if !self.visible.contains(&package.id) {
+                continue;
+            }
+            for (entry_id, entry) in &package.entries {
+                if entry
+                    .forms
+                    .iter()
+                    .any(|form| form.channel.covers(channel) && form.surface == surface)
+                {
+                    owners.insert(format!("{}::{entry_id}", package.id));
+                }
+            }
+        }
+        let count = owners.len();
+        self.surface_owners.borrow_mut().insert(key, owners);
+        count
+    }
+
+    /// The canonical surface of an entry in a channel when the bare surface
+    /// resolves uniquely among the visible packages (§14.3, §23.5).
+    fn unique_surface(&self, entry: &Entry, channel: Channel) -> Option<String> {
+        let form = entry
+            .forms
+            .iter()
+            .find(|form| form.canonical_source && form.channel.covers(channel))?;
+        if self.surface_owner_count(channel, &form.surface) == 1 {
+            Some(form.surface.clone())
+        } else {
+            None
+        }
+    }
+
     fn entry_for_global(&self, global: &GlobalRef) -> Option<(QualifiedId, &Entry)> {
         let qualified = match global {
             GlobalRef::Core(core) => QualifiedId {
@@ -38,16 +86,54 @@ impl Fmt<'_> {
                     CoreRef::Or => "lor",
                     CoreRef::Not => "lnot",
                     CoreRef::Iff => "iff",
-                    CoreRef::Exists | CoreRef::ExistsUnique => return None,
+                    CoreRef::Exists => "exists",
+                    CoreRef::ExistsUnique => return None,
                 }
                 .to_owned(),
             },
             GlobalRef::External(external) => QualifiedId::parse(&external.entry).ok()?,
             GlobalRef::DefinedLexicon(defined) => QualifiedId::parse(&defined.entry).ok()?,
-            GlobalRef::Document(_) => return None,
+            // A document declaration is named in source through the
+            // glossary entry whose denotation is that declaration (§15.7);
+            // the reverse lookup runs over the visible packages.
+            GlobalRef::Document(document) => {
+                return self.document_entry(&document.module, &document.component);
+            }
         };
         let entry = self.closure.entry(&qualified)?;
         Some((qualified, entry))
+    }
+
+    /// The visible glossary entry whose document denotation names
+    /// `module::component`, if exactly one exists.
+    fn document_entry(&self, module: &str, component: &str) -> Option<(QualifiedId, &Entry)> {
+        let mut found: Option<(QualifiedId, &Entry)> = None;
+        for package in &self.closure.packages {
+            if !self.visible.contains(&package.id) {
+                continue;
+            }
+            for (entry_id, entry) in &package.entries {
+                if let crate::lexicon::entry::Denotation::Document {
+                    module: entry_module,
+                    component: entry_component,
+                } = &entry.denotation
+                {
+                    if entry_module == module && entry_component == component {
+                        if found.is_some() {
+                            return None;
+                        }
+                        found = Some((
+                            QualifiedId {
+                                package: package.id.clone(),
+                                entry: entry_id.clone(),
+                            },
+                            entry,
+                        ));
+                    }
+                }
+            }
+        }
+        found
     }
 
     fn spelling(&self, id: LocalId) -> String {
@@ -57,24 +143,42 @@ impl Fmt<'_> {
             .unwrap_or_else(|| format!("x{}", id.0))
     }
 
-    fn term_prec(&self, term: &Term) -> u8 {
+    /// The binding power of a term's outermost form; widened past the
+    /// declared `u8` scale so `precedence + 1` at 255 never overflows.
+    fn term_prec(&self, term: &Term) -> u16 {
         match term {
-            Term::App { function, .. } => match &**function {
-                Term::Global(global, _) => self
-                    .entry_for_global(global)
-                    .and_then(|(_, entry)| entry.precedence)
-                    .unwrap_or(255),
-                _ => 255,
+            Term::App {
+                function,
+                explicit_args,
+                ..
+            } => match &**function {
+                Term::Global(global, _) => match self.entry_for_global(global) {
+                    // A form printed through its operator frame binds at
+                    // its declared precedence; a form printed as a call or
+                    // qualified selector is atomic.
+                    Some((_, entry))
+                        if entry.surface_arity as usize == explicit_args.len()
+                            && self.unique_surface(entry, Channel::Math).is_some()
+                            && matches!(
+                                entry.frame,
+                                Frame::Infix | Frame::Prefix | Frame::Postfix
+                            ) =>
+                    {
+                        entry.precedence.map_or(256, u16::from)
+                    }
+                    _ => 256,
+                },
+                _ => 256,
             },
             Term::Pi { .. } | Term::Lambda { .. } => 10,
-            _ => 255,
+            _ => 256,
         }
     }
 
     /// Canonical source math (§23.5): safe canonical forms, explicit
     /// qualified selectors only when required for disambiguation.
     #[allow(clippy::too_many_lines)]
-    fn math(&self, term: &Term, min_prec: u8) -> Result<String, Diagnostic> {
+    fn math(&self, term: &Term, min_prec: u16) -> Result<String, Diagnostic> {
         let own = self.term_prec(term);
         let inner = match term {
             Term::Local(id) => self.spelling(*id),
@@ -83,12 +187,8 @@ impl Fmt<'_> {
                 return Err(fmt_error("a sort has no canonical source spelling"));
             }
             Term::Global(global, _) => match self.entry_for_global(global) {
-                Some((qualified, entry)) => match entry
-                    .forms
-                    .iter()
-                    .find(|form| form.canonical_source && form.channel.covers(Channel::Math))
-                {
-                    Some(form) if entry.surface_arity == 0 => form.surface.clone(),
+                Some((qualified, entry)) => match self.unique_surface(entry, Channel::Math) {
+                    Some(surface) if entry.surface_arity == 0 => surface,
                     _ => format!("\\lexeme{{{qualified}}}"),
                 },
                 None => match global {
@@ -113,13 +213,7 @@ impl Fmt<'_> {
                         Some((qualified, entry))
                             if entry.surface_arity as usize == explicit_args.len() =>
                         {
-                            let form = entry
-                                .forms
-                                .iter()
-                                .find(|form| {
-                                    form.canonical_source && form.channel.covers(Channel::Math)
-                                })
-                                .map(|form| form.surface.clone());
+                            let form = self.unique_surface(entry, Channel::Math);
                             match (entry.frame, form, entry.precedence, entry.associativity) {
                                 (
                                     crate::lexicon::entry::Frame::Infix,
@@ -128,12 +222,12 @@ impl Fmt<'_> {
                                     associativity,
                                 ) => {
                                     let left_min = match associativity {
-                                        Some(Associativity::Left) => precedence,
-                                        _ => precedence + 1,
+                                        Some(Associativity::Left) => u16::from(precedence),
+                                        _ => u16::from(precedence) + 1,
                                     };
                                     let right_min = match associativity {
-                                        Some(Associativity::Right) => precedence,
-                                        _ => precedence + 1,
+                                        Some(Associativity::Right) => u16::from(precedence),
+                                        _ => u16::from(precedence) + 1,
                                     };
                                     format!(
                                         "{} {surface} {}",
@@ -148,7 +242,7 @@ impl Fmt<'_> {
                                     _,
                                 ) => format!(
                                     "{surface}{}",
-                                    self.math(&explicit_args[0], precedence + 1)?
+                                    self.math(&explicit_args[0], u16::from(precedence) + 1)?
                                 ),
                                 (
                                     crate::lexicon::entry::Frame::Postfix,
@@ -157,7 +251,7 @@ impl Fmt<'_> {
                                     _,
                                 ) => format!(
                                     "{}{surface}",
-                                    self.math(&explicit_args[0], precedence + 1)?
+                                    self.math(&explicit_args[0], u16::from(precedence) + 1)?
                                 ),
                                 (crate::lexicon::entry::Frame::Call, Some(surface), _, _) => {
                                     let arguments: Result<Vec<String>, Diagnostic> = explicit_args
@@ -221,7 +315,7 @@ impl Fmt<'_> {
                         .map(|candidate| candidate.surface.clone())
                         .ok_or_else(|| fmt_error("phrase form is unavailable"))?
                 }
-                PhraseItem::Math(term) => format!("\\({}\\)", self.math(term, 0)?),
+                PhraseItem::Math(term) => self.term_phrase(term)?,
                 PhraseItem::Punctuation(entry) => match entry.entry.as_str() {
                     "colon" => ":".to_owned(),
                     "hyphen" => "-".to_owned(),
@@ -236,19 +330,88 @@ impl Fmt<'_> {
 
     fn binder(&self, binder: &Binder) -> Result<String, Diagnostic> {
         let type_text = match &binder.ty {
-            Term::Global(global, _) => match self.entry_for_global(global).and_then(|(_, entry)| {
-                entry
-                    .forms
-                    .iter()
-                    .find(|form| form.canonical_source && form.channel.covers(Channel::Text))
-                    .map(|form| form.surface.clone())
-            }) {
+            Term::Global(global, _) => match self
+                .entry_for_global(global)
+                .and_then(|(_, entry)| self.unique_surface(entry, Channel::Text))
+            {
                 Some(surface) => surface,
                 None => format!("\\({}\\)", self.math(&binder.ty, 0)?),
             },
             other => format!("\\({}\\)", self.math(other, 0)?),
         };
         Ok(format!("{type_text} \\({}\\)", self.spelling(binder.id)))
+    }
+
+    /// A term in a text position (§15.3, §13.4): the noun-of frame
+    /// `the SELF of ARG [and ARG]` when the term applies a noun-function
+    /// entry whose canonical text surface resolves uniquely, otherwise a
+    /// mathematical island.
+    fn term_phrase(&self, term: &Term) -> Result<String, Diagnostic> {
+        if let Term::App {
+            function,
+            explicit_args,
+            ..
+        } = term
+        {
+            if let Term::Global(global, _) = &**function {
+                if let Some((_, entry)) = self.entry_for_global(global) {
+                    let arity = match entry.category {
+                        Category::NounFunction => 1,
+                        Category::BinaryNounFunction => 2,
+                        _ => 0,
+                    };
+                    if arity == explicit_args.len() {
+                        if let Some(surface) = self.unique_surface(entry, Channel::Text) {
+                            let mut text = format!("the {surface} of ");
+                            text.push_str(&self.term_phrase(&explicit_args[0])?);
+                            if arity == 2 {
+                                text.push_str(" and ");
+                                text.push_str(&self.term_phrase(&explicit_args[1])?);
+                            }
+                            return Ok(text);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(format!("\\({}\\)", self.math(term, 0)?))
+    }
+
+    /// A predicate frame in prose (§13.4): `ARG is SELF`, `ARG SELF`, or
+    /// `ARG SELF ARG` when the term applies a text-predicate entry whose
+    /// canonical text surface resolves uniquely.
+    fn predicate_frame(&self, term: &Term) -> Result<Option<String>, Diagnostic> {
+        let Term::App {
+            function,
+            explicit_args,
+            ..
+        } = term
+        else {
+            return Ok(None);
+        };
+        let Term::Global(global, _) = &**function else {
+            return Ok(None);
+        };
+        let Some((_, entry)) = self.entry_for_global(global) else {
+            return Ok(None);
+        };
+        let arity = match entry.category {
+            Category::AdjectivePredicate | Category::IntransitivePredicate => 1,
+            Category::TransitivePredicate => 2,
+            _ => return Ok(None),
+        };
+        if arity != explicit_args.len() {
+            return Ok(None);
+        }
+        let Some(surface) = self.unique_surface(entry, Channel::Text) else {
+            return Ok(None);
+        };
+        let first = self.term_phrase(&explicit_args[0])?;
+        Ok(Some(match entry.category {
+            Category::AdjectivePredicate => format!("{first} is {surface}"),
+            Category::IntransitivePredicate => format!("{first} {surface}"),
+            _ => format!("{first} {surface} {}", self.term_phrase(&explicit_args[1])?),
+        }))
     }
 
     fn prose_level(term: &Term) -> u8 {
@@ -380,7 +543,10 @@ impl Fmt<'_> {
                     self.prose(left, initial, 2)?,
                     self.prose(right, false, 2)?
                 ),
-                _ => format!("\\({}\\)", self.math(term, 0)?),
+                _ => match self.predicate_frame(term)? {
+                    Some(frame) => frame,
+                    None => format!("\\({}\\)", self.math(term, 0)?),
+                },
             },
             _ => format!("\\({}\\)", self.math(term, 0)?),
         })
@@ -584,34 +750,56 @@ impl Fmt<'_> {
         };
         let mut text = String::new();
         if !binders.is_empty() {
+            // BINDER-LIST separators are `;` (§15.4).
             text.push_str("For every ");
             for (index, binder) in binders.iter().enumerate() {
                 if index > 0 {
-                    text.push_str(" and ");
+                    text.push_str("; ");
                 }
                 text.push_str(&self.binder(binder)?);
             }
             text.push_str(", ");
         }
-        let canonical_text = glossary_entry
-            .forms
+        let canonical_text = self.unique_surface(glossary_entry, Channel::Text);
+        let argument_spellings: Vec<String> = binders
             .iter()
-            .find(|form| form.canonical_source && form.channel.covers(Channel::Text))
-            .map(|form| form.surface.clone());
+            .map(|binder| self.spelling(binder.id))
+            .collect();
         let self_head = if binders.is_empty() && canonical_text.is_some() {
             canonical_text.clone().expect("checked")
+        } else if let (Some(surface), true) = (
+            &canonical_text,
+            matches!(
+                (glossary_entry.frame, argument_spellings.len()),
+                (Frame::NounOf, 1) | (Frame::BinaryNounOf, 2)
+            ),
+        ) {
+            // The noun-of self head `the SELF of ARG [and ARG]` (§13.4).
+            let mut head = format!("the {surface} of \\({}\\)", argument_spellings[0]);
+            if argument_spellings.len() == 2 {
+                head.push_str(&format!(" and \\({}\\)", argument_spellings[1]));
+            }
+            head
+        } else if let (Some(surface), true) = (
+            &canonical_text,
+            matches!(
+                (glossary_entry.frame, argument_spellings.len()),
+                (Frame::Adjective | Frame::Intransitive, 1) | (Frame::Transitive, 2)
+            ),
+        ) {
+            // The text predicate self head (§13.4).
+            match glossary_entry.frame {
+                Frame::Adjective => format!("\\({}\\) is {surface}", argument_spellings[0]),
+                Frame::Intransitive => format!("\\({}\\) {surface}", argument_spellings[0]),
+                _ => format!(
+                    "\\({}\\) {surface} \\({}\\)",
+                    argument_spellings[0], argument_spellings[1]
+                ),
+            }
         } else {
             // The self application through the entry's own frame and
             // canonical math surface (§15.7 rule 4).
-            let math_surface = glossary_entry
-                .forms
-                .iter()
-                .find(|form| form.canonical_source && form.channel.covers(Channel::Math))
-                .map(|form| form.surface.clone());
-            let argument_spellings: Vec<String> = binders
-                .iter()
-                .map(|binder| self.spelling(binder.id))
-                .collect();
+            let math_surface = self.unique_surface(glossary_entry, Channel::Math);
             let inner = match (glossary_entry.frame, &math_surface) {
                 (crate::lexicon::entry::Frame::Atom, Some(surface)) => surface.clone(),
                 (crate::lexicon::entry::Frame::Call, Some(surface)) => {
@@ -663,20 +851,13 @@ impl Fmt<'_> {
                     "a "
                 };
                 let rhs_text = match &rhs {
-                    Term::Global(global, _) => {
-                        match self.entry_for_global(global).and_then(|(_, rhs_entry)| {
-                            rhs_entry
-                                .forms
-                                .iter()
-                                .find(|form| {
-                                    form.canonical_source && form.channel.covers(Channel::Text)
-                                })
-                                .map(|form| form.surface.clone())
-                        }) {
-                            Some(surface) => surface,
-                            None => format!("\\({}\\)", self.math(&rhs, 0)?),
-                        }
-                    }
+                    Term::Global(global, _) => match self
+                        .entry_for_global(global)
+                        .and_then(|(_, rhs_entry)| self.unique_surface(rhs_entry, Channel::Text))
+                    {
+                        Some(surface) => surface,
+                        None => format!("\\({}\\)", self.math(&rhs, 0)?),
+                    },
                     other => format!("\\({}\\)", self.math(other, 0)?),
                 };
                 Ok(format!(
@@ -739,6 +920,8 @@ pub fn canonical_source(checked: &CheckedModule, closure: &Closure) -> Result<St
     }
     let mut formatter = Fmt {
         closure,
+        visible: &checked.visible,
+        surface_owners: std::cell::RefCell::new(BTreeMap::new()),
         spellings,
         out: String::new(),
     };

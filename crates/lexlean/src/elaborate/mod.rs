@@ -26,8 +26,13 @@ pub struct DeclInfo {
     /// The full generated Lean name.
     pub lean_name: String,
     /// The declaration's type: the statement for theorem-like kinds, the
-    /// explicit type for definitions.
+    /// explicit type for definitions, both abstracted over the emitted
+    /// inherited parameters.
     pub ty: Term,
+    /// A definition's value (a lambda over its parameters and signature
+    /// binders when it has any), so a goal headed by the definition can be
+    /// unfolded conservatively (§16.1); `None` for theorem-like kinds.
+    pub value: Option<Term>,
 }
 
 /// The table of available declarations, in availability order.
@@ -71,7 +76,7 @@ use crate::elaborate::expressions::{ElabTerm, ExprElab};
 use crate::elaborate::resolve::{LocalAlloc, ScopeStack};
 use crate::grammar::chart::{Budget, TextToken};
 use crate::grammar::math::parse_math;
-use crate::grammar::proposition::{BinderAst, Keyword, PropAst, TypePhraseAst};
+use crate::grammar::proposition::{BinderAst, Keyword, PropAst, TermPhraseAst, TypePhraseAst};
 use crate::ir::term::{Binder, CoreRef, GlobalRef, ImplicitBinderId};
 use crate::lexicon::lse::BinderMode;
 use crate::source::atom::AtomClass;
@@ -161,6 +166,168 @@ pub fn elab_island(
     Ok(result)
 }
 
+/// Elaborate one term phrase (§15.3, §13.4): a mathematical island, or a
+/// noun-of / binary-noun-of frame whose IR is the application of the entry
+/// to its argument terms. Every candidate entry is tried; semantically
+/// identical results collapse and exactly one distinct linked term must
+/// remain (§14.4).
+pub fn elab_term_phrase(
+    shared: &Shared<'_>,
+    scopes: &ScopeStack,
+    alloc: &mut LocalAlloc,
+    budget: &mut Budget,
+    phrase: &TermPhraseAst,
+    expected: Option<&Term>,
+) -> Result<ElabTerm, Diagnostic> {
+    match phrase {
+        TermPhraseAst::Island(island) => {
+            elab_island(shared, scopes, alloc, budget, island, expected)
+        }
+        TermPhraseAst::NounOf {
+            candidates,
+            surface_atoms,
+            args,
+            keywords,
+        } => {
+            let mut rows = Vec::new();
+            keyword_rows(shared, keywords, &mut rows);
+            let mut survivors: Vec<(String, ElabTerm)> = Vec::new();
+            let mut first_failure: Option<Diagnostic> = None;
+            for reference in candidates {
+                // The arguments elaborate against the candidate's explicit
+                // binder types (a numeral argument is typed by them, §15.5).
+                match apply_frame_candidate(
+                    shared,
+                    scopes,
+                    alloc,
+                    budget,
+                    reference,
+                    *surface_atoms,
+                    args,
+                    expected,
+                ) {
+                    Ok(result) => {
+                        let key = result.term.eq_key();
+                        if !survivors.iter().any(|(existing, _)| *existing == key) {
+                            survivors.push((key, result));
+                        }
+                    }
+                    Err(diagnostic) => {
+                        if first_failure.is_none() {
+                            first_failure = Some(diagnostic);
+                        }
+                    }
+                }
+            }
+            let a = &shared.atoms[surface_atoms.0];
+            match survivors.len() {
+                1 => {
+                    let (_, mut result) = survivors.into_iter().next().expect("one");
+                    rows.append(&mut result.rows);
+                    result.rows = rows;
+                    Ok(result)
+                }
+                0 => Err(first_failure.unwrap_or_else(|| {
+                    Diagnostic::new(
+                        code!("LLT4001"),
+                        "no noun-of interpretation satisfies the declared signatures",
+                    )
+                    .with_span(a.span(shared.path))
+                })),
+                _ => Err(
+                    ambiguity_diagnostic(survivors.iter().map(|(_, result)| &result.term))
+                        .with_span(a.span(shared.path)),
+                ),
+            }
+        }
+    }
+}
+
+/// Elaborate one frame candidate: each term-phrase argument against the
+/// candidate's explicit binder type, then the entry applied to the argument
+/// terms. The result's rows are the argument rows followed by the frame's
+/// own row.
+#[allow(clippy::too_many_arguments)]
+fn apply_frame_candidate(
+    shared: &Shared<'_>,
+    scopes: &ScopeStack,
+    alloc: &mut LocalAlloc,
+    budget: &mut Budget,
+    reference: &crate::lexicon::resolve::FormRef,
+    surface_atoms: crate::grammar::structural::AtomRange,
+    args: &[TermPhraseAst],
+    expected: Option<&Term>,
+) -> Result<ElabTerm, Diagnostic> {
+    let binder_types = {
+        let mut elaborator = ExprElab {
+            shared,
+            scopes,
+            alloc,
+            budget,
+        };
+        elaborator.explicit_binder_types(reference)
+    };
+    let mut rows = Vec::new();
+    let mut arg_terms = Vec::new();
+    for (index, argument) in args.iter().enumerate() {
+        let expected_ty = binder_types.get(index).cloned().flatten();
+        let result = elab_term_phrase(
+            shared,
+            scopes,
+            alloc,
+            budget,
+            argument,
+            expected_ty.as_ref(),
+        )?;
+        rows.extend(result.rows.clone());
+        arg_terms.push(result);
+    }
+    let mut elaborator = ExprElab {
+        shared,
+        scopes,
+        alloc,
+        budget,
+    };
+    let mut result =
+        elaborator.apply_entry_to_terms(reference, surface_atoms, &arg_terms, expected)?;
+    rows.append(&mut result.rows);
+    result.rows = rows;
+    Ok(result)
+}
+
+/// The §14.4 ambiguity diagnostic: `LLP2002` presenting only the
+/// differentiating qualified candidate IDs (those not shared by every
+/// surviving interpretation).
+pub(crate) fn ambiguity_diagnostic<'t>(survivors: impl Iterator<Item = &'t Term>) -> Diagnostic {
+    let id_sets: Vec<std::collections::BTreeSet<String>> = survivors
+        .map(|term| {
+            let mut ids = std::collections::BTreeSet::new();
+            collect_global_ids(term, &mut ids);
+            ids
+        })
+        .collect();
+    let union: std::collections::BTreeSet<String> = id_sets.iter().flatten().cloned().collect();
+    let differing: Vec<String> = union
+        .iter()
+        .filter(|id| !id_sets.iter().all(|set| set.contains(*id)))
+        .cloned()
+        .collect();
+    let candidates = if differing.is_empty() {
+        // Every survivor mentions the same entries and differs only in
+        // structure (grouping, binding); the full set is the best pointer.
+        union.into_iter().collect::<Vec<_>>().join(", ")
+    } else {
+        differing.join(", ")
+    };
+    Diagnostic::new(
+        code!("LLP2002"),
+        format!(
+            "{} distinct linked interpretations survive; the differentiating candidates are: {candidates}",
+            id_sets.len()
+        ),
+    )
+}
+
 /// Elaborate one text binder (§15.4): the type phrase and the fresh local.
 /// Declares the local in the innermost scope frame.
 pub fn elab_binder(
@@ -187,7 +354,7 @@ pub fn elab_binder(
                     atoms: *atoms,
                 };
                 if let Ok(result) = elaborator.elaborate(&leaf, None) {
-                    let key = result.term.canonical_key();
+                    let key = result.term.eq_key();
                     if !survivors.iter().any(|(existing, ..)| *existing == key) {
                         let row = result.rows[0].clone();
                         survivors.push((key, result.term, row));
@@ -210,11 +377,10 @@ pub fn elab_binder(
                 }
                 _ => {
                     let a = &shared.atoms[atoms.0];
-                    return Err(Diagnostic::new(
-                        code!("LLP2002"),
-                        "more than one distinct type interpretation survives",
-                    )
-                    .with_span(a.span(shared.path)));
+                    return Err(
+                        ambiguity_diagnostic(survivors.iter().map(|(_, term, _)| term))
+                            .with_span(a.span(shared.path)),
+                    );
                 }
             }
         }
@@ -291,31 +457,31 @@ pub fn elab_proposition(
         } => {
             let mut rows = Vec::new();
             keyword_rows(shared, keywords, &mut rows);
-            let mut arg_terms = Vec::new();
-            for island in args {
-                let result = elab_island(shared, scopes, alloc, budget, island, None)?;
-                rows.extend(result.rows.clone());
-                arg_terms.push(result);
-            }
-            // Apply each candidate entry to the island arguments through
-            // the shared operator machinery.
+            // Apply each candidate entry to the argument terms through the
+            // shared operator machinery.
             let mut survivors: Vec<(String, Term, Vec<SourceRow>)> = Vec::new();
+            let mut first_failure: Option<Diagnostic> = None;
             for reference in candidates {
-                let mut elaborator = ExprElab {
+                match apply_frame_candidate(
                     shared,
                     scopes,
                     alloc,
                     budget,
-                };
-                if let Ok(result) = elaborator.apply_entry_to_terms(
                     reference,
                     *surface_atoms,
-                    &arg_terms,
+                    args,
                     Some(&crate::ir::term::prop()),
                 ) {
-                    let key = result.term.canonical_key();
-                    if !survivors.iter().any(|(existing, ..)| *existing == key) {
-                        survivors.push((key, result.term, result.rows));
+                    Ok(result) => {
+                        let key = result.term.eq_key();
+                        if !survivors.iter().any(|(existing, ..)| *existing == key) {
+                            survivors.push((key, result.term, result.rows));
+                        }
+                    }
+                    Err(diagnostic) => {
+                        if first_failure.is_none() {
+                            first_failure = Some(diagnostic);
+                        }
                     }
                 }
             }
@@ -327,19 +493,20 @@ pub fn elab_proposition(
                 }
                 0 => {
                     let a = &shared.atoms[surface_atoms.0];
-                    Err(Diagnostic::new(
-                        code!("LLT4001"),
-                        "no predicate interpretation satisfies the declared signatures",
-                    )
-                    .with_span(a.span(shared.path)))
+                    Err(first_failure.unwrap_or_else(|| {
+                        Diagnostic::new(
+                            code!("LLT4001"),
+                            "no predicate interpretation satisfies the declared signatures",
+                        )
+                        .with_span(a.span(shared.path))
+                    }))
                 }
                 _ => {
                     let a = &shared.atoms[surface_atoms.0];
-                    Err(Diagnostic::new(
-                        code!("LLP2002"),
-                        "more than one distinct predicate interpretation survives",
+                    Err(
+                        ambiguity_diagnostic(survivors.iter().map(|(_, term, _)| term))
+                            .with_span(a.span(shared.path)),
                     )
-                    .with_span(a.span(shared.path)))
                 }
             }
         }
@@ -493,7 +660,7 @@ pub fn elab_proposition_sentence(
     for alternative in alternatives {
         match elab_proposition(shared, scopes, alloc, budget, alternative) {
             Ok((term, rows)) => {
-                let key = term.canonical_key();
+                let key = term.eq_key();
                 if !survivors.iter().any(|(existing, ..)| *existing == key) {
                     survivors.push((key, term, rows));
                 }
@@ -508,42 +675,123 @@ pub fn elab_proposition_sentence(
     match survivors.len() {
         1 => {
             let (_, term, rows) = survivors.into_iter().next().expect("one");
+            // Proposition nesting is bounded like term nesting (§25.5).
+            budget.depth(term.depth(), "elaborate (proposition nesting)")?;
             Ok((term, rows))
         }
         0 => Err(first_failure.unwrap_or_else(|| {
             Diagnostic::new(code!("LLP2001"), "no proposition interpretation survives")
         })),
         _ => {
-            // §14.4: present the differentiating qualified candidate IDs.
-            let id_sets: Vec<std::collections::BTreeSet<String>> = survivors
-                .iter()
-                .map(|(_, term, _)| {
-                    let mut ids = std::collections::BTreeSet::new();
-                    collect_global_ids(term, &mut ids);
-                    ids
-                })
-                .collect();
-            let union: std::collections::BTreeSet<String> =
-                id_sets.iter().flatten().cloned().collect();
-            let shared: std::collections::BTreeSet<String> = union
-                .iter()
-                .filter(|id| id_sets.iter().all(|set| set.contains(*id)))
-                .cloned()
-                .collect();
-            let differing: Vec<String> = union.difference(&shared).cloned().collect();
-            let candidates = if differing.is_empty() {
-                union.into_iter().collect::<Vec<_>>().join(", ")
-            } else {
-                differing.join(", ")
-            };
-            Err(Diagnostic::new(
-                code!("LLP2002"),
-                format!(
-                    "{} distinct linked interpretations survive; the differentiating candidates are: {candidates}",
-                    survivors.len()
-                ),
-            ))
+            // §14.4: present the minimal differentiating spans and the
+            // differentiating qualified candidate IDs.
+            let mut diagnostic = ambiguity_diagnostic(survivors.iter().map(|(_, term, _)| term));
+            if let Some(span) = differentiating_span(shared, &survivors) {
+                diagnostic = diagnostic.with_span(span);
+            }
+            Err(diagnostic)
         }
+    }
+}
+
+/// The minimal differentiating span among surviving alternatives (§14.4):
+/// the earliest coverage row that not every survivor shares; when the
+/// survivors cover identical bytes with identical bindings, the span of the
+/// whole first alternative.
+fn differentiating_span(
+    shared: &Shared<'_>,
+    survivors: &[(String, Term, Vec<SourceRow>)],
+) -> Option<crate::diagnostic::Span> {
+    let row_span = |row: &SourceRow| {
+        let first = shared
+            .atoms
+            .iter()
+            .find(|atom| atom.byte_start == row.byte_start)?;
+        let last = shared
+            .atoms
+            .iter()
+            .rev()
+            .find(|atom| atom.byte_end == row.byte_end)?;
+        Some(crate::diagnostic::Span {
+            path: shared.path.to_owned(),
+            byte_start: row.byte_start,
+            byte_end: row.byte_end,
+            line_start: first.line_start,
+            column_start: first.column_start,
+            line_end: last.line_end,
+            column_end: last.column_end,
+        })
+    };
+    let mut candidates: Vec<&SourceRow> = survivors
+        .iter()
+        .flat_map(|(_, _, rows)| rows.iter())
+        .filter(|row| !survivors.iter().all(|(_, _, rows)| rows.contains(row)))
+        .collect();
+    candidates.sort_by_key(|row| (row.byte_start, row.byte_end));
+    if let Some(row) = candidates.first() {
+        return row_span(row);
+    }
+    let (_, _, rows) = survivors.first()?;
+    let start = rows.iter().map(|row| row.byte_start).min()?;
+    let end = rows.iter().map(|row| row.byte_end).max()?;
+    let first = shared.atoms.iter().find(|atom| atom.byte_start == start)?;
+    let last = shared
+        .atoms
+        .iter()
+        .rev()
+        .find(|atom| atom.byte_end == end)?;
+    Some(crate::diagnostic::Span {
+        path: shared.path.to_owned(),
+        byte_start: start,
+        byte_end: end,
+        line_start: first.line_start,
+        column_start: first.column_start,
+        line_end: last.line_end,
+        column_end: last.column_end,
+    })
+}
+
+/// Every free local mentioned in a term; public for the expression
+/// elaborator's binder-type closure check.
+pub(crate) fn collect_term_locals_public(
+    term: &Term,
+    out: &mut std::collections::BTreeSet<crate::ir::term::LocalId>,
+) {
+    match term {
+        Term::Local(id) => {
+            out.insert(*id);
+        }
+        Term::Sort(_) | Term::Global(..) => {}
+        Term::App {
+            function,
+            explicit_args,
+            ..
+        } => {
+            collect_term_locals_public(function, out);
+            for argument in explicit_args {
+                collect_term_locals_public(argument, out);
+            }
+        }
+        Term::Pi { binders, body } | Term::Lambda { binders, body } => {
+            for binder in binders {
+                collect_term_locals_public(&binder.ty, out);
+            }
+            collect_term_locals_public(body, out);
+            for binder in binders {
+                out.remove(&binder.id);
+            }
+        }
+        Term::Let {
+            binder,
+            value,
+            body,
+        } => {
+            collect_term_locals_public(&binder.ty, out);
+            collect_term_locals_public(value, out);
+            collect_term_locals_public(body, out);
+            out.remove(&binder.id);
+        }
+        Term::NatLiteral { expected_type, .. } => collect_term_locals_public(expected_type, out),
     }
 }
 

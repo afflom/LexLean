@@ -12,7 +12,7 @@ use crate::diagnostic::Diagnostic;
 use crate::ir::declaration::{DeclBody, Declaration};
 use crate::ir::document::DocumentModule;
 use crate::ir::proof::{Proof, RewriteTarget};
-use crate::ir::term::{Binder, CoreRef, GlobalRef, LocalId, Term, Universe};
+use crate::ir::term::{Binder, CoreRef, GlobalRef, ImplicitBinderId, LocalId, Term, Universe};
 use crate::lexicon::entry::Denotation;
 use crate::lexicon::lse::{BinderMode, Lse, QualifiedId};
 use crate::lexicon::resolve::Closure;
@@ -26,9 +26,19 @@ struct Namer {
     names: BTreeMap<LocalId, String>,
     term_count: usize,
     proof_count: usize,
+    synthetic_count: u64,
 }
 
 impl Namer {
+    /// A fresh local identity for a binder the backend synthesizes while
+    /// lowering (the uniqueness binder of `ExistsUnique`, §18.4). Elaboration
+    /// allocates upward from zero, so identities counted downward from the
+    /// top of the range never collide with document locals.
+    fn synthetic(&mut self) -> LocalId {
+        self.synthetic_count += 1;
+        LocalId(u64::MAX - self.synthetic_count)
+    }
+
     fn term_binder(&mut self, id: LocalId) -> String {
         if let Some(existing) = self.names.get(&id) {
             return existing.clone();
@@ -329,6 +339,22 @@ fn print_term(
             function,
             explicit_args,
             ..
+        } if matches!(
+            &**function,
+            Term::Global(GlobalRef::Core(CoreRef::ExistsUnique), _)
+        ) =>
+        {
+            // Pinned Lean 4.32.1's `Init` declares no `ExistsUnique`; the
+            // core constructor lowers to its definition (§15.6, §18.4):
+            // `ExistsUnique (fun x => P x)` is
+            // `Exists (fun x => And (P x) (∀ (y : T), P y → Eq y x))`.
+            let lowered = lower_exists_unique(explicit_args, namer)?;
+            print_term(sink, &lowered, namer, closure, parens)?;
+        }
+        Term::App {
+            function,
+            explicit_args,
+            ..
         } => {
             if parens {
                 sink.sym("(");
@@ -426,6 +452,65 @@ fn print_term(
         }
     }
     Ok(())
+}
+
+/// The `Exists` lowering of a unique-existence application (§18.4).
+fn lower_exists_unique(explicit_args: &[Term], namer: &mut Namer) -> Result<Term, Diagnostic> {
+    let [Term::Lambda { binders, body }] = explicit_args else {
+        return Err(Diagnostic::new(
+            code!("LLB6001"),
+            "a unique-existence application lowers only over one predicate lambda",
+        ));
+    };
+    let [binder] = binders.as_slice() else {
+        return Err(Diagnostic::new(
+            code!("LLB6001"),
+            "a unique-existence predicate binds exactly one local",
+        ));
+    };
+    let core = |core: CoreRef, args: Vec<Term>, omitted: Vec<ImplicitBinderId>| Term::App {
+        function: Box::new(Term::Global(GlobalRef::Core(core), Vec::new())),
+        explicit_args: args,
+        omitted_implicit_binders: omitted,
+    };
+    let y = namer.synthetic();
+    let mut map = BTreeMap::new();
+    map.insert(binder.id, Term::Local(y));
+    let holds_y = crate::elaborate::expressions::subst(body, &map);
+    let uniqueness = Term::Pi {
+        binders: vec![Binder {
+            id: y,
+            mode: BinderMode::Explicit,
+            ty: binder.ty.clone(),
+            spelling: "y".to_owned(),
+        }],
+        body: Box::new(Term::Pi {
+            binders: vec![Binder {
+                id: namer.synthetic(),
+                mode: BinderMode::Explicit,
+                ty: holds_y,
+                spelling: String::new(),
+            }],
+            body: Box::new(core(
+                CoreRef::Eq,
+                vec![Term::Local(y), Term::Local(binder.id)],
+                vec![ImplicitBinderId(0)],
+            )),
+        }),
+    };
+    let predicate = Term::Lambda {
+        binders: vec![binder.clone()],
+        body: Box::new(core(
+            CoreRef::And,
+            vec![(**body).clone(), uniqueness],
+            Vec::new(),
+        )),
+    };
+    Ok(core(
+        CoreRef::Exists,
+        vec![predicate],
+        vec![ImplicitBinderId(0)],
+    ))
 }
 
 fn body_uses(term: &Term, id: LocalId) -> bool {
@@ -1084,7 +1169,11 @@ pub fn print_lse_type(
                     text
                 }
             }
-            Lse::Lam(..) | Lse::Let { .. } | Lse::Nat(_) => {
+            // A signature numeral prints bare: the pinned elaborator types
+            // it from the enclosing application, exactly as it types the
+            // numeral of the generated document term (§15.5, §18.8).
+            Lse::Nat(decimal) => decimal.clone(),
+            Lse::Lam(..) | Lse::Let { .. } => {
                 return Err(Diagnostic::new(
                     code!("LLB6001"),
                     "this LSE form has no probe-type lowering",

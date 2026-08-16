@@ -67,6 +67,8 @@ pub enum ProofItemAst {
         proposition: SentenceAst,
         /// The nested proof.
         proof: ProofEnvAst,
+        /// The `\begin` atom, for spans.
+        begin: usize,
     },
     /// `rewrite` (§16.4).
     Rewrite {
@@ -74,6 +76,8 @@ pub enum ProofItemAst {
         target: BraceArg,
         /// `(reverse, proof-term range)` rules in source order.
         rules: Vec<(bool, BraceArg)>,
+        /// The `\begin` atom, for spans.
+        begin: usize,
     },
     /// `simplify` (§16.5).
     Simplify {
@@ -81,6 +85,8 @@ pub enum ProofItemAst {
         target: BraceArg,
         /// The listed rules in source order.
         rules: Vec<BraceArg>,
+        /// The `\begin` atom, for spans.
+        begin: usize,
     },
     /// Structured `apply` (§16.6).
     Apply {
@@ -88,11 +94,15 @@ pub enum ProofItemAst {
         function: BraceArg,
         /// `(label, premise proof)` in source order.
         premises: Vec<(u64, ProofEnvAst)>,
+        /// The `\begin` atom, for spans.
+        begin: usize,
     },
     /// `constructor` (§16.7).
     Constructor {
         /// `(label, branch proof)` in source order.
         branches: Vec<(u64, ProofEnvAst)>,
+        /// The `\begin` atom, for spans.
+        begin: usize,
     },
     /// `cases` or `induction` (§16.8, §16.9).
     CasesLike {
@@ -102,6 +112,8 @@ pub enum ProofItemAst {
         scrutinee: BraceArg,
         /// The case branches in source order.
         cases: Vec<CaseAst>,
+        /// The `\begin` atom, for spans.
+        begin: usize,
     },
     /// `calculate` (§16.10).
     Calculate {
@@ -109,7 +121,27 @@ pub enum ProofItemAst {
         start: BraceArg,
         /// The steps in source order.
         steps: Vec<CalcStepAst>,
+        /// The `\begin` atom, for spans.
+        begin: usize,
     },
+}
+
+impl ProofItemAst {
+    /// The atom range that locates this item in diagnostics: the sentence
+    /// content, or the `\begin` control of a structured environment.
+    #[must_use]
+    pub fn span_atoms(&self) -> AtomRange {
+        match self {
+            Self::Sentence(sentence) => (sentence.range.0, sentence.period + 1),
+            Self::Have { begin, .. }
+            | Self::Rewrite { begin, .. }
+            | Self::Simplify { begin, .. }
+            | Self::Apply { begin, .. }
+            | Self::Constructor { begin, .. }
+            | Self::CasesLike { begin, .. }
+            | Self::Calculate { begin, .. } => (*begin, *begin + 1),
+        }
+    }
 }
 
 /// One `case` branch.
@@ -581,7 +613,17 @@ impl<'a> Parser<'a> {
     }
 
     /// A proof body: items until the matching `\end{...}` of `env_name`.
-    fn proof_body(&mut self, begin: usize, env_name: &str) -> PResult<ProofEnvAst> {
+    /// `depth` counts nested proof environments against `max_scope_depth`
+    /// (§25.5).
+    fn proof_body(&mut self, begin: usize, env_name: &str, depth: u64) -> PResult<ProofEnvAst> {
+        if let Err(diagnostic) = crate::grammar::chart::depth_check(
+            depth,
+            self.max_scope_depth,
+            "parse (proof environment nesting)",
+        ) {
+            let span = self.here_span();
+            return Err(diagnostic.with_span(span));
+        }
         let mut items = Vec::new();
         loop {
             self.skip_ws();
@@ -590,7 +632,7 @@ impl<'a> Parser<'a> {
                 return Ok(ProofEnvAst { items, begin });
             }
             if self.at_control("\\begin") {
-                items.push(self.proof_env_item()?);
+                items.push(self.proof_env_item(depth)?);
             } else if self.peek().is_none() {
                 return Err(self.fail(
                     code!("LLP2003"),
@@ -603,8 +645,9 @@ impl<'a> Parser<'a> {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn proof_env_item(&mut self) -> PResult<ProofItemAst> {
-        let (_begin, name) = self.begin_env()?;
+    fn proof_env_item(&mut self, depth: u64) -> PResult<ProofItemAst> {
+        let (begin, name) = self.begin_env()?;
+        let nested = depth.saturating_add(1);
         match name.as_str() {
             "have" => {
                 let hypothesis = self.brace_arg()?;
@@ -617,12 +660,13 @@ impl<'a> Parser<'a> {
                         "a have establishes its proposition with a nested proof".to_owned(),
                     ));
                 }
-                let proof = self.proof_body(proof_begin, "proof")?;
+                let proof = self.proof_body(proof_begin, "proof", nested)?;
                 self.expect_end("have")?;
                 Ok(ProofItemAst::Have {
                     name: hypothesis,
                     proposition,
                     proof,
+                    begin,
                 })
             }
             "rewrite" => {
@@ -647,7 +691,11 @@ impl<'a> Parser<'a> {
                         "a rewrite requires at least one rule".to_owned(),
                     ));
                 }
-                Ok(ProofItemAst::Rewrite { target, rules })
+                Ok(ProofItemAst::Rewrite {
+                    target,
+                    rules,
+                    begin,
+                })
             }
             "simplify" => {
                 let target = self.brace_arg()?;
@@ -664,7 +712,11 @@ impl<'a> Parser<'a> {
                         "a simplify requires at least one rule".to_owned(),
                     ));
                 }
-                Ok(ProofItemAst::Simplify { target, rules })
+                Ok(ProofItemAst::Simplify {
+                    target,
+                    rules,
+                    begin,
+                })
             }
             "apply" => {
                 let function = self.brace_arg()?;
@@ -674,11 +726,15 @@ impl<'a> Parser<'a> {
                     let label_arg = self.brace_arg()?;
                     self.cover_metadata(label_arg.range, "env.premise");
                     let label = self.decimal_arg(&label_arg)?;
-                    let body = self.proof_body(premise_begin, "premise")?;
+                    let body = self.proof_body(premise_begin, "premise", nested)?;
                     premises.push((label, body));
                 }
                 self.expect_end("apply")?;
-                Ok(ProofItemAst::Apply { function, premises })
+                Ok(ProofItemAst::Apply {
+                    function,
+                    premises,
+                    begin,
+                })
             }
             "constructor" => {
                 let mut branches = Vec::new();
@@ -687,11 +743,11 @@ impl<'a> Parser<'a> {
                     let label_arg = self.brace_arg()?;
                     self.cover_metadata(label_arg.range, "env.branch");
                     let label = self.decimal_arg(&label_arg)?;
-                    let body = self.proof_body(branch_begin, "branch")?;
+                    let body = self.proof_body(branch_begin, "branch", nested)?;
                     branches.push((label, body));
                 }
                 self.expect_end("constructor")?;
-                Ok(ProofItemAst::Constructor { branches })
+                Ok(ProofItemAst::Constructor { branches, begin })
             }
             kind @ ("cases" | "induction") => {
                 let induction = kind == "induction";
@@ -709,7 +765,7 @@ impl<'a> Parser<'a> {
                     } else {
                         bind_arg.text.split(';').map(str::to_owned).collect()
                     };
-                    let body = self.proof_body(case_begin, "case")?;
+                    let body = self.proof_body(case_begin, "case", nested)?;
                     cases.push(CaseAst {
                         entry,
                         binds,
@@ -722,6 +778,7 @@ impl<'a> Parser<'a> {
                     induction,
                     scrutinee,
                     cases,
+                    begin,
                 })
             }
             "calculate" => {
@@ -747,7 +804,11 @@ impl<'a> Parser<'a> {
                         "a calculation requires at least one step".to_owned(),
                     ));
                 }
-                Ok(ProofItemAst::Calculate { start, steps })
+                Ok(ProofItemAst::Calculate {
+                    start,
+                    steps,
+                    begin,
+                })
             }
             other => Err(self.fail(
                 code!("LLL1004"),
@@ -791,7 +852,7 @@ impl<'a> Parser<'a> {
                 ));
             }
             let (proof_begin, _) = self.begin_env()?;
-            Some(self.proof_body(proof_begin, "proof")?)
+            Some(self.proof_body(proof_begin, "proof", 1)?)
         } else {
             if self.at_begin_of("proof") {
                 return Err(self.fail(

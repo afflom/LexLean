@@ -66,6 +66,14 @@ pub enum MathAst {
         args: Vec<MathAst>,
         /// The full atom range.
         atoms: AtomRange,
+        /// The call's own opening parenthesis atom.
+        open: usize,
+        /// The call's own closing parenthesis atom.
+        close: usize,
+        /// The call's own top-level argument-separating comma atoms, in
+        /// source order. Parentheses and commas inside the arguments belong
+        /// to those arguments (I1: every atom has exactly one origin).
+        commas: Vec<usize>,
     },
     /// A prefix operator application.
     Prefix {
@@ -139,7 +147,9 @@ struct OpMatch {
     candidates: Vec<FormRef>,
     op_atoms: AtomRange,
     end: usize,
-    precedence: u8,
+    /// Widened from the declared `u8` so `precedence + 1` at 255 never
+    /// overflows (§15.5).
+    precedence: u16,
     associativity: Option<Associativity>,
     frame: Frame,
 }
@@ -182,7 +192,7 @@ impl<'a> MathParser<'a> {
         let matches = self
             .closure
             .matches_at(self.atoms, self.at, Channel::Math, self.visible);
-        let mut infix_like: Vec<(FormRef, usize, u8, Option<Associativity>, Frame)> = Vec::new();
+        let mut infix_like: Vec<(FormRef, usize, u16, Option<Associativity>, Frame)> = Vec::new();
         for (reference, match_end) in matches {
             budget.edge()?;
             let Some((entry, _)) = self.closure.form(&reference) else {
@@ -192,7 +202,7 @@ impl<'a> MathParser<'a> {
                 infix_like.push((
                     reference,
                     match_end,
-                    entry.precedence.unwrap_or(0),
+                    u16::from(entry.precedence.unwrap_or(0)),
                     entry.associativity,
                     entry.frame,
                 ));
@@ -230,8 +240,12 @@ impl<'a> MathParser<'a> {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn primary(&mut self, budget: &mut Budget) -> MResult<MathAst> {
+    fn primary(&mut self, budget: &mut Budget, depth: u64) -> MResult<MathAst> {
         budget.state()?;
+        if let Err(diagnostic) = budget.depth(depth, "parse (mathematical grouping)") {
+            let span = self.span_here();
+            return Err(diagnostic.with_span(span));
+        }
         let Some(atom) = self.peek() else {
             let span = self.span_here();
             return Err(
@@ -250,7 +264,7 @@ impl<'a> MathParser<'a> {
             }
             (AtomClass::Delimiter, "(") => {
                 self.at += 1;
-                let inner = self.expression(budget, 0)?;
+                let inner = self.expression(budget, 0, depth.saturating_add(1))?;
                 match self.peek() {
                     Some(close) if close.class == AtomClass::Delimiter && close.text == ")" => {
                         self.at += 1;
@@ -305,7 +319,7 @@ impl<'a> MathParser<'a> {
                 let matches =
                     self.closure
                         .matches_at(self.atoms, self.at, Channel::Math, self.visible);
-                let mut prefix: Vec<(FormRef, usize, u8)> = Vec::new();
+                let mut prefix: Vec<(FormRef, usize, u16)> = Vec::new();
                 let mut leaf: Vec<(FormRef, usize)> = Vec::new();
                 for (reference, match_end) in matches {
                     budget.edge()?;
@@ -314,7 +328,11 @@ impl<'a> MathParser<'a> {
                     };
                     match entry.frame {
                         Frame::Prefix if match_end <= self.end => {
-                            prefix.push((reference, match_end, entry.precedence.unwrap_or(0)));
+                            prefix.push((
+                                reference,
+                                match_end,
+                                u16::from(entry.precedence.unwrap_or(0)),
+                            ));
                         }
                         Frame::Atom | Frame::Call if match_end <= self.end => {
                             leaf.push((reference, match_end));
@@ -334,9 +352,11 @@ impl<'a> MathParser<'a> {
                     if leaf.is_empty() {
                         let op_atoms = (self.at, profile.0);
                         self.at = profile.0;
-                        let operand = self.expression(budget, profile.1)?;
+                        let operand =
+                            self.expression(budget, profile.1, depth.saturating_add(1))?;
                         return self.postfix_calls(
                             budget,
+                            depth,
                             MathAst::Prefix {
                                 candidates: prefix.into_iter().map(|(r, ..)| r).collect(),
                                 op_atoms,
@@ -403,29 +423,42 @@ impl<'a> MathParser<'a> {
                 }
             }
         };
-        self.postfix_calls(budget, base)
+        self.postfix_calls(budget, depth, base)
     }
 
     /// Explicit call syntax after a primary: `head(a, b)`.
-    fn postfix_calls(&mut self, budget: &mut Budget, mut base: MathAst) -> MResult<MathAst> {
+    fn postfix_calls(
+        &mut self,
+        budget: &mut Budget,
+        depth: u64,
+        mut base: MathAst,
+    ) -> MResult<MathAst> {
         while let Some(atom) = self.peek() {
             if atom.class == AtomClass::Delimiter && atom.text == "(" {
                 // A call only when the head can be applied; a grouping
                 // parenthesis never follows a completed primary because
                 // juxtaposition is never application (§15.5).
                 let call_start = base.atoms().0;
+                let open = self.at;
                 self.at += 1;
-                let mut args = vec![self.expression(budget, 0)?];
+                let mut commas = Vec::new();
+                let mut args = vec![self.expression(budget, 0, depth.saturating_add(1))?];
+                let close;
                 loop {
                     match self.peek() {
                         Some(separator)
                             if separator.class == AtomClass::AsciiSymbol
                                 && separator.text == "," =>
                         {
+                            commas.push(self.at);
                             self.at += 1;
-                            args.push(self.expression(budget, 0)?);
+                            args.push(self.expression(budget, 0, depth.saturating_add(1))?);
                         }
-                        Some(close) if close.class == AtomClass::Delimiter && close.text == ")" => {
+                        Some(close_atom)
+                            if close_atom.class == AtomClass::Delimiter
+                                && close_atom.text == ")" =>
+                        {
+                            close = self.at;
                             self.at += 1;
                             break;
                         }
@@ -443,6 +476,9 @@ impl<'a> MathParser<'a> {
                     head: Box::new(base),
                     args,
                     atoms: (call_start, self.at),
+                    open,
+                    close,
+                    commas,
                 };
             } else {
                 break;
@@ -483,10 +519,13 @@ impl<'a> MathParser<'a> {
         }
     }
 
-    fn expression(&mut self, budget: &mut Budget, min_bp: u8) -> MResult<MathAst> {
+    /// One Pratt expression at `min_bp`; `depth` counts the grammatical
+    /// nesting (grouping, call arguments, prefix operands, and right-nested
+    /// infix operands) against `max_scope_depth` (§25.5).
+    fn expression(&mut self, budget: &mut Budget, min_bp: u16, depth: u64) -> MResult<MathAst> {
         budget.state()?;
-        let mut lhs = self.primary(budget)?;
-        let mut last_nonassoc: Option<u8> = None;
+        let mut lhs = self.primary(budget, depth)?;
+        let mut last_nonassoc: Option<u16> = None;
         while let Some(op) = self.operator_at(budget)? {
             if op.precedence < min_bp {
                 break;
@@ -510,14 +549,14 @@ impl<'a> MathParser<'a> {
                         .with_span(span));
                     }
                     let (next_min, remember_nonassoc) = match op.associativity {
-                        Some(Associativity::Left) => (op.precedence + 1, None),
+                        Some(Associativity::Left) => (op.precedence.saturating_add(1), None),
                         Some(Associativity::Right) => (op.precedence, None),
                         Some(Associativity::None) | None => {
-                            (op.precedence + 1, Some(op.precedence))
+                            (op.precedence.saturating_add(1), Some(op.precedence))
                         }
                     };
                     self.at = op.end;
-                    let rhs = self.expression(budget, next_min)?;
+                    let rhs = self.expression(budget, next_min, depth.saturating_add(1))?;
                     last_nonassoc = remember_nonassoc;
                     lhs = MathAst::Infix {
                         candidates: op.candidates,
@@ -550,7 +589,7 @@ pub fn parse_math(
         closure,
         visible,
     };
-    let expression = parser.expression(budget, 0)?;
+    let expression = parser.expression(budget, 0, 1)?;
     parser.skip_ws();
     if parser.at < parser.end {
         let atom = &atoms[parser.at];

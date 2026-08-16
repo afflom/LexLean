@@ -357,11 +357,11 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
                                         use crate::lexicon::entry::Associativity;
                                         let left_min = match assoc {
                                             Associativity::Left => op,
-                                            _ => op + 1,
+                                            _ => op.saturating_add(1),
                                         };
                                         let right_min = match assoc {
                                             Associativity::Right => op,
-                                            _ => op + 1,
+                                            _ => op.saturating_add(1),
                                         };
                                         if index == 0 {
                                             left_min
@@ -369,7 +369,7 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
                                             right_min
                                         }
                                     }
-                                    (Some(op), None) => op + 1,
+                                    (Some(op), None) => op.saturating_add(1),
                                     _ => 0,
                                 };
                                 (argument.clone(), required)

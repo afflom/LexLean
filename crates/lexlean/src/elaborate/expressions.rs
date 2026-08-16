@@ -31,13 +31,13 @@ pub struct Metas {
 }
 
 impl Metas {
-    fn fresh_term(&mut self, alloc: &mut LocalAlloc) -> LocalId {
+    pub(crate) fn fresh_term(&mut self, alloc: &mut LocalAlloc) -> LocalId {
         let id = alloc.fresh();
         self.terms.insert(id, None);
         id
     }
 
-    fn fresh_universe(&mut self) -> String {
+    pub(crate) fn fresh_universe(&mut self) -> String {
         let name = format!("?u{}", self.universes.len());
         self.universes.insert(name.clone(), None);
         name
@@ -47,7 +47,7 @@ impl Metas {
         self.terms.contains_key(&id)
     }
 
-    fn lookup(&self, id: LocalId) -> Option<&Term> {
+    pub(crate) fn lookup(&self, id: LocalId) -> Option<&Term> {
         self.terms.get(&id).and_then(Option::as_ref)
     }
 }
@@ -352,6 +352,43 @@ fn has_unsolved(term: &Term, metas: &Metas) -> bool {
     }
 }
 
+/// The first numeral whose expected type stays an unsolved metavariable.
+fn unsolved_numeral(term: &Term, metas: &Metas) -> Option<String> {
+    match term {
+        Term::NatLiteral {
+            decimal,
+            expected_type,
+        } => {
+            if has_unsolved(expected_type, metas) {
+                Some(decimal.clone())
+            } else {
+                None
+            }
+        }
+        Term::Local(_) | Term::Sort(_) | Term::Global(..) => None,
+        Term::App {
+            function,
+            explicit_args,
+            ..
+        } => unsolved_numeral(function, metas).or_else(|| {
+            explicit_args
+                .iter()
+                .find_map(|arg| unsolved_numeral(arg, metas))
+        }),
+        Term::Pi { binders, body } | Term::Lambda { binders, body } => binders
+            .iter()
+            .find_map(|binder| unsolved_numeral(&binder.ty, metas))
+            .or_else(|| unsolved_numeral(body, metas)),
+        Term::Let {
+            binder,
+            value,
+            body,
+        } => unsolved_numeral(&binder.ty, metas)
+            .or_else(|| unsolved_numeral(value, metas))
+            .or_else(|| unsolved_numeral(body, metas)),
+    }
+}
+
 fn universe_unsolved(universe: &Universe, metas: &Metas) -> bool {
     match universe {
         Universe::Var(name) => {
@@ -522,77 +559,293 @@ fn unify(a: &Term, b: &Term, metas: &mut Metas) -> bool {
     }
 }
 
-/// Convert an entry's LSE (signature or defined value) to a `Term` with
-/// fresh binder identities, resolving constants through the closure.
-pub fn lse_to_term(
-    lse: &Lse,
-    shared: &Shared<'_>,
-    alloc: &mut LocalAlloc,
-    universe_map: &BTreeMap<String, Universe>,
-) -> Result<Term, String> {
-    fn universe_of(
-        universe: &crate::lexicon::lse::Universe,
-        map: &BTreeMap<String, Universe>,
-    ) -> Universe {
-        match universe {
-            Universe::Num(n) => Universe::Num(*n),
-            Universe::Var(name) => map
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| Universe::Var(name.clone())),
-            Universe::Succ(inner) => normalize_succ(universe_of(inner, map)),
-            Universe::Max(items) => {
-                Universe::Max(items.iter().map(|item| universe_of(item, map)).collect())
-            }
-            Universe::IMax(a, b) => {
-                Universe::IMax(Box::new(universe_of(a, map)), Box::new(universe_of(b, map)))
-            }
+/// Why an LSE could not be converted to a term (§13.7, §17.6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LseError {
+    /// A referenced entry, local, or signature is unavailable in this
+    /// context; the caller reports it as a resolution failure.
+    Unavailable(String),
+    /// The LSE applies an entry to more explicit arguments than its
+    /// signature declares: an ill-typed glossary value (`LLT4001`).
+    IllTyped(String),
+}
+
+impl std::fmt::Display for LseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unavailable(message) | Self::IllTyped(message) => f.write_str(message),
         }
     }
+}
+
+impl LseError {
+    /// The diagnostic for this failure: an ill-typed value is `LLT4001`;
+    /// an unavailable reference takes the caller's resolution code.
+    #[must_use]
+    pub fn diagnostic(self, unavailable_code: crate::diagnostic::DiagnosticCode) -> Diagnostic {
+        match self {
+            Self::Unavailable(message) => Diagnostic::new(unavailable_code, message),
+            Self::IllTyped(message) => Diagnostic::new(code!("LLT4001"), message),
+        }
+    }
+}
+
+/// One local of the LSE conversion scope: spelling, identity, and the
+/// binder type (for typing the arguments of applications).
+struct LseScopeEntry {
+    name: String,
+    id: LocalId,
+    ty: Term,
+}
+
+/// The conversion context of one LSE walk.
+struct LseWalk<'s, 'a, 'm> {
+    shared: &'s Shared<'a>,
+    alloc: &'s mut LocalAlloc,
+    /// The metavariable store literal and implicit-binder metas register
+    /// in, when the caller elaborates against one; otherwise undetermined
+    /// literal types become fresh non-meta locals that never unify.
+    metas: Option<&'m mut Metas>,
+    /// The universe map in effect (the caller's, or a nested signature's).
+    owned_map: BTreeMap<String, Universe>,
+    scope: Vec<LseScopeEntry>,
+    /// The entries whose signatures are being converted for argument
+    /// typing; a signature that (transitively) mentions itself is not
+    /// re-entered, which keeps the conversion finite on any package data
+    /// without an arbitrary bound.
+    visiting: Vec<QualifiedId>,
+}
+
+fn universe_of(
+    universe: &crate::lexicon::lse::Universe,
+    map: &BTreeMap<String, Universe>,
+) -> Universe {
+    match universe {
+        Universe::Num(n) => Universe::Num(*n),
+        Universe::Var(name) => map
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| Universe::Var(name.clone())),
+        Universe::Succ(inner) => normalize_succ(universe_of(inner, map)),
+        Universe::Max(items) => {
+            Universe::Max(items.iter().map(|item| universe_of(item, map)).collect())
+        }
+        Universe::IMax(a, b) => {
+            Universe::IMax(Box::new(universe_of(a, map)), Box::new(universe_of(b, map)))
+        }
+    }
+}
+
+impl LseWalk<'_, '_, '_> {
+    fn fresh_hole(&mut self) -> Term {
+        match self.metas.as_deref_mut() {
+            Some(metas) => Term::Local(metas.fresh_term(self.alloc)),
+            None => Term::Local(self.alloc.fresh()),
+        }
+    }
+
+    fn unify_known(&mut self, a: &Term, b: &Term) {
+        if let Some(metas) = self.metas.as_deref_mut() {
+            // Failure here is not an error: conservative typing of glossary
+            // data only propagates what it can; the source elaboration
+            // decides.
+            let _ = unify(a, b, metas);
+        }
+    }
+
+    fn zonked(&self, term: &Term) -> Term {
+        match self.metas.as_deref() {
+            Some(metas) => zonk(term, metas),
+            None => term.clone(),
+        }
+    }
+
+    /// The signature type of a constant, converted afresh, for typing the
+    /// arguments it is applied to; `None` when unavailable or when the
+    /// constant's own signature is being converted.
+    fn constant_type(&mut self, id: &QualifiedId) -> Option<Term> {
+        if self.visiting.contains(id) {
+            return None;
+        }
+        let entry = self.shared.closure.entry(id)?;
+        let signature = entry.signature.as_ref()?.clone();
+        let mut universe_map = BTreeMap::new();
+        for name in &entry.universes {
+            let fresh = match self.metas.as_deref_mut() {
+                Some(metas) => Universe::Var(metas.fresh_universe()),
+                None => Universe::Var(name.clone()),
+            };
+            universe_map.insert(name.clone(), fresh);
+        }
+        self.visiting.push(id.clone());
+        let saved_scope = std::mem::take(&mut self.scope);
+        let saved_map = std::mem::replace(self.map_slot(), universe_map);
+        let converted = self.walk(&signature, None).ok().map(|(term, _)| term);
+        *self.map_slot() = saved_map;
+        self.scope = saved_scope;
+        self.visiting.pop();
+        converted
+    }
+
+    fn map_slot(&mut self) -> &mut BTreeMap<String, Universe> {
+        &mut self.owned_map
+    }
+
+    /// Convert one LSE node under an expected type; returns the term and
+    /// its conservatively known type when one is available.
+    #[allow(clippy::too_many_lines)]
     fn walk(
+        &mut self,
         lse: &Lse,
-        shared: &Shared<'_>,
-        alloc: &mut LocalAlloc,
-        scope: &mut Vec<(String, LocalId)>,
-        map: &BTreeMap<String, Universe>,
-    ) -> Result<Term, String> {
+        expected: Option<&Term>,
+    ) -> Result<(Term, Option<Term>), LseError> {
         Ok(match lse {
-            Lse::SortProp => Term::Sort(Universe::Num(0)),
-            Lse::SortType(universe) => Term::Sort(normalize_succ(universe_of(universe, map))),
+            Lse::SortProp => (
+                Term::Sort(Universe::Num(0)),
+                Some(Term::Sort(Universe::Num(1))),
+            ),
+            Lse::SortType(universe) => {
+                let level = normalize_succ(universe_of(universe, &self.owned_map));
+                let ty = normalize_succ(level.clone());
+                (Term::Sort(level), Some(Term::Sort(ty)))
+            }
             Lse::Const(id, universes) => {
-                let global = global_for_entry(shared, id)?;
-                Term::Global(
-                    global,
-                    universes
-                        .iter()
-                        .map(|universe| universe_of(universe, map))
-                        .collect(),
+                let global = global_for_entry(self.shared, id).map_err(LseError::Unavailable)?;
+                let ty = self.constant_type(id);
+                (
+                    Term::Global(
+                        global,
+                        universes
+                            .iter()
+                            .map(|universe| universe_of(universe, &self.owned_map))
+                            .collect(),
+                    ),
+                    ty,
                 )
             }
             Lse::Local(name) => {
-                let id = scope
+                let entry = self
+                    .scope
                     .iter()
                     .rev()
-                    .find(|(spelling, _)| spelling == name)
-                    .map(|(_, id)| *id)
-                    .ok_or_else(|| format!("local `{name}` is not in scope"))?;
-                Term::Local(id)
+                    .find(|entry| entry.name == *name)
+                    .ok_or_else(|| {
+                        LseError::Unavailable(format!("local `{name}` is not in scope"))
+                    })?;
+                (Term::Local(entry.id), Some(entry.ty.clone()))
             }
-            Lse::App(function, arguments) => Term::App {
-                function: Box::new(walk(function, shared, alloc, scope, map)?),
-                explicit_args: arguments
-                    .iter()
-                    .map(|argument| walk(argument, shared, alloc, scope, map))
-                    .collect::<Result<_, _>>()?,
-                omitted_implicit_binders: Vec::new(),
-            },
+            Lse::App(function, arguments) => {
+                let (function_term, function_ty) = self.walk(function, None)?;
+                // Type the explicit arguments through the function's
+                // telescope; implicit binders become metas that argument
+                // types solve, so a literal in a later argument receives
+                // its type (§15.5, §17.6).
+                let mut explicit_types: Vec<Option<Term>> = Vec::new();
+                let mut result_ty: Option<Term> = None;
+                if let Some(function_ty) = &function_ty {
+                    let (binders, conclusion) = flatten_pi(function_ty);
+                    let explicit_count = binders
+                        .iter()
+                        .filter(|binder| binder.mode == BinderMode::Explicit)
+                        .count();
+                    if arguments.len() > explicit_count {
+                        let head = match &**function {
+                            Lse::Const(id, _) => format!("`{id}`"),
+                            _ => "the applied value".to_owned(),
+                        };
+                        return Err(LseError::IllTyped(format!(
+                            "{head} is applied to {} explicit arguments but its signature declares {explicit_count}",
+                            arguments.len()
+                        )));
+                    }
+                    let mut substitution: BTreeMap<LocalId, Term> = BTreeMap::new();
+                    let mut argument_index = 0usize;
+                    let mut consumed_all = true;
+                    for binder in &binders {
+                        let binder_ty = substitute(&binder.ty, &substitution);
+                        match binder.mode {
+                            BinderMode::Implicit | BinderMode::Instance => {
+                                let hole = self.fresh_hole();
+                                substitution.insert(binder.id, hole);
+                            }
+                            BinderMode::Explicit => {
+                                if argument_index >= arguments.len() {
+                                    consumed_all = false;
+                                    break;
+                                }
+                                explicit_types.push(Some(binder_ty));
+                                // The argument value substitutes into later
+                                // binder types once converted; a placeholder
+                                // keeps the map dependent until then.
+                                let placeholder = self.fresh_hole();
+                                substitution.insert(binder.id, placeholder);
+                                argument_index += 1;
+                            }
+                        }
+                    }
+                    if consumed_all {
+                        result_ty = Some(substitute(&conclusion, &substitution));
+                    }
+                    // Explicit placeholders are metas; the converted
+                    // arguments unify into them below.
+                    let mut placeholders: Vec<Term> = Vec::new();
+                    for binder in &binders {
+                        if binder.mode == BinderMode::Explicit {
+                            if let Some(placeholder) = substitution.get(&binder.id) {
+                                placeholders.push(placeholder.clone());
+                            }
+                        }
+                    }
+                    let mut explicit_args = Vec::new();
+                    for (index, argument) in arguments.iter().enumerate() {
+                        let expected_ty = explicit_types
+                            .get(index)
+                            .cloned()
+                            .flatten()
+                            .map(|ty| self.zonked(&ty));
+                        let (term, ty) = self.walk(argument, expected_ty.as_ref())?;
+                        if let (Some(known), Some(expected_ty)) = (&ty, &expected_ty) {
+                            self.unify_known(known, expected_ty);
+                        }
+                        if let Some(placeholder) = placeholders.get(index) {
+                            self.unify_known(placeholder, &term);
+                        }
+                        explicit_args.push(term);
+                    }
+                    let result_ty = result_ty.map(|ty| self.zonked(&ty));
+                    return Ok((
+                        Term::App {
+                            function: Box::new(function_term),
+                            explicit_args,
+                            omitted_implicit_binders: Vec::new(),
+                        },
+                        result_ty,
+                    ));
+                }
+                let mut explicit_args = Vec::new();
+                for argument in arguments {
+                    explicit_args.push(self.walk(argument, None)?.0);
+                }
+                (
+                    Term::App {
+                        function: Box::new(function_term),
+                        explicit_args,
+                        omitted_implicit_binders: Vec::new(),
+                    },
+                    None,
+                )
+            }
             Lse::Pi(binders, body) | Lse::Lam(binders, body) => {
-                let depth = scope.len();
+                let depth = self.scope.len();
                 let mut ir_binders = Vec::new();
                 for binder in binders {
-                    let ty = walk(&binder.ty, shared, alloc, scope, map)?;
-                    let id = alloc.fresh();
-                    scope.push((binder.name.clone(), id));
+                    let (ty, _) = self.walk(&binder.ty, None)?;
+                    let id = self.alloc.fresh();
+                    self.scope.push(LseScopeEntry {
+                        name: binder.name.clone(),
+                        id,
+                        ty: ty.clone(),
+                    });
                     ir_binders.push(Binder {
                         id,
                         mode: binder.mode,
@@ -600,18 +853,28 @@ pub fn lse_to_term(
                         spelling: binder.name.clone(),
                     });
                 }
-                let ir_body = Box::new(walk(body, shared, alloc, scope, map)?);
-                scope.truncate(depth);
+                let (ir_body, body_ty) = self.walk(body, None)?;
+                self.scope.truncate(depth);
                 if matches!(lse, Lse::Pi(..)) {
-                    Term::Pi {
-                        binders: ir_binders,
-                        body: ir_body,
-                    }
+                    (
+                        Term::Pi {
+                            binders: ir_binders,
+                            body: Box::new(ir_body),
+                        },
+                        None,
+                    )
                 } else {
-                    Term::Lambda {
-                        binders: ir_binders,
-                        body: ir_body,
-                    }
+                    let ty = body_ty.map(|body_ty| Term::Pi {
+                        binders: ir_binders.clone(),
+                        body: Box::new(body_ty),
+                    });
+                    (
+                        Term::Lambda {
+                            binders: ir_binders,
+                            body: Box::new(ir_body),
+                        },
+                        ty,
+                    )
                 }
             }
             Lse::Let {
@@ -620,35 +883,72 @@ pub fn lse_to_term(
                 value,
                 body,
             } => {
-                let ty_term = walk(ty, shared, alloc, scope, map)?;
-                let value_term = walk(value, shared, alloc, scope, map)?;
-                let id = alloc.fresh();
-                scope.push((name.clone(), id));
-                let body_term = walk(body, shared, alloc, scope, map)?;
-                scope.pop();
-                Term::Let {
-                    binder: Box::new(Binder {
-                        id,
-                        mode: BinderMode::Explicit,
-                        ty: ty_term,
-                        spelling: name.clone(),
-                    }),
-                    value: Box::new(value_term),
-                    body: Box::new(body_term),
-                }
+                let (ty_term, _) = self.walk(ty, None)?;
+                let (value_term, _) = self.walk(value, Some(&ty_term))?;
+                let id = self.alloc.fresh();
+                self.scope.push(LseScopeEntry {
+                    name: name.clone(),
+                    id,
+                    ty: ty_term.clone(),
+                });
+                let (body_term, body_ty) = self.walk(body, expected)?;
+                self.scope.pop();
+                (
+                    Term::Let {
+                        binder: Box::new(Binder {
+                            id,
+                            mode: BinderMode::Explicit,
+                            ty: ty_term,
+                            spelling: name.clone(),
+                        }),
+                        value: Box::new(value_term),
+                        body: Box::new(body_term),
+                    },
+                    body_ty,
+                )
             }
             Lse::Nat(decimal) => {
-                // A literal in glossary data carries no context; its type
-                // must come from an enclosing application.
-                let meta = alloc.fresh();
-                Term::NatLiteral {
-                    decimal: decimal.clone(),
-                    expected_type: Box::new(Term::Local(meta)),
-                }
+                // A literal in glossary data takes the expected type its
+                // enclosing application propagates; otherwise a hole that
+                // the source elaboration may still solve (§15.5).
+                let expected_type = match expected {
+                    Some(ty) => self.zonked(ty),
+                    None => self.fresh_hole(),
+                };
+                (
+                    Term::NatLiteral {
+                        decimal: decimal.clone(),
+                        expected_type: Box::new(expected_type.clone()),
+                    },
+                    Some(expected_type),
+                )
             }
         })
     }
-    walk(lse, shared, alloc, &mut Vec::new(), universe_map)
+}
+
+/// Convert an entry's LSE (signature or defined value) to a `Term` with
+/// fresh binder identities, resolving constants through the closure and
+/// typing literals conservatively through the applications that contain
+/// them (§15.5, §17.6). `metas` is the store literal-type and implicit
+/// holes register in when the caller elaborates against one.
+pub fn lse_to_term(
+    lse: &Lse,
+    shared: &Shared<'_>,
+    alloc: &mut LocalAlloc,
+    universe_map: &BTreeMap<String, Universe>,
+    metas: Option<&mut Metas>,
+) -> Result<Term, LseError> {
+    let mut walk = LseWalk {
+        shared,
+        alloc,
+        owned_map: universe_map.clone(),
+        metas,
+        scope: Vec::new(),
+        visiting: Vec::new(),
+    };
+    let (term, _) = walk.walk(lse, None)?;
+    Ok(term)
 }
 
 /// The `GlobalRef` for a glossary entry (§17.2). Document entries resolve
@@ -733,20 +1033,18 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         &mut self,
         reference: &FormRef,
         metas: &mut Metas,
-    ) -> Result<(Term, Term), String> {
+    ) -> Result<(Term, Term), LseError> {
         let qualified = QualifiedId {
             package: reference.package.clone(),
             entry: reference.entry.clone(),
         };
-        let entry = self
-            .shared
-            .closure
-            .entry(&qualified)
-            .ok_or_else(|| format!("`{qualified}` is not in the glossary closure"))?;
+        let entry = self.shared.closure.entry(&qualified).ok_or_else(|| {
+            LseError::Unavailable(format!("`{qualified}` is not in the glossary closure"))
+        })?;
         let signature = entry
             .signature
             .as_ref()
-            .ok_or_else(|| format!("`{qualified}` has no signature"))?;
+            .ok_or_else(|| LseError::Unavailable(format!("`{qualified}` has no signature")))?;
         let mut universe_map = BTreeMap::new();
         let mut universe_args = Vec::new();
         for name in &entry.universes {
@@ -754,8 +1052,14 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             universe_map.insert(name.clone(), fresh.clone());
             universe_args.push(fresh);
         }
-        let ty = lse_to_term(signature, self.shared, self.alloc, &universe_map)?;
-        let global = global_for(self.shared, &qualified, entry)?;
+        let ty = lse_to_term(
+            signature,
+            self.shared,
+            self.alloc,
+            &universe_map,
+            Some(metas),
+        )?;
+        let global = global_for(self.shared, &qualified, entry).map_err(LseError::Unavailable)?;
         Ok((Term::Global(global, universe_args), ty))
     }
 
@@ -903,8 +1207,8 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                                     let (byte_start, byte_end) = self.bytes_of(*atoms);
                                     let first = &self.shared.atoms[atoms.0];
                                     last_instantiation_error = Some(
-                                        Diagnostic::new(code!("LLR3005"), instantiation_error)
-                                            .with_span(crate::diagnostic::Span {
+                                        instantiation_error.diagnostic(code!("LLR3005")).with_span(
+                                            crate::diagnostic::Span {
                                                 path: self.shared.path.to_owned(),
                                                 byte_start,
                                                 byte_end,
@@ -912,7 +1216,8 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                                                 column_start: first.column_start,
                                                 line_end: first.line_end,
                                                 column_end: first.column_end,
-                                            }),
+                                            },
+                                        ),
                                     );
                                 }
                                 Ok((term, ty)) => {
@@ -995,8 +1300,9 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 let mut metas = Metas::default();
                 let (term, ty) =
                     self.instantiate_entry(&reference, &mut metas)
-                        .map_err(|reason| {
-                            Diagnostic::new(code!("LLR3005"), reason)
+                        .map_err(|failure| {
+                            failure
+                                .diagnostic(code!("LLR3005"))
                                 .with_span(self.span_of(*atoms))
                         })?;
                 let mut rows = vec![self.atom_row(
@@ -1118,40 +1424,32 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                     out.push(candidate);
                 }
             }
-            MathAst::Call { head, args, atoms } => {
+            MathAst::Call {
+                head,
+                args,
+                open,
+                close,
+                commas,
+                ..
+            } => {
                 let head_cands = self.candidates(head)?;
                 let mut arg_cands: Vec<Vec<Cand>> = Vec::new();
                 for arg in args {
                     arg_cands.push(self.candidates(arg)?);
                 }
-                // Structural rows for the call parentheses and separators.
-                let mut structural_rows = Vec::new();
-                for index in head.atoms().1..atoms.1 {
-                    let atom = &self.shared.atoms[index];
-                    match (atom.class, atom.text.as_str()) {
-                        (AtomClass::Delimiter, "(") => structural_rows.push(self.atom_row(
-                            index,
-                            Origin::Structural {
-                                package: "lexlean.core".to_owned(),
-                                entry: "paren-open".to_owned(),
-                            },
-                        )),
-                        (AtomClass::Delimiter, ")") => structural_rows.push(self.atom_row(
-                            index,
-                            Origin::Structural {
-                                package: "lexlean.core".to_owned(),
-                                entry: "paren-close".to_owned(),
-                            },
-                        )),
-                        (AtomClass::AsciiSymbol, ",") => structural_rows.push(self.atom_row(
-                            index,
-                            Origin::Structural {
-                                package: "lexlean.core".to_owned(),
-                                entry: "comma".to_owned(),
-                            },
-                        )),
-                        _ => {}
-                    }
+                // Structural rows for exactly this call's own parentheses and
+                // top-level separators; nested calls and grouped arguments
+                // cover their own (I1).
+                let structural = |entry: &str| Origin::Structural {
+                    package: "lexlean.core".to_owned(),
+                    entry: entry.to_owned(),
+                };
+                let mut structural_rows = vec![
+                    self.atom_row(*open, structural("paren-open")),
+                    self.atom_row(*close, structural("paren-close")),
+                ];
+                for comma in commas {
+                    structural_rows.push(self.atom_row(*comma, structural("comma")));
                 }
                 self.combine_application(&head_cands, &arg_cands, &structural_rows, &mut out)?;
             }
@@ -1284,6 +1582,31 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         }
     }
 
+    /// The closed explicit binder types of an entry's signature, in order:
+    /// the expected types its frame arguments elaborate against (a numeral
+    /// argument is typed by them, §15.5). A binder type mentioning an
+    /// earlier binder or an implicit hole is not closed and yields `None`.
+    pub fn explicit_binder_types(&mut self, reference: &FormRef) -> Vec<Option<Term>> {
+        let mut metas = Metas::default();
+        let Ok((_, ty)) = self.instantiate_entry(reference, &mut metas) else {
+            return Vec::new();
+        };
+        let (binders, _) = flatten_pi(&ty);
+        binders
+            .iter()
+            .filter(|binder| binder.mode == BinderMode::Explicit)
+            .map(|binder| {
+                let mut locals = std::collections::BTreeSet::new();
+                crate::elaborate::collect_term_locals_public(&binder.ty, &mut locals);
+                if locals.is_empty() && !has_unsolved(&binder.ty, &metas) {
+                    Some(zonk(&binder.ty, &metas))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// Apply one entry to already-elaborated argument terms (predicate
     /// frames, §15.6). The result carries only the operator's own coverage
     /// row; the caller owns the argument rows.
@@ -1297,8 +1620,10 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         let mut metas = Metas::default();
         let (function, function_ty) =
             self.instantiate_entry(reference, &mut metas)
-                .map_err(|reason| {
-                    Diagnostic::new(code!("LLT4001"), reason).with_span(self.span_of(surface_atoms))
+                .map_err(|failure| {
+                    failure
+                        .diagnostic(code!("LLT4001"))
+                        .with_span(self.span_of(surface_atoms))
                 })?;
         let arg_cands: Vec<Cand> = args
             .iter()
@@ -1367,6 +1692,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         let candidates = self.candidates(ast)?;
         let candidate_count = candidates.len();
         let mut survivors: Vec<(String, ElabTerm)> = Vec::new();
+        let mut untyped_numeral: Option<String> = None;
         for mut candidate in candidates {
             if let Some(expected_ty) = expected {
                 if !unify(&candidate.ty, expected_ty, &mut candidate.metas) {
@@ -1378,6 +1704,9 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 &candidate.metas,
             );
             if has_unsolved(&term, &candidate.metas) {
+                if untyped_numeral.is_none() {
+                    untyped_numeral = unsolved_numeral(&term, &candidate.metas);
+                }
                 continue;
             }
             let ty =
@@ -1387,7 +1716,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             } else {
                 Some(ty)
             };
-            let key = term.canonical_key();
+            let key = term.eq_key();
             if !survivors.iter().any(|(existing, _)| *existing == key) {
                 survivors.push((
                     key,
@@ -1400,7 +1729,17 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             }
         }
         match survivors.len() {
-            1 => Ok(survivors.into_iter().next().expect("one survivor").1),
+            1 => {
+                let elaborated = survivors.into_iter().next().expect("one survivor").1;
+                // The linked term's nesting is bounded by `max_scope_depth`
+                // (§25.5) so every later IR walker recurses within the
+                // limit; the parsers bound source nesting, and application
+                // through signatures adds a bounded constant.
+                self.budget
+                    .depth(elaborated.term.depth(), "elaborate (term nesting)")
+                    .map_err(|diagnostic| diagnostic.with_span(self.span_of(ast.atoms())))?;
+                Ok(elaborated)
+            }
             0 if candidate_count > 1 => Err(Diagnostic::new(
                 code!("LLT4002"),
                 "no overloaded candidate satisfies the declared signatures and expected types",
@@ -1408,40 +1747,20 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             .with_span(self.span_of(ast.atoms()))),
             0 => Err(Diagnostic::new(
                 code!("LLT4001"),
-                "no interpretation satisfies the declared signatures and expected types",
+                match untyped_numeral {
+                    // §15.5: a numeral has no default type; name it.
+                    Some(decimal) => format!(
+                        "the numeral `{decimal}` receives no expected type from an operator, relation, binder, definition signature, or declaration statement (§15.5)"
+                    ),
+                    None => "no interpretation satisfies the declared signatures and expected types"
+                        .to_owned(),
+                },
             )
             .with_span(self.span_of(ast.atoms()))),
-            _ => {
-                // §14.4: present the differentiating qualified candidate IDs.
-                let id_sets: Vec<std::collections::BTreeSet<String>> = survivors
-                    .iter()
-                    .map(|(_, elaborated)| {
-                        let mut ids = std::collections::BTreeSet::new();
-                        crate::elaborate::collect_global_ids(&elaborated.term, &mut ids);
-                        ids
-                    })
-                    .collect();
-                let union: std::collections::BTreeSet<String> =
-                    id_sets.iter().flatten().cloned().collect();
-                let differing: Vec<String> = union
-                    .iter()
-                    .filter(|id| !id_sets.iter().all(|set| set.contains(*id)))
-                    .cloned()
-                    .collect();
-                let candidates = if differing.is_empty() {
-                    union.into_iter().collect::<Vec<_>>().join(", ")
-                } else {
-                    differing.join(", ")
-                };
-                Err(Diagnostic::new(
-                    code!("LLP2002"),
-                    format!(
-                        "{} distinct linked interpretations survive; the differentiating candidates are: {candidates}",
-                        survivors.len()
-                    ),
-                )
-                .with_span(self.span_of(ast.atoms())))
-            }
+            _ => Err(crate::elaborate::ambiguity_diagnostic(
+                survivors.iter().map(|(_, elaborated)| &elaborated.term),
+            )
+            .with_span(self.span_of(ast.atoms()))),
         }
     }
 }
@@ -1455,6 +1774,132 @@ impl Cand {
             Some(ty)
         }
     }
+}
+
+/// Flatten a nested Pi telescope into its binder list and conclusion.
+#[must_use]
+pub fn flatten_pi(ty: &Term) -> (Vec<Binder>, Term) {
+    let mut binders = Vec::new();
+    let mut probe = ty.clone();
+    loop {
+        match probe {
+            Term::Pi {
+                binders: group,
+                body,
+            } => {
+                binders.extend(group);
+                probe = *body;
+            }
+            other => return (binders, other),
+        }
+    }
+}
+
+/// The result of instantiating a signature telescope against a target
+/// (§17.6): every binder replaced by a fresh metavariable, the conclusion
+/// unified with the target when one is given.
+#[derive(Debug, Clone)]
+pub struct Instantiated {
+    /// The binders in telescope order with their metavariable identities;
+    /// the binder types are zonked after unification and may still contain
+    /// unsolved metas (see [`Instantiated::binder_type`]).
+    pub binders: Vec<(Binder, LocalId)>,
+    /// The zonked conclusion.
+    pub conclusion: Term,
+    /// The metavariable store after unification.
+    pub metas: Metas,
+}
+
+impl Instantiated {
+    /// The fully determined type of binder `index`, or `None` when
+    /// unification left a metavariable in it.
+    #[must_use]
+    pub fn binder_type(&self, index: usize) -> Option<Term> {
+        let (binder, _) = self.binders.get(index)?;
+        let ty = zonk(&binder.ty, &self.metas);
+        if has_unsolved(&ty, &self.metas) {
+            None
+        } else {
+            Some(strip_unsolved_universes(&ty, &self.metas))
+        }
+    }
+
+    /// Is binder `index` still an unsolved metavariable after unification
+    /// (that is, a residual premise or an unconstrained argument)?
+    #[must_use]
+    pub fn binder_unsolved(&self, index: usize) -> bool {
+        self.binders
+            .get(index)
+            .is_some_and(|(_, meta)| self.metas.lookup(*meta).is_none())
+    }
+}
+
+/// Instantiate a (flattened) telescope `ty` with fresh metavariables for
+/// every binder and unify the conclusion against `target`. `Ok(None)` means
+/// the conclusion does not conservatively unify with the target; the
+/// caller defers to Lean (§17.6).
+pub fn instantiate_telescope(
+    ty: &Term,
+    target: Option<&Term>,
+    alloc: &mut LocalAlloc,
+) -> Option<Instantiated> {
+    let (binders, conclusion) = flatten_pi(ty);
+    let mut metas = Metas::default();
+    let mut map: BTreeMap<LocalId, Term> = BTreeMap::new();
+    let mut instantiated = Vec::new();
+    for binder in binders {
+        let meta = metas.fresh_term(alloc);
+        let ty = substitute(&binder.ty, &map);
+        map.insert(binder.id, Term::Local(meta));
+        instantiated.push((
+            Binder {
+                id: binder.id,
+                mode: binder.mode,
+                ty,
+                spelling: binder.spelling,
+            },
+            meta,
+        ));
+    }
+    let conclusion = substitute(&conclusion, &map);
+    if let Some(target) = target {
+        if !unify(&conclusion, target, &mut metas) {
+            return None;
+        }
+    }
+    let conclusion = zonk(&conclusion, &metas);
+    Some(Instantiated {
+        binders: instantiated,
+        conclusion,
+        metas,
+    })
+}
+
+/// The glossary signature of `entry_id` as a term with fresh binder
+/// identities and fresh universe metavariables, plus the entry's global
+/// (§17.6). `Err` names the reason the entry cannot be instantiated.
+pub fn entry_signature_term(
+    shared: &Shared<'_>,
+    alloc: &mut LocalAlloc,
+    entry_id: &QualifiedId,
+) -> Result<(GlobalRef, Term), String> {
+    let entry = shared
+        .closure
+        .entry(entry_id)
+        .ok_or_else(|| format!("`{entry_id}` is not in the glossary closure"))?;
+    let signature = entry
+        .signature
+        .as_ref()
+        .ok_or_else(|| format!("`{entry_id}` has no signature"))?;
+    let universe_map: BTreeMap<String, Universe> = entry
+        .universes
+        .iter()
+        .map(|name| (name.clone(), Universe::Var(name.clone())))
+        .collect();
+    let ty = lse_to_term(signature, shared, alloc, &universe_map, None)
+        .map_err(|failure| failure.to_string())?;
+    let global = global_for(shared, entry_id, entry)?;
+    Ok((global, ty))
 }
 
 /// Beta-reduce one application of a lambda to one argument, for witness

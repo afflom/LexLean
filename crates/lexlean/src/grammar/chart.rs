@@ -6,25 +6,46 @@ use crate::diagnostic::Diagnostic;
 use crate::source::atom::{Atom, AtomClass};
 
 /// Checked parse budgets (§25.5). Exceeding a limit is `LLS8002`, never an
-/// allocation panic.
+/// allocation panic or a stack overflow.
+///
+/// Limit mapping (§10.2): `max_scope_depth` bounds every form of
+/// grammatical nesting --- section nesting, mathematical grouping and call
+/// nesting, proposition connective nesting, nested proof environments ---
+/// and, through the elaborator, the nesting depth of every linked IR term,
+/// so that every recursive IR walker runs on a term of bounded depth.
+/// `max_ir_nodes` bounds the linked IR size.
 #[derive(Debug)]
 pub struct Budget {
     edges: u64,
     max_edges: u64,
     states: u64,
     max_states: u64,
+    max_depth: u64,
 }
 
 impl Budget {
     /// A budget from the explicit resource policy.
     #[must_use]
-    pub fn new(max_token_lattice_edges: u64, max_parse_states: u64) -> Self {
+    pub fn new(max_token_lattice_edges: u64, max_parse_states: u64, max_scope_depth: u64) -> Self {
         Self {
             edges: 0,
             max_edges: max_token_lattice_edges,
             states: 0,
             max_states: max_parse_states,
+            max_depth: max_scope_depth,
         }
+    }
+
+    /// The configured nesting limit.
+    #[must_use]
+    pub const fn max_depth(&self) -> u64 {
+        self.max_depth
+    }
+
+    /// Check one nesting depth against `max_scope_depth`; `phase` names the
+    /// nesting kind in the diagnostic.
+    pub fn depth(&self, depth: u64, phase: &str) -> Result<(), Diagnostic> {
+        depth_check(depth, self.max_depth, phase)
     }
 
     /// Count one lattice edge.
@@ -53,6 +74,18 @@ impl Budget {
         }
         Ok(())
     }
+}
+
+/// The shared depth check (§25.5): nesting deeper than `max_scope_depth` is
+/// `LLS8002` naming the limit, its configured value, and the phase.
+pub fn depth_check(depth: u64, max_depth: u64, phase: &str) -> Result<(), Diagnostic> {
+    if depth > max_depth {
+        return Err(Diagnostic::new(
+            code!("LLS8002"),
+            format!("max_scope_depth exceeded in phase {phase}: configured {max_depth}, nesting depth {depth}"),
+        ));
+    }
+    Ok(())
 }
 
 /// One token of the text channel: a non-whitespace atom position or one

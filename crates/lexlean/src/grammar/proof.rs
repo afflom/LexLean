@@ -125,18 +125,122 @@ impl Matcher<'_, '_> {
     }
 }
 
+/// The forbidden proof forms of §16.12 spelled as Lean tactic words,
+/// automation, combinators, and holes. A proof sentence mentioning one is
+/// diagnosed as a forbidden proof form by name rather than as an unknown
+/// atom, so the author learns the rule, not merely the lexicon gap.
+const FORBIDDEN_PROOF_WORDS: &[&str] = &[
+    "aesop",
+    "admit",
+    "cases",
+    "constructor",
+    "induction",
+    "all_goals",
+    "any_goals",
+    "apply?",
+    "assumption",
+    "case",
+    "decide",
+    "exact",
+    "exact?",
+    "first",
+    "intro",
+    "linarith",
+    "native_decide",
+    "next",
+    "omega",
+    "refine",
+    "repeat",
+    "rfl",
+    "rw",
+    "rwa",
+    "simp",
+    "simp_all",
+    "simpa",
+    "sorry",
+    "tauto",
+    "trivial",
+    "try",
+];
+
+/// The forbidden proof form named by a proof sentence's tokens, if any
+/// (§16.12): a forbidden tactic word anywhere in the sentence, an
+/// underscore-bearing tactic spelling at sentence start, the `<;>`
+/// combinator, or the `·` focusing dot.
+#[must_use]
+pub fn forbidden_proof_form(parser: &TextParser<'_>) -> Option<(String, usize)> {
+    let atoms_of = |token: &TextToken| match token {
+        TextToken::Atom(index) => Some(*index),
+        TextToken::Island { .. } => None,
+    };
+    let word_at = |index: usize| -> String {
+        // A tactic spelling may be composed of several primitive atoms
+        // (`native_decide`, `exact?`, `all_goals`); read the byte-adjacent
+        // run.
+        let mut text = parser.atoms[index].text.clone();
+        let mut end = parser.atoms[index].byte_end;
+        let mut next = index + 1;
+        while let Some(atom) = parser.atoms.get(next) {
+            if atom.byte_start != end
+                || !matches!(
+                    atom.class,
+                    AtomClass::Word | AtomClass::Numeral | AtomClass::AsciiSymbol
+                )
+                || matches!(atom.text.as_str(), "," | "." | ";" | ":" | "(" | ")")
+            {
+                break;
+            }
+            text.push_str(&atom.text);
+            end = atom.byte_end;
+            next += 1;
+        }
+        text
+    };
+    for (position, token) in parser.tokens.iter().enumerate() {
+        let Some(index) = atoms_of(token) else {
+            continue;
+        };
+        let atom = &parser.atoms[index];
+        let composed = word_at(index);
+        // Sentence-initial words are proof verbs (`Assume`, `Close`, ...);
+        // a bare tactic word there, or any spelling with an underscore that
+        // is not a registered proof keyword, is a tactic.
+        if FORBIDDEN_PROOF_WORDS.contains(&composed.as_str()) {
+            return Some((composed, index));
+        }
+        if position == 0
+            && composed.contains('_')
+            && proof_keyword_entry(composed.as_str()).is_none()
+        {
+            return Some((composed, index));
+        }
+        if atom.class == AtomClass::AsciiSymbol && (composed.starts_with("<;>") || atom.text == "·")
+        {
+            return Some((composed, index));
+        }
+    }
+    None
+}
+
 /// Parse one simple proof sentence's tokens (the terminating period is
 /// outside the range). Anything not in the registered set is a forbidden
 /// proof form (§16.12).
 pub fn parse_proof_sentence(parser: &TextParser<'_>) -> Result<ProofSentence, Diagnostic> {
     let fail = || {
+        if let Some((word, index)) = forbidden_proof_form(parser) {
+            return Diagnostic::new(
+                code!("LLF5005"),
+                format!("`{word}` is a forbidden proof form (§16.12): raw tactics, automation, tactic combinators, and proof holes are never accepted"),
+            )
+            .with_span(parser.atoms[index].span(parser.path));
+        }
         let span = parser.tokens.first().map_or_else(
             || crate::diagnostic::Span::whole_file(parser.path),
             |token| parser.atoms[token.first_atom()].span(parser.path),
         );
         Diagnostic::new(
             code!("LLF5005"),
-            "not a registered proof sentence; the exact simple sentences are fixed",
+            "not a registered proof sentence; the exact simple sentences are fixed (§16.2)",
         )
         .with_span(span)
     };

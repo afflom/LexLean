@@ -163,8 +163,52 @@ pub(crate) fn run(id: &str) {
                 assert!(tags.contains(expected), "the corpus exercises `{expected}`");
             }
         }
-        // §17.6: conservative checks without kernel claims.
+        // §17.6: conservative checks without kernel claims; an ill-typed
+        // glossary application (too many explicit arguments) is rejected at
+        // conversion with the entry named (S5).
         "SM-05" => {
+            let overapplied = P::example();
+            overapplied.add_package(
+                "lexicons/test-arity",
+                "test.arity",
+                &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+                &[
+                    (
+                        "nzz.toml",
+                        &support::nzz_entry("Nat.le_refl").replace(
+                            "(app (const lexlean.core::lnot) (app (const lexlean.std.nat::ne) (local n) (local n)))",
+                            "(app (const lexlean.core::lnot) (app (const lexlean.std.nat::ne) (local n) (local n) (local n)))",
+                        ),
+                    ),
+                    ("z.toml", Z_MATH),
+                ],
+            );
+            overapplied.write(
+                "src/Main.lex.tex",
+                &support::nzz_module(&["test.arity@1.0.0"]),
+            );
+            // An over-applied signature is rejected when the package loads
+            // (§13.7: the signature is checked as an interface), so it never
+            // reaches source elaboration.
+            let error = overapplied
+                .engine()
+                .lock(lexlean::LockRequest {
+                    check_only: false,
+                    allow_network: false,
+                })
+                .expect_err("an over-applied signature fails package loading");
+            let diagnostic = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLR3004")
+                .unwrap_or_else(|| panic!("LLR3004 for an over-applied signature: {error}"));
+            assert!(
+                diagnostic.message.contains("lexlean.std.nat::ne")
+                    && diagnostic.message.contains("3 explicit arguments"),
+                "the diagnostic names the entry and the arity: {}",
+                diagnostic.message
+            );
+
             let ill_typed = P::example();
             ill_typed.edit(
                 "src/Main.lex.tex",
@@ -242,6 +286,38 @@ pub(crate) fn run(id: &str) {
                     .map(|d| d.code.as_str())
                     .collect::<Vec<_>>()
             );
+            // A component converting to a pinned-Lean keyword is rejected
+            // by name (C9); tactic names are not keywords.
+            for keyword in [
+                "def", "theorem", "at", "where", "instance", "with", "then", "let",
+            ] {
+                let project = P::example();
+                project.edit(
+                    "src/Main.lex.tex",
+                    "\\begin{theorem}{add-zero}",
+                    &format!("\\begin{{theorem}}{{{keyword}}}"),
+                );
+                let error = project.check_fails_with("LLP2003");
+                let diagnostic = error
+                    .diagnostics
+                    .iter()
+                    .find(|d| d.code.as_str() == "LLP2003")
+                    .expect("matched");
+                assert!(
+                    diagnostic.message.contains("Lean keyword") && diagnostic.primary.is_some(),
+                    "`{keyword}`: {}",
+                    diagnostic.message
+                );
+            }
+            for name in ["first", "left", "apply", "cases"] {
+                let project = P::example();
+                project.edit(
+                    "src/Main.lex.tex",
+                    "\\begin{theorem}{add-zero}",
+                    &format!("\\begin{{theorem}}{{{name}}}"),
+                );
+                project.check_ok();
+            }
         }
         // §17.9: alpha-safe serialization with dense binder indices.
         "SM-09" => {
@@ -405,25 +481,79 @@ pub(crate) fn run(id: &str) {
                 "the using theorem inherits the binder"
             );
             assert_eq!(params_of("ignores-param"), 0, "the non-user emits none");
+            // A reference to a parameterized declaration applies the
+            // parameters explicitly, inside and outside its section, and
+            // Lean-verifies (C2, S4).
+            let fixture = support::verified_corpus();
+            assert_eq!(fixture.attestation["status"], "verified");
+            assert_eq!(
+                support::corpus_declaration_lean("use_inside"),
+                "public theorem use_inside (llv0 : Nat) : Eq (Nat.succ (Nat.add llv0 0)) (Nat.succ llv0) := by\n  apply LexLeanExample.Main.succ_congr\n  exact LexLeanExample.Main.param_add_zero llv0"
+            );
+            assert_eq!(
+                support::corpus_declaration_lean("use_outside"),
+                "public theorem use_outside (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  exact LexLeanExample.Main.param_add_zero llv0"
+            );
+            // The bare reference has the parameter-abstracted type: it does
+            // not close a goal that expects the instantiated statement.
+            let bare = support::corpus_project();
+            bare.edit(
+                "src/Main.lex.tex",
+                "Close the goal with \\(\\reference{Main::param-add-zero}(q)\\).",
+                "Close the goal with \\(\\reference{Main::param-add-zero}\\).",
+            );
+            bare.check_fails_with("LLT4001");
         }
         // §15.5: numerals require a unique expected type.
         "SM-14" => {
             let project = P::example();
             project.edit("src/Main.lex.tex", "\\(n + 0 = n\\)", "\\(1 = 1\\)");
             let error = project.check_err();
+            let diagnostic = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLT4001")
+                .unwrap_or_else(|| {
+                    panic!("a numeral without a unique expected type is LLT4001: {error}")
+                });
             assert!(
-                error
-                    .diagnostics
-                    .iter()
-                    .any(|d| matches!(d.code.as_str(), "LLT4001" | "LLP2002")),
-                "a numeral without a unique expected type is rejected: {:?}",
-                error
-                    .diagnostics
-                    .iter()
-                    .map(|d| d.code.as_str())
-                    .collect::<Vec<_>>()
+                diagnostic.message.contains("numeral `1`") && diagnostic.primary.is_some(),
+                "the numeral is named: {}",
+                diagnostic.message
+            );
+            // A numeral typed by a binder, an operator, or a witness slot is
+            // accepted (corpus: `Use \\(0\\) as the witness`, `\\(0\\) is even`).
+            let fixture = support::verified_corpus();
+            assert_eq!(fixture.attestation["status"], "verified");
+            assert_eq!(
+                support::corpus_declaration_lean("zero_even"),
+                "public theorem zero_even : LexLeanExample.Main.even 0 := by\n  refine ⟨0, ?_⟩\n  rfl"
             );
         }
         other => panic!("no semantic-ir case is wired for {other}"),
     }
 }
+
+/// The math-channel zero used by the arity fixture.
+const Z_MATH: &str = r#"spec = "lexlean/entry/1"
+id = "z"
+category = "term-constant"
+signature = "(const lexlean.std.nat::nat)"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.zero"
+
+[[form]]
+id = "z"
+channel = "both"
+surface = "z"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name z)"
+"#;
