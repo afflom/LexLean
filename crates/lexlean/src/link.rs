@@ -1221,11 +1221,29 @@ fn link_declaration(
             body: Box::new(body_ty),
         }
     };
+    let info_value = match &body {
+        DeclBody::Definition { value, .. } => Some(if params.is_empty() {
+            value.clone()
+        } else {
+            match value {
+                Term::Lambda { binders, body } => Term::Lambda {
+                    binders: params.iter().cloned().chain(binders.iter().cloned()).collect(),
+                    body: body.clone(),
+                },
+                other => Term::Lambda {
+                    binders: params.clone(),
+                    body: Box::new(other.clone()),
+                },
+            }
+        }),
+        DeclBody::TheoremLike { .. } => None,
+    };
     let info = DeclInfo {
         module: module_name.to_owned(),
         component: decl.component.text.clone(),
         lean_name: full_lean_name,
         ty: info_ty,
+        value: info_value,
     };
     module_decls.rows.push(info.clone());
     global_decls.rows.push(info);

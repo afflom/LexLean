@@ -26,8 +26,13 @@ pub struct DeclInfo {
     /// The full generated Lean name.
     pub lean_name: String,
     /// The declaration's type: the statement for theorem-like kinds, the
-    /// explicit type for definitions.
+    /// explicit type for definitions, both abstracted over the emitted
+    /// inherited parameters.
     pub ty: Term,
+    /// A definition's value (a lambda over its parameters and signature
+    /// binders when it has any), so a goal headed by the definition can be
+    /// unfolded conservatively (§16.1); `None` for theorem-like kinds.
+    pub value: Option<Term>,
 }
 
 /// The table of available declarations, in availability order.
@@ -186,23 +191,21 @@ pub fn elab_term_phrase(
         } => {
             let mut rows = Vec::new();
             keyword_rows(shared, keywords, &mut rows);
-            let mut arg_terms = Vec::new();
-            for argument in args {
-                let result = elab_term_phrase(shared, scopes, alloc, budget, argument, None)?;
-                rows.extend(result.rows.clone());
-                arg_terms.push(result);
-            }
             let mut survivors: Vec<(String, ElabTerm)> = Vec::new();
             let mut first_failure: Option<Diagnostic> = None;
             for reference in candidates {
-                let mut elaborator = ExprElab {
+                // The arguments elaborate against the candidate's explicit
+                // binder types (a numeral argument is typed by them, §15.5).
+                match apply_frame_candidate(
                     shared,
                     scopes,
                     alloc,
                     budget,
-                };
-                match elaborator.apply_entry_to_terms(reference, *surface_atoms, &arg_terms, expected)
-                {
+                    reference,
+                    *surface_atoms,
+                    args,
+                    expected,
+                ) {
                     Ok(result) => {
                         let key = result.term.eq_key();
                         if !survivors.iter().any(|(existing, _)| *existing == key) {
@@ -238,6 +241,52 @@ pub fn elab_term_phrase(
             }
         }
     }
+}
+
+/// Elaborate one frame candidate: each term-phrase argument against the
+/// candidate's explicit binder type, then the entry applied to the argument
+/// terms. The result's rows are the argument rows followed by the frame's
+/// own row.
+#[allow(clippy::too_many_arguments)]
+fn apply_frame_candidate(
+    shared: &Shared<'_>,
+    scopes: &ScopeStack,
+    alloc: &mut LocalAlloc,
+    budget: &mut Budget,
+    reference: &crate::lexicon::resolve::FormRef,
+    surface_atoms: crate::grammar::structural::AtomRange,
+    args: &[TermPhraseAst],
+    expected: Option<&Term>,
+) -> Result<ElabTerm, Diagnostic> {
+    let binder_types = {
+        let mut elaborator = ExprElab {
+            shared,
+            scopes,
+            alloc,
+            budget,
+        };
+        elaborator.explicit_binder_types(reference)
+    };
+    let mut rows = Vec::new();
+    let mut arg_terms = Vec::new();
+    for (index, argument) in args.iter().enumerate() {
+        let expected_ty = binder_types.get(index).cloned().flatten();
+        let result =
+            elab_term_phrase(shared, scopes, alloc, budget, argument, expected_ty.as_ref())?;
+        rows.extend(result.rows.clone());
+        arg_terms.push(result);
+    }
+    let mut elaborator = ExprElab {
+        shared,
+        scopes,
+        alloc,
+        budget,
+    };
+    let mut result =
+        elaborator.apply_entry_to_terms(reference, surface_atoms, &arg_terms, expected)?;
+    rows.append(&mut result.rows);
+    result.rows = rows;
+    Ok(result)
 }
 
 /// The §14.4 ambiguity diagnostic: `LLP2002` presenting only the
@@ -402,27 +451,19 @@ pub fn elab_proposition(
         } => {
             let mut rows = Vec::new();
             keyword_rows(shared, keywords, &mut rows);
-            let mut arg_terms = Vec::new();
-            for argument in args {
-                let result = elab_term_phrase(shared, scopes, alloc, budget, argument, None)?;
-                rows.extend(result.rows.clone());
-                arg_terms.push(result);
-            }
             // Apply each candidate entry to the argument terms through the
             // shared operator machinery.
             let mut survivors: Vec<(String, Term, Vec<SourceRow>)> = Vec::new();
             let mut first_failure: Option<Diagnostic> = None;
             for reference in candidates {
-                let mut elaborator = ExprElab {
+                match apply_frame_candidate(
                     shared,
                     scopes,
                     alloc,
                     budget,
-                };
-                match elaborator.apply_entry_to_terms(
                     reference,
                     *surface_atoms,
-                    &arg_terms,
+                    args,
                     Some(&crate::ir::term::prop()),
                 ) {
                     Ok(result) => {
@@ -698,6 +739,50 @@ fn differentiating_span(
         line_end: last.line_end,
         column_end: last.column_end,
     })
+}
+
+/// Every free local mentioned in a term; public for the expression
+/// elaborator's binder-type closure check.
+pub(crate) fn collect_term_locals_public(
+    term: &Term,
+    out: &mut std::collections::BTreeSet<crate::ir::term::LocalId>,
+) {
+    match term {
+        Term::Local(id) => {
+            out.insert(*id);
+        }
+        Term::Sort(_) | Term::Global(..) => {}
+        Term::App {
+            function,
+            explicit_args,
+            ..
+        } => {
+            collect_term_locals_public(function, out);
+            for argument in explicit_args {
+                collect_term_locals_public(argument, out);
+            }
+        }
+        Term::Pi { binders, body } | Term::Lambda { binders, body } => {
+            for binder in binders {
+                collect_term_locals_public(&binder.ty, out);
+            }
+            collect_term_locals_public(body, out);
+            for binder in binders {
+                out.remove(&binder.id);
+            }
+        }
+        Term::Let {
+            binder,
+            value,
+            body,
+        } => {
+            collect_term_locals_public(&binder.ty, out);
+            collect_term_locals_public(value, out);
+            collect_term_locals_public(body, out);
+            out.remove(&binder.id);
+        }
+        Term::NatLiteral { expected_type, .. } => collect_term_locals_public(expected_type, out),
+    }
 }
 
 /// Every qualified global reference inside a term (§14.4 candidate IDs).

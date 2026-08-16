@@ -131,6 +131,57 @@ fn core_app(core: CoreRef, args: Vec<Term>, omitted: Vec<ImplicitBinderId>) -> T
 }
 
 impl<'a, 'b> ProofElab<'a, 'b> {
+    /// Unfold a goal headed by a document definition whose value is
+    /// available (§17.7): the value lambda applied to the goal's explicit
+    /// arguments, beta-reduced. Repeated until the head is not such a
+    /// definition; the result is what the shape checks see, exactly as
+    /// pinned Lean unfolds the definition when the tactic needs it.
+    fn unfold_definitions(&self, goal: &Term) -> Term {
+        let mut current = goal.clone();
+        let mut steps: u64 = 0;
+        loop {
+            let (function, args) = match &current {
+                Term::App {
+                    function,
+                    explicit_args,
+                    ..
+                } => (&**function, explicit_args.clone()),
+                other => (other, Vec::new()),
+            };
+            let Term::Global(GlobalRef::Document(reference), _) = function else {
+                return current;
+            };
+            let Some(info) = self.shared.decls.get(&reference.module, &reference.component) else {
+                return current;
+            };
+            let Some(value) = &info.value else {
+                return current;
+            };
+            let unfolded = match value {
+                Term::Lambda { binders, body } if binders.len() == args.len() => {
+                    let map: BTreeMap<LocalId, Term> = binders
+                        .iter()
+                        .zip(&args)
+                        .map(|(binder, argument)| (binder.id, argument.clone()))
+                        .collect();
+                    subst(body, &map)
+                }
+                Term::Lambda { .. } => return current,
+                other if args.is_empty() => other.clone(),
+                _ => return current,
+            };
+            // Definitions are acyclic (§15.7 rule 8) and each unfolding
+            // strictly consumes one document head; the depth bound is the
+            // configured nesting limit as a guard against a linked table
+            // deeper than the source could ever be.
+            steps = steps.saturating_add(1);
+            if steps > self.budget.max_depth() {
+                return unfolded;
+            }
+            current = unfolded;
+        }
+    }
+
     fn span_of(&self, range: AtomRange) -> Span {
         let first = &self.shared.atoms[range.0];
         let last = &self.shared.atoms[range.1.saturating_sub(1).max(range.0)];
@@ -292,7 +343,10 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 )
                 .with_span(self.item_span(item)));
             }
-            let step_goal = goal.for_step();
+            let step_goal = match goal.for_step() {
+                Goal::Known(term) => Goal::Known(self.unfold_definitions(&term)),
+                other => other,
+            };
             match item {
                 ProofItemAst::Sentence(sentence) => {
                     let (step, next_goal, now_closed) =
@@ -652,8 +706,17 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         let Some(ty) = function.ty.as_ref() else {
             return Residuals::Unknown;
         };
-        let (binders, _) = flatten_pi(ty);
+        let (binders, conclusion) = flatten_pi(ty);
         if binders.is_empty() {
+            // `Not P` is `P → False`: applying a negation leaves exactly the
+            // premise `P` (§16.2).
+            if let (Some(CoreRef::Not), Term::App { explicit_args, .. }) =
+                (core_head(&conclusion), &conclusion)
+            {
+                if let [premise] = explicit_args.as_slice() {
+                    return Residuals::Known(vec![Goal::Known(premise.clone())]);
+                }
+            }
             return Residuals::Known(Vec::new());
         }
         let Some(goal_term) = goal.known() else {
@@ -887,6 +950,11 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         }
         self.structural_row(sentence.period, "period");
         let sentence_span = self.span_of(sentence.range);
+        // A goal headed by a document definition is seen through its value.
+        let goal = match goal {
+            Goal::Known(term) => Goal::Known(self.unfold_definitions(&term)),
+            other => other,
+        };
         match kind {
             SentenceAstKind::Assume { islands } => {
                 let locals = self.assume_locals(sentence, &islands)?;

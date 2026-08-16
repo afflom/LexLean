@@ -943,7 +943,7 @@ Close the goal with \(h\).
 \end{theorem}
 
 \begin{theorem}{simplify-both}
-\noaxioms
+\allowaxioms{propext}
 For every natural number \(n\), if \(0 + n = 1\), then \(n + 0 = 1\).
 \begin{proof}
 Assume \(h\).
@@ -958,7 +958,7 @@ Close the goal with \(h\).
 \end{theorem}
 
 \begin{theorem}{simplify-closes}
-\noaxioms
+\allowaxioms{propext}
 For every natural number \(n\), if \(n = 1\), then \(n + 0 = 1\).
 \begin{proof}
 Assume \(h\).
@@ -1263,7 +1263,7 @@ pub fn verified_corpus() -> &'static VerifiedFixture {
                 selection: Selection::Entrypoints,
             })
             .unwrap_or_else(|error| {
-                panic!("the proof corpus verifies under pinned Lean 4.32.1: {error}")
+                panic!("the proof corpus verifies under pinned Lean 4.32.1: {error:#?}")
             });
         let attestation: serde_json::Value = serde_json::from_slice(
             &std::fs::read(outcome.root.join("attestation.json").as_std_path())

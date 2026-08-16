@@ -1531,6 +1531,31 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         }
     }
 
+    /// The closed explicit binder types of an entry's signature, in order:
+    /// the expected types its frame arguments elaborate against (a numeral
+    /// argument is typed by them, §15.5). A binder type mentioning an
+    /// earlier binder or an implicit hole is not closed and yields `None`.
+    pub fn explicit_binder_types(&mut self, reference: &FormRef) -> Vec<Option<Term>> {
+        let mut metas = Metas::default();
+        let Ok((_, ty)) = self.instantiate_entry(reference, &mut metas) else {
+            return Vec::new();
+        };
+        let (binders, _) = flatten_pi(&ty);
+        binders
+            .iter()
+            .filter(|binder| binder.mode == BinderMode::Explicit)
+            .map(|binder| {
+                let mut locals = std::collections::BTreeSet::new();
+                crate::elaborate::collect_term_locals_public(&binder.ty, &mut locals);
+                if locals.is_empty() && !has_unsolved(&binder.ty, &metas) {
+                    Some(zonk(&binder.ty, &metas))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// Apply one entry to already-elaborated argument terms (predicate
     /// frames, §15.6). The result carries only the operator's own coverage
     /// row; the caller owns the argument rows.
