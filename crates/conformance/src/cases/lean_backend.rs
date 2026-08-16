@@ -1,22 +1,14 @@
 //! The `lean-backend` suite: LN-01..LN-12.
 
+use lexlean::verify::source_audit::{audit, lex, LeanToken};
+
 use crate::support::{self, P};
+
+/// The §29.3 generated Lean of the literal example, byte for byte.
+const EXAMPLE_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem add_zero (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl\n\nend LexLeanExample.Main\n";
 
 fn example_lean() -> String {
     support::lean_text(&support::rendered(&P::example()), "Main")
-}
-
-/// A one-theorem module (statement, proof body).
-fn theorem_module(statement: &str, proof: &str) -> String {
-    format!(
-        "\\begin{{lexlean}}{{Main}}\n\\useglossary{{lexlean.std.nat@1.0.0}}\n\\title{{Natural number addition}}\n\n\\begin{{theorem}}{{main-goal}}\n\\noaxioms\n{statement}\n\\begin{{proof}}\n{proof}\n\\end{{proof}}\n\\end{{theorem}}\n\\end{{lexlean}}\n"
-    )
-}
-
-fn two_theorems(first_statement: &str, second_statement: &str, second_proof: &str) -> String {
-    format!(
-        "\\begin{{lexlean}}{{Main}}\n\\useglossary{{lexlean.std.nat@1.0.0}}\n\\title{{Natural number addition}}\n\n\\begin{{theorem}}{{first}}\n\\noaxioms\n{first_statement}\n\\begin{{proof}}\nClose the goal by reflexivity.\n\\end{{proof}}\n\\end{{theorem}}\n\n\\begin{{theorem}}{{second}}\n\\noaxioms\n{second_statement}\n\\begin{{proof}}\n{second_proof}\n\\end{{proof}}\n\\end{{theorem}}\n\\end{{lexlean}}\n"
-    )
 }
 
 fn lean_of(module: &str) -> String {
@@ -26,32 +18,40 @@ fn lean_of(module: &str) -> String {
     support::lean_text(&support::rendered(&project), "Main")
 }
 
+fn theorem_module(statement: &str, proof: &str) -> String {
+    format!(
+        "\\begin{{lexlean}}{{Main}}\n\\useglossary{{lexlean.std.nat@1.0.0}}\n\\title{{Natural number addition}}\n\n\\begin{{theorem}}{{main-goal}}\n\\noaxioms\n{statement}\n\\begin{{proof}}\n{proof}\n\\end{{proof}}\n\\end{{theorem}}\n\\end{{lexlean}}\n"
+    )
+}
+
+/// The proof body (after `:= by`) of a one-theorem generated file.
+fn proof_body(lean: &str) -> &str {
+    lean.split_once(":= by\n")
+        .expect("a tactic proof")
+        .1
+        .split_once("\nend ")
+        .expect("the end")
+        .0
+}
+
 pub(crate) fn run(id: &str) {
     match id {
-        // §18.1: the exact file structure, in order.
+        // §18.1: the exact file structure, in order, byte for byte for the
+        // literal example and for a sectioned module.
         "LN-01" => {
-            let lean = example_lean();
-            let sections = [
-                "module",
-                "import Init",
-                "set_option autoImplicit false",
-                "namespace LexLeanExample.Main",
-                "theorem add_zero",
-                "end LexLeanExample.Main",
-            ];
-            let mut cursor = 0usize;
-            for section in sections {
-                let at = lean[cursor..]
-                    .find(section)
-                    .unwrap_or_else(|| panic!("`{section}` after byte {cursor} in: {lean}"));
-                cursor += at + section.len();
-            }
-            assert!(
-                lean.starts_with("module\n"),
-                "the module header opens the file: {lean}"
+            assert_eq!(example_lean(), EXAMPLE_LEAN, "§29.3 bytes");
+            let project = P::example();
+            project.write("src/Main.lex.tex", support::SECTIONS_MODULE);
+            project.check_ok();
+            assert_eq!(
+                support::lean_text(&support::rendered(&project), "Main"),
+                support::SECTIONS_LEAN,
+                "sections do not appear in Lean; only the used parameter does"
             );
         }
-        // §18.3: sorted unique imports; fully qualified externals; no open.
+        // §18.3: sorted unique imports; fully qualified externals; no open;
+        // externals reached through defined values and case constructors
+        // import their modules too.
         "LN-02" => {
             let lean = example_lean();
             let imports: Vec<&str> = lean
@@ -62,11 +62,44 @@ pub(crate) fn run(id: &str) {
             sorted.sort_unstable();
             sorted.dedup();
             assert_eq!(imports, sorted, "imports are sorted and deduplicated");
+            assert_eq!(imports, vec!["import Init"]);
             assert!(
                 lean.contains("Nat.add"),
                 "external globals are fully qualified: {lean}"
             );
             assert!(!lean.contains("open "), "no open statements: {lean}");
+
+            let project = support::ext_project(support::DEFINED_MODULE);
+            let checked = support::checked_project(&project);
+            let externals = lexlean::backend::lean::document_externals(
+                &checked.modules["Main"].document,
+                &checked.closure,
+            );
+            let mut names: Vec<&str> = externals
+                .values()
+                .map(|external| external.lean_name.as_str())
+                .collect();
+            names.sort_unstable();
+            assert_eq!(
+                names,
+                vec!["Nat.succ", "Nat.zero"],
+                "constants inside the inlined defined value are collected"
+            );
+            let checked = support::checked_project(&{
+                let project = P::example();
+                project.write("src/Main.lex.tex", support::PROOF_FORMS_MODULE);
+                project
+            });
+            let externals = lexlean::backend::lean::document_externals(
+                &checked.modules["Main"].document,
+                &checked.closure,
+            );
+            assert!(
+                externals.contains_key("lexlean.std.nat::succ")
+                    && externals.contains_key("lexlean.std.nat::zero"),
+                "case constructors are collected: {:?}",
+                externals.keys().collect::<Vec<_>>()
+            );
         }
         // §18.2: no comments, strings, or copied prose.
         "LN-03" => {
@@ -78,6 +111,7 @@ pub(crate) fn run(id: &str) {
                 assert!(!lean.contains("/-"), "no block comments: {lean}");
                 assert!(!lean.contains('"'), "no string literals: {lean}");
                 assert!(!lean.contains("natural number"), "no copied prose: {lean}");
+                audit(&lean, false).expect("the generated-source audit accepts it");
             }
         }
         // §18.2: none of the forbidden declaration forms. The spellings are
@@ -94,6 +128,7 @@ pub(crate) fn run(id: &str) {
             for lean in [
                 example_lean(),
                 support::lean_text(&support::rendered(&support::defs_project()), "Main"),
+                support::PROOF_FORMS_LEAN.to_owned(),
             ] {
                 for token in &forbidden {
                     assert!(
@@ -101,73 +136,114 @@ pub(crate) fn run(id: &str) {
                         "generated Lean contains `{token}`: {lean}"
                     );
                 }
+                audit(&lean, false).expect("audit accepts");
             }
         }
-        // §18.7: every pinned lowering form is producible; the corpus
-        // exercises each one.
+        // §18.4, §18.7: every pinned lowering form has exact bytes and
+        // verifies with real Lean; unique existence lowers to its
+        // expansion; missing lowering is a hard error.
         "LN-05" => {
-            let mut corpus = String::new();
-            corpus.push_str(&lean_of(&theorem_module(
-                "For every natural number \\(n\\), if \\(n = n\\), then \\(n + 0 = n\\).",
-                "Assume \\(h\\).\nClose the goal by reflexivity.",
-            )));
-            corpus.push_str(&lean_of(&theorem_module(
-                "There exists a natural number \\(k\\) such that \\(k + 0 = k\\).",
-                "Use \\(0\\) as the witness.\nClose the goal by reflexivity.",
-            )));
-            corpus.push_str(&lean_of(&theorem_module(
-                "For every natural number \\(n\\), \\(n + 0 = n\\) or \\(n = 1\\).",
-                "Select the left alternative.\nClose the goal by reflexivity.",
-            )));
-            corpus.push_str(&lean_of(&theorem_module(
-                "For every natural number \\(n\\), \\(n + 0 = n\\).",
-                "\\begin{have}{h}\n\\(n + 0 = n\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{have}\nClose the goal with \\(h\\).",
-            )));
-            corpus.push_str(&lean_of(&two_theorems(
-                "For every natural number \\(m\\), \\(m + 0 = m\\).",
-                "For every natural number \\(n\\), \\(n + 0 = n\\).",
+            let project = P::example();
+            project.write("src/Main.lex.tex", support::PROOF_FORMS_MODULE);
+            project.check_ok();
+            assert_eq!(
+                support::lean_text(&support::rendered(&project), "Main"),
+                support::PROOF_FORMS_LEAN,
+                "cases, right, induction, intro, apply with premises, and calc"
+            );
+            support::verify_ok(&project);
+
+            // Witness, left, have, rewrite, simp only.
+            assert_eq!(
+                proof_body(&lean_of(&theorem_module(
+                    "There exists a natural number \\(k\\) such that \\(k + 0 = k\\).",
+                    "Use \\(0\\) as the witness.\nClose the goal by reflexivity.",
+                ))),
+                "  refine ⟨(0 : Nat), ?_⟩\n  rfl\n"
+            );
+            assert_eq!(
+                proof_body(&lean_of(&theorem_module(
+                    "For every natural number \\(n\\), \\(n + 0 = n\\) or \\(n = 1\\).",
+                    "Select the left alternative.\nClose the goal by reflexivity.",
+                ))),
+                "  left\n  rfl\n"
+            );
+            assert_eq!(
+                proof_body(&lean_of(&theorem_module(
+                    "For every natural number \\(n\\), \\(n + 0 = n\\).",
+                    "\\begin{have}{h}\n\\(n + 0 = n\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{have}\nClose the goal with \\(h\\).",
+                ))),
+                "  have llh0 : Eq (Nat.add llv0 0) llv0 := by\n    rfl\n  exact llh0\n"
+            );
+            let two = |proof: &str| {
+                format!(
+                    "\\begin{{lexlean}}{{Main}}\n\\useglossary{{lexlean.std.nat@1.0.0}}\n\\title{{Natural number addition}}\n\n\\begin{{theorem}}{{first}}\n\\noaxioms\nFor every natural number \\(m\\), \\(m + 0 = m\\).\n\\begin{{proof}}\nClose the goal by reflexivity.\n\\end{{proof}}\n\\end{{theorem}}\n\n\\begin{{theorem}}{{second}}\n\\noaxioms\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\begin{{proof}}\n{proof}\n\\end{{proof}}\n\\end{{theorem}}\n\\end{{lexlean}}\n"
+                )
+            };
+            let rewrite = lean_of(&two(
                 "\\begin{rewrite}{goal}\n\\forward{\\reference{Main::first}}\n\\end{rewrite}\nClose the goal by reflexivity.",
-            )));
-            corpus.push_str(&lean_of(&two_theorems(
-                "For every natural number \\(m\\), \\(m + 0 = m\\).",
-                "For every natural number \\(n\\), \\(n + 0 = n\\).",
+            ));
+            assert!(
+                rewrite.ends_with("public theorem second (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rw [LexLeanExample.Main.first]\n  rfl\n\nend LexLeanExample.Main\n"),
+                "rw lowering: {rewrite}"
+            );
+            let simp = lean_of(&two(
                 "\\begin{simplify}{goal}\n\\rule{\\reference{Main::first}}\n\\end{simplify}\nClose the goal by reflexivity.",
-            )));
-            corpus.push_str(&lean_of(&theorem_module(
-                "For every natural number \\(n\\), \\(n + 0 = n\\) and \\(n * 1 = n\\).",
-                "\\begin{constructor}\n\\begin{branch}{1}\nClose the goal by reflexivity.\n\\end{branch}\n\\begin{branch}{2}\nClose the goal by reflexivity.\n\\end{branch}\n\\end{constructor}",
-            )));
-            corpus.push_str(&lean_of(&theorem_module(
-                "For every natural number \\(n\\), \\(n + 0 = n\\).",
-                "\\begin{induction}{n}\n\\begin{case}{lexlean.std.nat::zero}\n\\bind{}\nClose the goal by reflexivity.\n\\end{case}\n\\begin{case}{lexlean.std.nat::succ}\n\\bind{m;ih}\nClose the goal by reflexivity.\n\\end{case}\n\\end{induction}",
-            )));
-            corpus.push_str(&lean_of(&two_theorems(
-                "\\(0 + 0 = 0\\).",
-                "\\(0 + 0 = 0\\).",
-                "\\begin{calculate}\n\\start{0 + 0}\n\\step{lexlean.core::eq}{0}{\\reference{Main::first}}\n\\end{calculate}",
-            )));
-            corpus.push_str(&lean_of("\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{first}\n\\noaxioms\nIf \\(0 + 0 = 0\\), then \\(0 * 0 = 0\\).\n\\begin{proof}\nAssume \\(h\\).\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{second}\n\\noaxioms\n\\(0 * 0 = 0\\).\n\\begin{proof}\nApply \\(\\reference{Main::first}\\).\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n"));
-            for pinned in [
-                "intro",
-                "exact",
-                "apply",
-                "rfl",
-                "refine",
-                "left",
-                "have",
-                "rw [",
-                "simp only [",
-                "constructor",
-                "induction",
-                "calc",
-            ] {
-                assert!(
-                    corpus.contains(pinned),
-                    "the pinned lowering `{pinned}` is exercised by the corpus"
-                );
-            }
+            ));
+            assert!(
+                simp.ends_with(
+                    "  simp only [LexLeanExample.Main.first]\n  rfl\n\nend LexLeanExample.Main\n"
+                ),
+                "simp only lowering: {simp}"
+            );
+
+            // Unique existence: the documented expansion, verified end to
+            // end; the residual goal after the witness is the conjunction.
+            let unique = support::ext_project(support::UNIQUE_MODULE);
+            unique.check_ok();
+            assert_eq!(
+                support::lean_text(&support::rendered(&unique), "Main"),
+                support::UNIQUE_LEAN
+            );
+            support::verify_ok(&unique);
+
+            // Numerals ascribe outside monomorphic parameter positions
+            // (`(1 : Nat)` under `Eq`, bare under `Nat.add`).
+            assert!(
+                support::PROOF_FORMS_LEAN
+                    .contains("Or (Eq llv0 (1 : Nat)) (Eq (Nat.add llv0 0) llv0)"),
+                "numeral ascription"
+            );
+
+            // A defined value reaching Lean constants inlines them, and its
+            // constants are imported and probed.
+            let defined = support::ext_project(support::DEFINED_MODULE);
+            defined.check_ok();
+            assert_eq!(
+                support::lean_text(&support::rendered(&defined), "Main"),
+                support::DEFINED_LEAN
+            );
+            support::verify_ok(&defined);
+
+            // Missing lowering is a hard error: the calculation lowering
+            // exists only for the equality descriptor, and a non-equality
+            // relation is rejected before rendering.
+            let project = P::example();
+            project.write(
+                "src/Main.lex.tex",
+                &theorem_module(
+                    "\\(0 + 0 = 0\\).",
+                    "\\begin{calculate}\n\\start{0 + 0}\n\\step{lexlean.std.nat::le}{0}{\\reference{Main::main-goal}}\n\\end{calculate}",
+                ),
+            );
+            let error = project.check_err();
+            assert!(
+                !error.diagnostics.is_empty(),
+                "a non-equality calculation relation is a hard error"
+            );
         }
-        // §18.5: leading universals become parameters, source-mapped.
+        // §18.5: leading universals become parameters, source-mapped per
+        // binder; section parameters close under type dependencies.
         "LN-06" => {
             let build = support::rendered(&P::example());
             let module = &build.modules[0];
@@ -181,6 +257,15 @@ pub(crate) fn run(id: &str) {
                 "no residual quantifier for the peeled binder"
             );
             let at = module.lean_text.find("llv0").expect("the parameter");
+            let mapping = module.map.remap(0, at).expect("the parameter is mapped");
+            assert_eq!(mapping.role, lexlean::artifact::source_map::MapRole::Binder);
+            let normalized = &support::checked_project(&P::example()).modules["Main"].normalized;
+            let (start, end) = mapping.src_range.expect("a source range");
+            assert_eq!(
+                &normalized[start..end],
+                "n",
+                "the parameter maps to its binder"
+            );
             assert!(
                 module
                     .coverage
@@ -189,37 +274,77 @@ pub(crate) fn run(id: &str) {
                     .any(|row| row.byte_start <= at && at < row.byte_end),
                 "the parameter token has a coverage origin"
             );
+
+            let dependent = support::ext_project(support::DEPENDENT_MODULE);
+            dependent.check_ok();
+            assert_eq!(
+                support::lean_text(&support::rendered(&dependent), "Main"),
+                support::DEPENDENT_LEAN,
+                "an unused parameter mentioned by a used parameter's type is included"
+            );
+            support::verify_ok(&dependent);
         }
-        // §18.6: definitions are always def.
+        // §18.6: definitions are always def, byte-exact, and verify.
         "LN-07" => {
-            let lean = support::lean_text(&support::rendered(&support::defs_project()), "Main");
-            for name in ["def count", "def double", "def good"] {
-                assert!(lean.contains(name), "{name} is a def: {lean}");
-            }
-            for forbidden in ["abbrev", "instance ", "structure ", "inductive "] {
+            let project = support::defs_project();
+            let lean = support::lean_text(&support::rendered(&project), "Main");
+            assert_eq!(lean, support::DEFS_LEAN);
+            for forbidden in [
+                "abbrev",
+                "instance ",
+                "structure ",
+                "inductive ",
+                "theorem count",
+            ] {
                 assert!(
                     !lean.contains(forbidden),
                     "no alternate declaration forms: {lean}"
                 );
             }
+            support::verify_ok(&project);
         }
         // §18.7: proof lowering uses only the fixed pinned forms.
         "LN-08" => {
-            let lean = example_lean();
-            let proof = lean
-                .split(":= by\n")
-                .nth(1)
-                .expect("a tactic proof")
-                .split("\nend")
-                .next()
-                .expect("the proof body");
-            for token in proof.split_whitespace() {
-                assert!(
-                    ["rfl"].contains(&token)
-                        || token.starts_with("llv")
-                        || token.starts_with("llh"),
-                    "the example proof body holds only pinned forms, found `{token}`"
-                );
+            assert_eq!(proof_body(EXAMPLE_LEAN), "  rfl\n");
+            let pinned = [
+                "intro",
+                "exact",
+                "apply",
+                "rfl",
+                "refine",
+                "constructor",
+                "left",
+                "right",
+                "have",
+                "rw",
+                "simp",
+                "only",
+                "cases",
+                "induction",
+                "with",
+                "calc",
+                "by",
+                "at",
+            ];
+            for lean in [support::PROOF_FORMS_LEAN, support::UNIQUE_LEAN] {
+                for declaration in lean.split("public theorem ").skip(1) {
+                    let body = declaration
+                        .split_once(":= by\n")
+                        .expect("a tactic proof")
+                        .1
+                        .split("\n\n")
+                        .next()
+                        .expect("the body");
+                    for line in body.lines().filter(|line| !line.trim().is_empty()) {
+                        let head = line.trim_start();
+                        assert!(
+                            pinned.iter().any(|form| head.starts_with(form))
+                                || head.starts_with('|')
+                                || head.starts_with('_'),
+                            "every tactic line opens with a pinned form: `{line}`"
+                        );
+                    }
+                }
             }
         }
         // §18.1: byte determinism, LF, final LF, fixed indentation.
@@ -232,9 +357,11 @@ pub(crate) fn run(id: &str) {
                 !first.contains('\r') && !first.contains('\t'),
                 "LF and spaces only"
             );
-            for line in first.lines() {
-                let indent = line.len() - line.trim_start_matches(' ').len();
-                assert_eq!(indent % 2, 0, "two-space indentation steps: {line:?}");
+            for lean in [first.as_str(), support::PROOF_FORMS_LEAN] {
+                for line in lean.lines() {
+                    let indent = line.len() - line.trim_start_matches(' ').len();
+                    assert_eq!(indent % 2, 0, "two-space indentation steps: {line:?}");
+                }
             }
         }
         // §18.2, I13: every non-whitespace Lean token has a mapping.
@@ -257,28 +384,89 @@ pub(crate) fn run(id: &str) {
                     "lean byte {index} ({:?}) is covered exactly once, found {covering}",
                     module.lean_text[index..].chars().next()
                 );
+                assert!(
+                    module.map.remap(0, index).is_some(),
+                    "lean byte {index} has a mapping"
+                );
             }
         }
-        // §18.2: the generated-source audit rejects prose-bearing tokens.
+        // §18.2: the generated-source audit is a token lexer.
         "LN-11" => {
+            // Token classes.
+            assert_eq!(
+                lex("Foo.bar x' «a b».c #print 12 0x1F \"s\" 'c' -- hi\n/- a /- b -/ c -/ →")
+                    .expect("lexes"),
+                vec![
+                    LeanToken::Ident(vec!["Foo".to_owned(), "bar".to_owned()]),
+                    LeanToken::Ident(vec!["x'".to_owned()]),
+                    LeanToken::Ident(vec!["«a b»".to_owned(), "c".to_owned()]),
+                    LeanToken::Command("#print".to_owned()),
+                    LeanToken::Numeral("12".to_owned()),
+                    LeanToken::Numeral("0x1F".to_owned()),
+                    LeanToken::StringLit("\"s\"".to_owned()),
+                    LeanToken::CharLit("'c'".to_owned()),
+                    LeanToken::Comment("-- hi".to_owned()),
+                    LeanToken::Comment("/- a /- b -/ c -/".to_owned()),
+                    LeanToken::Symbol("→".to_owned()),
+                ]
+            );
+            assert!(lex("/- open").is_err(), "unterminated block comment");
+            assert!(lex("\"open").is_err(), "unterminated string");
+            // Rejections, one per class; spellings are assembled from halves
+            // so this file passes its own audit.
+            let sorry = format!("sor{}", "ry");
+            let rejected = [
+                format!("theorem t : True := {sorry}"),
+                format!("theorem t : True := Foo.{sorry}"),
+                format!("theorem t : True := by ad{}", "mit"),
+                format!("axi{} a : True", "om"),
+                format!("opa{} def x : Nat := 0", "que"),
+                format!("un{} def x : Nat := 0", "safe"),
+                format!("example : True := by native_{}", "decide"),
+                "-- a comment".to_owned(),
+                "/- a comment -/".to_owned(),
+                "/-- doc -/ def x := 0".to_owned(),
+                "def s := \"text\"".to_owned(),
+                "def c := 'c'".to_owned(),
+                format!("#{} 1", "eval"),
+                format!("#{} Nat", "print"),
+                format!("#{} Nat", "check"),
+                format!("#{} 1", "reduce"),
+                format!("#{}", "exit"),
+                "def main : IO Unit := pure ()".to_owned(),
+                "def x := IO.println".to_owned(),
+            ];
+            for text in &rejected {
+                assert!(audit(text, false).is_err(), "`{text}` is rejected");
+            }
+            // Accepted: identifier fragments and the audit module's one
+            // permitted command.
+            assert!(audit("def sorrowful : Nat := 0", false).is_ok());
+            assert!(audit("def admittedly : Nat := 0", false).is_ok());
+            assert!(audit("def x := Nat.axiomatic", false).is_ok());
+            assert!(audit("#print axioms Foo.bar", true).is_ok());
+            assert!(audit("#print axioms Foo.bar", false).is_err());
+            assert!(audit(&format!("#{} Foo", "print"), true).is_err());
+            for lean in [
+                support::PROOF_FORMS_LEAN,
+                support::UNIQUE_LEAN,
+                support::DEFS_LEAN,
+            ] {
+                audit(lean, false).expect("generated modules pass");
+            }
+            // The verified fixture published its audited probe and audit
+            // modules; both pass the same lexer.
             let fixture = support::verified();
-            let audit_dir = fixture.outcome.root.join("audit");
-            assert!(
-                audit_dir.as_std_path().is_dir(),
-                "the audit module ran before publication"
-            );
-            // The committed rejected fixtures document what the audit
-            // refuses; the semantics digest pins them.
-            let rejected = std::fs::read_to_string(
-                support::repo_root()
-                    .join("tests/golden/axiom-parser/rejected.txt")
-                    .as_std_path(),
-            )
-            .expect("rejected fixtures");
-            assert!(
-                !rejected.trim().is_empty(),
-                "the rejection corpus is nonempty"
-            );
+            for directory in ["probe", "audit"] {
+                let dir = fixture.outcome.root.join(directory);
+                let lean = std::fs::read_dir(dir.as_std_path())
+                    .expect("dir")
+                    .flatten()
+                    .find(|entry| entry.path().extension().is_some_and(|ext| ext == "lean"))
+                    .expect("a lean file");
+                let text = std::fs::read_to_string(lean.path()).expect("read");
+                audit(&text, directory == "audit").expect("published generated source passes");
+            }
         }
         // §18.3: paths and module names mirror the configured prefix.
         "LN-12" => {

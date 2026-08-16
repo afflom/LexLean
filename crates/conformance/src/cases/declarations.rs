@@ -160,14 +160,16 @@ pub(crate) fn run(id: &str) {
             let project = support::defs_project();
             let lean = support::lean_text(&support::rendered(&project), "Main");
             assert!(
-                lean.contains("public def good : Prop :=\n  Exists (fun llv0 => Eq llv0 llv0)\n"),
+                lean.contains(
+                    "public def good : Prop :=\n  Exists (fun (llv0 : Nat) => Eq llv0 llv0)\n"
+                ),
                 "a predicate def returns Prop: {lean}"
             );
             let fixture = support::verified_corpus();
             assert_eq!(fixture.attestation["status"], "verified");
             assert_eq!(
                 support::corpus_declaration_lean("even"),
-                "public def even (llv0 : Nat) : Prop :=\n  Exists (fun llv1 => Eq llv0 (Nat.add llv1 llv1))"
+                "public def even (llv0 : Nat) : Prop :=\n  Exists (fun (llv1 : Nat) => Eq llv0 (Nat.add llv1 llv1))"
             );
             assert_eq!(
                 support::corpus_declaration_lean("double_even"),

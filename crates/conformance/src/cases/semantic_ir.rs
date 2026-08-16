@@ -522,7 +522,7 @@ pub(crate) fn run(id: &str) {
             assert_eq!(fixture.attestation["status"], "verified");
             assert_eq!(
                 support::corpus_declaration_lean("zero_even"),
-                "public theorem zero_even : LexLeanExample.Main.even 0 := by\n  refine ⟨0, ?_⟩\n  rfl"
+                "public theorem zero_even : LexLeanExample.Main.even 0 := by\n  refine ⟨(0 : Nat), ?_⟩\n  rfl"
             );
         }
         other => panic!("no semantic-ir case is wired for {other}"),

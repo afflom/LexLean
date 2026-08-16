@@ -231,12 +231,13 @@ pub fn load_token_registry() -> Result<TokenRegistry, Diagnostic> {
         }
         // Emitted bytes are exact and non-empty, contain no line break, no
         // comment character, and no NUL; a token that takes arguments is a
-        // control word, and grouping is exactly the arity > 0 case (the
-        // backend emits `\\control{...}` for each argument).
-        let is_control_word = token
-            .bytes
-            .strip_prefix('\\')
-            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_alphabetic()));
+        // control word or one of TeX's two script characters (`_`, `^`),
+        // and grouping is exactly the arity > 0 case (the backend emits
+        // `\\control{...}` or `_{...}` for each argument).
+        let is_control_word =
+            token.bytes.strip_prefix('\\').is_some_and(|rest| {
+                !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_alphabetic())
+            }) || (token.arity == 1 && matches!(token.bytes.as_str(), "_" | "^"));
         if token.bytes.is_empty()
             || token
                 .bytes

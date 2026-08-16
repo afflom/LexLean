@@ -661,11 +661,12 @@ pub(crate) fn run(id: &str) {
                     .as_str()
                     .is_some_and(|text| {
                         text.starts_with("leanchecker bin/leanchecker sha256:")
-                            && text.ends_with(
+                            && text.contains(
                                 attestation["toolchain"]["leanchecker"]["executable_sha256"]
                                     .as_str()
                                     .unwrap_or("?"),
                             )
+                            && text.ends_with(lexlean::verify::LEANCHECKER_IDENTITY_OUTPUT)
                     }),
                 "leanchecker's identity names its toolchain-relative path and digest"
             );

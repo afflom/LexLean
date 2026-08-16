@@ -77,7 +77,7 @@ pub(crate) fn run(id: &str) {
         "PF-01" => {
             corpus_exact(
                 "rewrite_hypothesis",
-                &format!("public theorem rewrite_hypothesis (llv0 : Nat) : (Eq (Nat.add llv0 0) 1) → Eq llv0 1 := by\n  intro llh0\n  rw [{M}.add_zero] at llh0\n  exact llh0"),
+                &format!("public theorem rewrite_hypothesis (llv0 : Nat) : (Eq (Nat.add llv0 0) (1 : Nat)) → Eq llv0 (1 : Nat) := by\n  intro llh0\n  rw [{M}.add_zero] at llh0\n  exact llh0"),
             );
             corpus_exact(
                 "init_zero_add",
@@ -194,11 +194,11 @@ pub(crate) fn run(id: &str) {
         "PF-05" => {
             corpus_exact(
                 "exists_witness",
-                "public theorem exists_witness : Exists (fun llv0 => Eq (Nat.add llv0 0) 0) := by\n  refine ⟨0, ?_⟩\n  rfl",
+                "public theorem exists_witness : Exists (fun (llv0 : Nat) => Eq (Nat.add llv0 0) (0 : Nat)) := by\n  refine ⟨(0 : Nat), ?_⟩\n  rfl",
             );
             corpus_exact(
                 "exists_unique",
-                "public theorem exists_unique : Exists (fun llv0 => And (Eq llv0 0) ((llv1 : Nat) → (Eq llv1 0) → Eq llv1 llv0)) := by\n  refine ⟨0, ?_⟩\n  constructor\n  rfl\n  intro llh0 llh1\n  exact llh1",
+                "public theorem exists_unique : Exists (fun (llv0 : Nat) => And (Eq llv0 (0 : Nat)) ((llv1 : Nat) → (Eq llv1 (0 : Nat)) → Eq llv1 llv0)) := by\n  refine ⟨(0 : Nat), ?_⟩\n  constructor\n  rfl\n  intro llh0 llh1\n  exact llh1",
             );
             fails_with(
                 &theorem_module(
@@ -222,11 +222,11 @@ pub(crate) fn run(id: &str) {
         "PF-06" => {
             corpus_exact(
                 "select_right",
-                "public theorem select_right (llv0 : Nat) : Or (Eq llv0 1) (Eq (Nat.add llv0 0) llv0) := by\n  right\n  rfl",
+                "public theorem select_right (llv0 : Nat) : Or (Eq llv0 (1 : Nat)) (Eq (Nat.add llv0 0) llv0) := by\n  right\n  rfl",
             );
             corpus_exact(
                 "cases_nat",
-                "public theorem cases_nat (llv0 : Nat) : Or (Eq (Nat.add llv0 0) llv0) (Eq llv0 1) := by\n  cases llv0 with\n    | zero =>\n      left\n      rfl\n    | succ llh0 =>\n      left\n      rfl",
+                "public theorem cases_nat (llv0 : Nat) : Or (Eq (Nat.add llv0 0) llv0) (Eq llv0 (1 : Nat)) := by\n  cases llv0 with\n    | zero =>\n      left\n      rfl\n    | succ llh0 =>\n      left\n      rfl",
             );
             fails_with(
                 &theorem_module(
@@ -286,7 +286,7 @@ pub(crate) fn run(id: &str) {
             );
             corpus_exact(
                 "implies_rewrite",
-                &format!("public theorem implies_rewrite (llv0 : Nat) : (Eq llv0 1) → Eq (Nat.add llv0 0) 1 := by\n  intro llh0\n  rw [{M}.add_zero]\n  exact llh0"),
+                &format!("public theorem implies_rewrite (llv0 : Nat) : (Eq llv0 (1 : Nat)) → Eq (Nat.add llv0 0) (1 : Nat) := by\n  intro llh0\n  rw [{M}.add_zero]\n  exact llh0"),
             );
             // A non-equation rule is rejected.
             fails_with(
@@ -312,11 +312,11 @@ pub(crate) fn run(id: &str) {
         "PF-09" => {
             corpus_exact(
                 "simplify_both",
-                &format!("public theorem simplify_both (llv0 : Nat) : (Eq (Nat.add 0 llv0) 1) → Eq (Nat.add llv0 0) 1 := by\n  intro llh0\n  simp only [{M}.zero_add] at llh0\n  simp only [{M}.add_zero]\n  exact llh0"),
+                &format!("public theorem simplify_both (llv0 : Nat) : (Eq (Nat.add 0 llv0) (1 : Nat)) → Eq (Nat.add llv0 0) (1 : Nat) := by\n  intro llh0\n  simp only [{M}.zero_add] at llh0\n  simp only [{M}.add_zero]\n  exact llh0"),
             );
             corpus_exact(
                 "simplify_closes",
-                &format!("public theorem simplify_closes (llv0 : Nat) : (Eq llv0 1) → Eq (Nat.add llv0 0) 1 := by\n  intro llh0\n  simp only [{M}.add_zero, llh0]"),
+                &format!("public theorem simplify_closes (llv0 : Nat) : (Eq llv0 (1 : Nat)) → Eq (Nat.add llv0 0) (1 : Nat) := by\n  intro llh0\n  simp only [{M}.add_zero, llh0]"),
             );
             // No rule list at all is unrestricted simplification: rejected.
             fails_with(
@@ -377,11 +377,11 @@ pub(crate) fn run(id: &str) {
         "PF-11" => {
             corpus_exact(
                 "or_comm",
-                "public theorem or_comm (llv0 : Nat) : (Or (Eq llv0 0) (Eq llv0 1)) → Or (Eq llv0 1) (Eq llv0 0) := by\n  intro llh0\n  cases llh0 with\n    | inl llh1 =>\n      right\n      exact llh1\n    | inr llh2 =>\n      left\n      exact llh2",
+                "public theorem or_comm (llv0 : Nat) : (Or (Eq llv0 (0 : Nat)) (Eq llv0 (1 : Nat))) → Or (Eq llv0 (1 : Nat)) (Eq llv0 (0 : Nat)) := by\n  intro llh0\n  cases llh0 with\n    | inl llh1 =>\n      right\n      exact llh1\n    | inr llh2 =>\n      left\n      exact llh2",
             );
             corpus_exact(
                 "and_comm",
-                "public theorem and_comm (llv0 : Nat) : (And (Eq llv0 0) (Eq (Nat.add llv0 0) llv0)) → And (Eq (Nat.add llv0 0) llv0) (Eq llv0 0) := by\n  intro llh0\n  cases llh0 with\n    | intro llh1 llh2 =>\n      constructor\n      exact llh2\n      exact llh1",
+                "public theorem and_comm (llv0 : Nat) : (And (Eq llv0 (0 : Nat)) (Eq (Nat.add llv0 0) llv0)) → And (Eq (Nat.add llv0 0) llv0) (Eq llv0 (0 : Nat)) := by\n  intro llh0\n  cases llh0 with\n    | intro llh1 llh2 =>\n      constructor\n      exact llh2\n      exact llh1",
             );
             corpus_exact(
                 "not_both",

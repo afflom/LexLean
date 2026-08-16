@@ -336,7 +336,7 @@ pub(crate) fn run(id: &str) {
             );
             assert_eq!(
                 corpus_header("cases_nat"),
-                "public theorem cases_nat (llv0 : Nat) : Or (Eq (Nat.add llv0 0) llv0) (Eq llv0 1) := by"
+                "public theorem cases_nat (llv0 : Nat) : Or (Eq (Nat.add llv0 0) llv0) (Eq llv0 (1 : Nat)) := by"
             );
             assert_eq!(
                 corpus_header("not_both"),
@@ -344,21 +344,21 @@ pub(crate) fn run(id: &str) {
             );
             assert_eq!(
                 corpus_header("exists_witness"),
-                "public theorem exists_witness : Exists (fun llv0 => Eq (Nat.add llv0 0) 0) := by"
+                "public theorem exists_witness : Exists (fun (llv0 : Nat) => Eq (Nat.add llv0 0) (0 : Nat)) := by"
             );
             assert_eq!(
                 corpus_header("exists_unique"),
-                "public theorem exists_unique : Exists (fun llv0 => And (Eq llv0 0) ((llv1 : Nat) → (Eq llv1 0) → Eq llv1 llv0)) := by",
+                "public theorem exists_unique : Exists (fun (llv0 : Nat) => And (Eq llv0 (0 : Nat)) ((llv1 : Nat) → (Eq llv1 (0 : Nat)) → Eq llv1 llv0)) := by",
                 "unique existence lowers to its Exists definition"
             );
             assert_eq!(
                 corpus_header("or_comm"),
-                "public theorem or_comm (llv0 : Nat) : (Or (Eq llv0 0) (Eq llv0 1)) → Or (Eq llv0 1) (Eq llv0 0) := by",
+                "public theorem or_comm (llv0 : Nat) : (Or (Eq llv0 (0 : Nat)) (Eq llv0 (1 : Nat))) → Or (Eq llv0 (1 : Nat)) (Eq llv0 (0 : Nat)) := by",
                 "`if P, then Q` is an arrow"
             );
             assert_eq!(
                 corpus_header("implies_rewrite"),
-                "public theorem implies_rewrite (llv0 : Nat) : (Eq llv0 1) → Eq (Nat.add llv0 0) 1 := by",
+                "public theorem implies_rewrite (llv0 : Nat) : (Eq llv0 (1 : Nat)) → Eq (Nat.add llv0 0) (1 : Nat) := by",
                 "`P implies Q` is an arrow"
             );
             assert_eq!(
@@ -379,7 +379,7 @@ pub(crate) fn run(id: &str) {
             ));
             assert!(
                 lean.contains(
-                    "(Or (And (Eq llv0 llv0) (Eq llv0 0)) (Eq llv0 0)) → Eq (Nat.add llv0 0) llv0"
+                    "(Or (And (Eq llv0 llv0) (Eq llv0 (0 : Nat))) (Eq llv0 (0 : Nat))) → Eq (Nat.add llv0 0) llv0"
                 ),
                 "`P and Q or R` parses as Or(And(P,Q),R): {lean}"
             );

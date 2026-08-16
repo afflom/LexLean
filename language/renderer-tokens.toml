@@ -8,6 +8,22 @@
 spec = "lexlean/renderer-tokens/1"
 
 [[token]]
+id = "align"
+bytes = "&"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "align-star"
+bytes = "align*"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
 id = "amsmath"
 bytes = "amsmath"
 channel = "text"
@@ -189,6 +205,14 @@ bytes = "\\forall"
 channel = "math"
 arity = 0
 grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "frac"
+bytes = "\\frac"
+channel = "math"
+arity = 2
+grouping = true
 authority = "lexlean.core"
 
 [[token]]
@@ -384,6 +408,14 @@ grouping = false
 authority = "lexlean.core"
 
 [[token]]
+id = "newline"
+bytes = "\\\\"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
 id = "newtheorem"
 bytes = "\\newtheorem"
 channel = "text"
@@ -504,6 +536,30 @@ grouping = false
 authority = "lexlean.core"
 
 [[token]]
+id = "sort-prop"
+bytes = "Prop"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "sort-type"
+bytes = "Type"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "subscript"
+bytes = "_"
+channel = "math"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
 id = "subsection"
 bytes = "\\subsection"
 channel = "text"
@@ -525,6 +581,30 @@ bytes = "\\subseteq"
 channel = "math"
 arity = 0
 grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "superscript"
+bytes = "^"
+channel = "math"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "text"
+bytes = "\\text"
+channel = "math"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "textbf"
+bytes = "\\textbf"
+channel = "text"
+arity = 1
+grouping = true
 authority = "lexlean.core"
 
 [[token]]

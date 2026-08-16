@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "premise-word"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "concept.premise"
+
+[[form]]
+id = "premise"
+channel = "text"
+surface = "Premise"
+canonical_source = true
+features = ["sentence-case", "singular"]

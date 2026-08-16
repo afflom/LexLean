@@ -250,6 +250,24 @@ pub fn render_build(
             latex: tex_emitter.coverage_rows(),
             lean: lean_emitter.coverage_rows(),
         };
+        // Output coverage closure is checked mechanically before anything
+        // is published (§19.6, §20.5).
+        if let Err(reason) =
+            crate::backend::check_output_closure(lean_emitter.text(), &coverage.lean)
+        {
+            return Err(LexLeanError::from_diagnostic(Diagnostic::new(
+                code!("LLB6001"),
+                format!("generated Lean for `{name}` has incomplete output coverage: {reason}"),
+            )));
+        }
+        if let Err(reason) =
+            crate::backend::check_output_closure(tex_emitter.text(), &coverage.latex)
+        {
+            return Err(LexLeanError::from_diagnostic(Diagnostic::new(
+                code!("LLB6002"),
+                format!("canonical LaTeX for `{name}` has incomplete output coverage: {reason}"),
+            )));
+        }
 
         let closure_json = checked
             .closure
@@ -308,9 +326,31 @@ pub fn render_build(
         ));
     }
     for package in &checked.closure.packages {
+        // A lexicon input row names where the package came from (§21.6):
+        // the configured project-relative path for path packages,
+        // `embedded` for builtin packages, and the pinned Git coordinate
+        // (`git:<url>#<revision>/<subdirectory>`) otherwise.
+        let path = project
+            .config
+            .lexicon_sources
+            .iter()
+            .find(|source| source.package() == package.id)
+            .map_or_else(
+                || "embedded".to_owned(),
+                |source| match source {
+                    crate::config::LexiconSource::Builtin { .. } => "embedded".to_owned(),
+                    crate::config::LexiconSource::Path { path, .. } => path.clone(),
+                    crate::config::LexiconSource::Git {
+                        url,
+                        revision,
+                        subdirectory,
+                        ..
+                    } => format!("git:{url}#{revision}/{subdirectory}"),
+                },
+            );
         inputs.push(FileRow {
             kind: "lexicon".to_owned(),
-            path: package.id.clone(),
+            path,
             byte_length: package.total_bytes,
             sha256: package.tree_sha256,
         });
@@ -411,7 +451,8 @@ fn publish_build_locked(
     let target = build_root.join(build.build_id.to_hex());
     if std::fs::symlink_metadata(target.as_std_path()).is_ok() {
         // Existing content-addressed output is reused only after every
-        // file validates against the new manifest (§21.8); a symlinked
+        // file validates against the new manifest and no extra file is
+        // present (§21.8); a symlinked
         // output is never followed (§25.1).
         project
             .confined_dir(&target_relative)
@@ -424,10 +465,36 @@ fn publish_build_locked(
                     return Err(LexLeanError::from_diagnostic(Diagnostic::new(
                         code!("LLB6003"),
                         format!(
-                            "existing build directory {target_relative} does not validate against the manifest; refusing to overwrite unexplained bytes"
+                            "existing build directory {target_relative} does not validate against the manifest at `{relative}`; refusing to overwrite unexplained bytes"
                         ),
                     )));
                 }
+            }
+        }
+        let expected: BTreeSet<&str> = build
+            .files
+            .iter()
+            .map(|(relative, _)| relative.as_str())
+            .collect();
+        for entry in walkdir::WalkDir::new(target.as_std_path())
+            .into_iter()
+            .flatten()
+        {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let relative = entry
+                .path()
+                .strip_prefix(target.as_std_path())
+                .map(|path| path.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            if !expected.contains(relative.as_str()) {
+                return Err(LexLeanError::from_diagnostic(Diagnostic::new(
+                    code!("LLB6003"),
+                    format!(
+                        "existing build directory {target} holds the unexplained extra file `{relative}`; refusing to reuse it"
+                    ),
+                )));
             }
         }
         return Ok(target);
@@ -483,6 +550,7 @@ fn publish_build_locked(
             format!("publishing {target_relative}: {io_error}"),
         ))
     })?;
+    crate::artifact::fsync_dir(build_root.as_std_path());
     Ok(target)
 }
 

@@ -176,6 +176,73 @@ pub(crate) fn run(id: &str) {
                 "exactly the one reserved probe module"
             );
             assert_ne!(probe_name, audit_name, "probe and audit names are distinct");
+
+            // The probe elaborates universe-polymorphic and numeral-bearing
+            // interfaces with real Lean: universes are declared through
+            // one `universe` command with entry-index prefixes and LSE
+            // numerals print with their inferred type ascription (§18.8).
+            let project = support::ext_project(support::UNIQUE_MODULE);
+            let (probe, record) = support::probe_lean(
+                &project,
+                &[
+                    "test.ext::eqsymm",
+                    "test.ext::zeroadd",
+                    "lexlean.std.nat::add",
+                ],
+            );
+            assert!(
+                probe.text.contains("universe p1u\n"),
+                "alpha-renamed universe declaration: {}",
+                probe.text
+            );
+            assert!(
+                probe.text.contains("example : {x0 : Type p1u} → {x1 : x0} → {x2 : x0} → (x3 : Eq x1 x2) → Eq x2 x1 := Eq.symm\n"),
+                "the universe-polymorphic interface: {}",
+                probe.text
+            );
+            assert!(
+                probe.text.contains(
+                    "example : (x0 : Nat) → Eq (Nat.add (0 : Nat) x0) x0 := Nat.zero_add\n"
+                ),
+                "the numeral prints with its inferred ascription: {}",
+                probe.text
+            );
+            assert!(!probe.text.contains(".{"), "no `example.{{u}}` form");
+            assert_eq!(
+                record.exit_code, 0,
+                "the probe elaborates: {}{}",
+                record.stdout, record.stderr
+            );
+            assert!(record.stdout.trim().is_empty() && record.stderr.trim().is_empty());
+            assert_eq!(probe.lines.len(), 3, "one example line per probed entry");
+
+            // A mismatching interface fails and the failing Lean line is
+            // attributed to its entry.
+            let broken = support::ext_project(support::UNIQUE_MODULE);
+            broken.edit(
+                "lexicons/test-ext/entries/zeroadd.toml",
+                "(app (const lexlean.std.nat::add) (nat 0) (local n))",
+                "(app (const lexlean.std.nat::add) (local n) (nat 0))",
+            );
+            broken.relock();
+            let (probe, record) =
+                support::probe_lean(&broken, &["test.ext::eqsymm", "test.ext::zeroadd"]);
+            assert_ne!(record.exit_code, 0, "the wrong interface fails");
+            let messages = lexlean::verify::parse_lean_messages(&format!(
+                "{}{}",
+                record.stdout, record.stderr
+            ));
+            assert!(!messages.is_empty(), "Lean reported a located error");
+            let attributed: Vec<&str> = messages
+                .iter()
+                .filter_map(|message| probe.entry_at_line(message.line))
+                .map(|row| row.entry.as_str())
+                .collect();
+            assert_eq!(
+                attributed,
+                vec!["test.ext::zeroadd"],
+                "the failing line names its entry"
+            );
         }
         // §22.3: topological compilation with one olean per module.
         "VR-05" => {
@@ -247,7 +314,12 @@ pub(crate) fn run(id: &str) {
                 );
             }
 
-            let broken = fake_toolchain(&[("leanchecker", "#!/bin/sh\nexit 1\n")]);
+            // A leanchecker that answers the fixed identity probe but fails
+            // every replay is a replay failure, not a toolchain mismatch.
+            let broken = fake_toolchain(&[(
+                "leanchecker",
+                "#!/bin/sh\nif [ \"$1\" = \"LexLeanIdentityProbe\" ]; then echo 'uncaught exception: Could not find any oleans for: LexLeanIdentityProbe' >&2; fi\nexit 1\n",
+            )]);
             let fake_path = broken.path().to_string_lossy().into_owned();
             support::with_env(&[("ELAN_HOME", Some(&fake_path))], || {
                 let project = P::example();
@@ -401,7 +473,10 @@ pub(crate) fn run(id: &str) {
                     "lexicons/*.closure.json",
                     Box::new(|f: &str| f.starts_with("lexicons/") && f.ends_with(".closure.json")),
                 ),
-                ("oleans/*", Box::new(|f: &str| f.starts_with("oleans/"))),
+                (
+                    "oleans/*.olean",
+                    Box::new(|f: &str| f.starts_with("oleans/") && f.ends_with(".olean")),
+                ),
                 (
                     "probe/*.lean",
                     Box::new(|f: &str| f.starts_with("probe/") && f.ends_with(".lean")),
