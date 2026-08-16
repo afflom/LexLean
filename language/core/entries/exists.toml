@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "exists"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.exists"
+
+[[form]]
+id = "exists-l"
+channel = "text"
+surface = "exists"
+canonical_source = true
+features = ["lower-case"]

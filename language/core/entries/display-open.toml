@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "display-open"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.display-open"
+
+[[form]]
+id = "display-open"
+channel = "both"
+surface = "\\["
+canonical_source = true
+features = []

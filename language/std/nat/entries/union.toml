@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "union"
+category = "infix-function"
+signature = "(pi ((explicit a (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat))) (explicit b (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))) (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))"
+surface_arity = 2
+frame = "infix"
+precedence = 65
+associativity = "left"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List.union"
+
+[[form]]
+id = "union"
+channel = "math"
+surface = "∪"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token union) (space) (slot 1))"

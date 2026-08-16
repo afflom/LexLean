@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "reference"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.reference"
+
+[[form]]
+id = "reference"
+channel = "both"
+surface = "\\reference"
+canonical_source = true
+features = []

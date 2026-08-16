@@ -1,0 +1,6 @@
+{}	{}
+{"b":1,"a":2}	{"a":2,"b":1}
+{"s":"a\"b\\c\nd"}	{"s":"a\"b\\c\nd"}
+{"arr":[3,1,2],"nested":{"z":true,"a":false}}	{"arr":[3,1,2],"nested":{"a":false,"z":true}}
+{"unicode":"ℕ → Prop"}	{"unicode":"ℕ → Prop"}
+{"int":42,"neg":-7,"zero":0}	{"int":42,"neg":-7,"zero":0}

@@ -1,0 +1,4 @@
+spec = "lexlean/negative-case/1"
+class = "lean-elaboration-failure"
+kind = "delegated"
+test = "conformance_ex_02"

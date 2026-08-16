@@ -183,3 +183,85 @@ pub struct AuthorityRow {
     #[serde(default)]
     pub realized_by: Vec<String>,
 }
+
+/// `model/errors.toml` --- the closed public diagnostic registry (§26.1).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Errors {
+    /// The schema tag, `lexlean/errors/1`.
+    pub spec: String,
+    /// One row per registered code, sorted by code.
+    #[serde(rename = "error")]
+    pub error: Vec<ErrorRow>,
+}
+
+/// One registered diagnostic code.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ErrorRow {
+    /// The code, e.g. `LLL1004`.
+    pub code: String,
+    /// The failure class token.
+    pub class: String,
+    /// The sanctioned exit code.
+    pub exit: u8,
+    /// The short title.
+    pub title: String,
+    /// The registered meaning.
+    pub statement: String,
+}
+
+impl Errors {
+    /// Look up a row.
+    pub fn get(&self, code: &str) -> Option<&ErrorRow> {
+        self.error.iter().find(|row| row.code == code)
+    }
+
+    /// The structural checks of §26.1: sorted unique codes, the exact
+    /// class/exit pairing, range letters agreeing with classes, nonempty
+    /// statements.
+    pub fn check(&self) -> Result<(), ModelError> {
+        let bad = |m: String| ModelError::Inconsistent(m);
+        if self.spec != "lexlean/errors/1" {
+            return Err(bad(format!("errors.toml has spec `{}`", self.spec)));
+        }
+        let mut previous: Option<&str> = None;
+        for row in &self.error {
+            if let Some(before) = previous {
+                if before >= row.code.as_str() {
+                    return Err(bad(format!(
+                        "error rows must sort by code; `{}` follows `{before}`",
+                        row.code
+                    )));
+                }
+            }
+            previous = Some(&row.code);
+            let bytes = row.code.as_bytes();
+            let shape_ok = bytes.len() == 7
+                && bytes[0] == b'L'
+                && bytes[1] == b'L'
+                && bytes[3..].iter().all(u8::is_ascii_digit);
+            if !shape_ok {
+                return Err(bad(format!("`{}` is not a diagnostic code", row.code)));
+            }
+            if row.statement.trim().is_empty() {
+                return Err(bad(format!("{}: an empty statement", row.code)));
+            }
+            let exit_ok = matches!(
+                (row.class.as_str(), row.exit),
+                ("language", 1)
+                    | ("cli-configuration", 2)
+                    | ("environment", 3)
+                    | ("security-limit", 4)
+                    | ("internal", 70)
+            );
+            if !exit_ok {
+                return Err(bad(format!(
+                    "{}: class `{}` with exit {} is not a sanctioned combination",
+                    row.code, row.class, row.exit
+                )));
+            }
+        }
+        Ok(())
+    }
+}

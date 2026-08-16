@@ -1,23 +1,1263 @@
-# model/ids.toml --- the conformance ID register.
+# model/ids.toml --- the LexLean conformance ID register (R1).
 #
-# Every ID this repository claims, in one place, so that nothing is referenced
-# without being defined. `CONFORMANCE.md` is generated from this file. A test
-# whose name ends in an ID not listed here fails `check-model`, and an ID listed
-# here with no scenario and no test fails it too (CM-02).
-#
-# `level` is the honesty level (R2):
-#   some-true  a fact reproduced from an authority; not established here
-#   build      constructed here and validated against its oracle
-#   open       measured and reported, never asserted
-#
-# Every row here has a scenario in `features/suites/` and a test whose name ends
-# in the ID, lowercased with underscores (R3, CM-02). There is no "pending"
-# state: a capability that is not built does not get a row, and every row in this
-# file is built.
-#
-# The register is empty. This repository has no claims yet; adding one starts
-# with a row here, in the order `AGENTS.md` sets out.
+# Every row is copied byte-for-byte from the SPEC.md §31 table; `cargo xtask
+# validate-spec-links` fails if the two ever disagree (RP-07). CONFORMANCE.md
+# is generated from this file by `just model-write` and compared by the model
+# gate. Every ID is honesty level `build` (§27.3): constructed here and
+# validated against its oracle.
 
-spec = "template/1"
+spec = "lexlean/ids/1"
 
-id = []
+[[id]]
+id = "RP-01"
+level = "build"
+suite = "repository"
+statement = "The repository, crate, executable, metadata, and licenses have the exact LexLean identity specified."
+
+[[id]]
+id = "RP-02"
+level = "build"
+suite = "repository"
+statement = "The repository is derived from the pinned UOR template commit and contains no inherited domain-specific claim logic."
+
+[[id]]
+id = "RP-03"
+level = "build"
+suite = "repository"
+statement = "The completed repository has the required file and crate layout."
+
+[[id]]
+id = "RP-04"
+level = "build"
+suite = "repository"
+statement = "Only the lexlean crate is shipped and no shipped crate depends on repository-only tooling."
+
+[[id]]
+id = "RP-05"
+level = "build"
+suite = "repository"
+statement = "The just vv recipe runs every normative acceptance gate in the specified order."
+
+[[id]]
+id = "RP-06"
+level = "build"
+suite = "repository"
+statement = "CONFORMANCE.md and ERRORS.md are exact generated views of model files."
+
+[[id]]
+id = "RP-07"
+level = "build"
+suite = "repository"
+statement = "The specification conformance table and model register are bijective and text-consistent."
+
+[[id]]
+id = "RP-08"
+level = "build"
+suite = "repository"
+statement = "Repository source contains no unsanctioned deferral marker, stub, placeholder, ignored capability, or disabling feature."
+
+[[id]]
+id = "RP-09"
+level = "build"
+suite = "repository"
+statement = "The shipped crate forbids unsafe Rust and the audit proves the prohibition is active."
+
+[[id]]
+id = "RP-10"
+level = "build"
+suite = "repository"
+statement = "The embedded compiler-semantics ID equals a clean recomputation from normative language and schema inputs."
+
+[[id]]
+id = "RP-11"
+level = "build"
+suite = "repository"
+statement = "Every public README capability claim is tied to a registered model ID and honesty level."
+
+[[id]]
+id = "RP-12"
+level = "build"
+suite = "repository"
+statement = "A release is refused unless the complete release criterion and all required artifacts are satisfied."
+
+[[id]]
+id = "CF-01"
+level = "build"
+suite = "configuration-lock"
+statement = "Project configuration accepts exactly the project/1 schema and rejects unknown or missing fields."
+
+[[id]]
+id = "CF-02"
+level = "build"
+suite = "configuration-lock"
+statement = "Every operational limit is explicit, positive, parsed with checked arithmetic, and has no hidden default."
+
+[[id]]
+id = "CF-03"
+level = "build"
+suite = "configuration-lock"
+statement = "Configured paths resolve within the project under the specified UTF-8 and nonsymlink rules."
+
+[[id]]
+id = "CF-04"
+level = "build"
+suite = "configuration-lock"
+statement = "Project discovery selects the nearest valid regular lexlean.toml and stops at the filesystem root."
+
+[[id]]
+id = "CF-05"
+level = "build"
+suite = "configuration-lock"
+statement = "Entrypoint, explicit-file, and all-module selections are mutually exclusive and canonicalized as specified."
+
+[[id]]
+id = "CF-06"
+level = "build"
+suite = "configuration-lock"
+statement = "Builtin, path, and exact-commit HTTPS Git lexicon sources obey their disjoint schemas."
+
+[[id]]
+id = "CF-07"
+level = "build"
+suite = "configuration-lock"
+statement = "The lock file is canonical, comment-free, sorted, generated, and exact-byte checkable."
+
+[[id]]
+id = "CF-08"
+level = "build"
+suite = "configuration-lock"
+statement = "The lock contains the complete exact transitive lexicon package closure including lexlean.core."
+
+[[id]]
+id = "CF-09"
+level = "build"
+suite = "configuration-lock"
+statement = "Package tree digests use the specified length-framed sorted-file algorithm and reject special files."
+
+[[id]]
+id = "CF-10"
+level = "build"
+suite = "configuration-lock"
+statement = "A changed config, package, workspace pin, or digest makes lock checking fail rather than silently refresh."
+
+[[id]]
+id = "CF-11"
+level = "build"
+suite = "configuration-lock"
+statement = "Check, build, format, and verify resolve only locked locally available dependencies."
+
+[[id]]
+id = "CF-12"
+level = "build"
+suite = "configuration-lock"
+statement = "Network package acquisition occurs only through lock --allow-network and only for an exact configured commit."
+
+[[id]]
+id = "CF-13"
+level = "build"
+suite = "configuration-lock"
+statement = "The Lake workspace contains exactly one supported Lake configuration and the recorded workspace files match."
+
+[[id]]
+id = "CF-14"
+level = "build"
+suite = "configuration-lock"
+statement = "Language 1.0 accepts only leanprover/lean4:v4.32.1 for verification."
+
+[[id]]
+id = "CF-15"
+level = "build"
+suite = "configuration-lock"
+statement = "Duplicate logical modules and case-folded path or module collisions are rejected."
+
+[[id]]
+id = "LX-01"
+level = "build"
+suite = "lexical-closure"
+statement = "Source decoding and line normalization enforce valid UTF-8, LF, final LF, and forbidden-scalar rules."
+
+[[id]]
+id = "LX-02"
+level = "build"
+suite = "lexical-closure"
+statement = "Non-NFC source is diagnosed and canonical formatting rewrites it without semantic change."
+
+[[id]]
+id = "LX-03"
+level = "build"
+suite = "lexical-closure"
+statement = "Raw percent, comments, tabs, trailing spaces, and non-ASCII whitespace are rejected."
+
+[[id]]
+id = "LX-04"
+level = "build"
+suite = "lexical-closure"
+statement = "The primitive scanner recognizes exactly the specified atom classes and records exact spans."
+
+[[id]]
+id = "LX-05"
+level = "build"
+suite = "lexical-closure"
+statement = "Core braces, controls, punctuation, and grammar tokens receive glossary coverage rather than TeX trust."
+
+[[id]]
+id = "LX-06"
+level = "build"
+suite = "lexical-closure"
+statement = "An undeclared prose word is rejected with an exact unknown-atom diagnostic."
+
+[[id]]
+id = "LX-07"
+level = "build"
+suite = "lexical-closure"
+statement = "An undeclared symbol or control sequence is rejected with an exact unknown-atom diagnostic."
+
+[[id]]
+id = "LX-08"
+level = "build"
+suite = "lexical-closure"
+statement = "Lexical analysis builds all valid form edges without greedy import-order selection."
+
+[[id]]
+id = "LX-09"
+level = "build"
+suite = "lexical-closure"
+statement = "Every accepted non-whitespace source atom is covered exactly once in the selected path."
+
+[[id]]
+id = "LX-10"
+level = "build"
+suite = "lexical-closure"
+statement = "A local identifier is accepted only when introduced by a binder and every later occurrence resolves by scope."
+
+[[id]]
+id = "LX-11"
+level = "build"
+suite = "lexical-closure"
+statement = "TeX macro definition, expansion, file access, and execution controls are rejected even if a package declares them."
+
+[[id]]
+id = "LX-12"
+level = "build"
+suite = "lexical-closure"
+statement = "Qualified lexeme and document-reference controls select only existing closed entries or declarations."
+
+[[id]]
+id = "LX-13"
+level = "build"
+suite = "lexical-closure"
+statement = "Lexical or semantic ambiguity is rejected and no priority or heuristic chooses a candidate."
+
+[[id]]
+id = "LX-14"
+level = "build"
+suite = "lexical-closure"
+statement = "Canonical formatting chooses safe canonical forms and proves linked-IR preservation."
+
+[[id]]
+id = "GL-01"
+level = "build"
+suite = "lexicon"
+statement = "Lexicon packages obey the exact package layout, schema, ID-to-path rule, and exact imports."
+
+[[id]]
+id = "GL-02"
+level = "build"
+suite = "lexicon"
+statement = "Entry files obey the exact entry schema and category-specific field rules."
+
+[[id]]
+id = "GL-03"
+level = "build"
+suite = "lexicon"
+statement = "Forms obey channel, feature, canonical-source, safety, and explicit-inflection requirements."
+
+[[id]]
+id = "GL-04"
+level = "build"
+suite = "lexicon"
+statement = "Every entry uses one fixed frame and packages cannot add grammar productions."
+
+[[id]]
+id = "GL-05"
+level = "build"
+suite = "lexicon"
+statement = "Denotations are exactly core, Lean, document, or acyclic defined values."
+
+[[id]]
+id = "GL-06"
+level = "build"
+suite = "lexicon"
+statement = "Every semantic entry has a valid canonical LSE signature with scoped binders and universes."
+
+[[id]]
+id = "GL-07"
+level = "build"
+suite = "lexicon"
+statement = "Every canonical render uses valid LRE with complete slot use and no raw TeX."
+
+[[id]]
+id = "GL-08"
+level = "build"
+suite = "lexicon"
+statement = "Only the core renderer-token registry can authorize emitted LaTeX controls and glyphs."
+
+[[id]]
+id = "GL-09"
+level = "build"
+suite = "lexicon"
+statement = "Package import cycles and excessive import depth are rejected."
+
+[[id]]
+id = "GL-10"
+level = "build"
+suite = "lexicon"
+statement = "Defined-denotation cycles and document-definition cycles are rejected."
+
+[[id]]
+id = "GL-11"
+level = "build"
+suite = "lexicon"
+statement = "A document denotation must resolve to an available declaration with a matching signature."
+
+[[id]]
+id = "GL-12"
+level = "build"
+suite = "lexicon"
+statement = "Every used external Lean entry is checked by a generated interface probe during verification."
+
+[[id]]
+id = "GL-13"
+level = "build"
+suite = "lexicon"
+statement = "Duplicate packages, entries, forms, and qualified IDs are rejected while same-surface overloads remain explicit candidates."
+
+[[id]]
+id = "GL-14"
+level = "build"
+suite = "lexicon"
+statement = "Cases and induction are available only through a complete validated eliminator descriptor."
+
+[[id]]
+id = "GL-15"
+level = "build"
+suite = "lexicon"
+statement = "Glossary files reject free description, documentation, note, meaning, and unknown prose fields."
+
+[[id]]
+id = "GL-16"
+level = "build"
+suite = "lexicon"
+statement = "Package and entry bytes participate in lock and semantic closure hashes exactly as specified."
+
+[[id]]
+id = "GR-01"
+level = "build"
+suite = "grammar"
+statement = "A source module parses only under the exact structural grammar and environment set."
+
+[[id]]
+id = "GR-02"
+level = "build"
+suite = "grammar"
+statement = "Glossary imports, module imports, title, and blocks obey exact header order and cardinality."
+
+[[id]]
+id = "GR-03"
+level = "build"
+suite = "grammar"
+statement = "Sections nest within the configured scope limit and section parameters introduce explicit inherited context."
+
+[[id]]
+id = "GR-04"
+level = "build"
+suite = "grammar"
+statement = "Titles and headings accept only bounded concept phrases and cannot encode an unproved proposition."
+
+[[id]]
+id = "GR-05"
+level = "build"
+suite = "grammar"
+statement = "Only parenthesized and display control delimiters create math islands; dollar math is rejected."
+
+[[id]]
+id = "GR-06"
+level = "build"
+suite = "grammar"
+statement = "Dynamic mathematical operators obey declared precedence, associativity, and explicit grouping."
+
+[[id]]
+id = "GR-07"
+level = "build"
+suite = "grammar"
+statement = "Mathematical juxtaposition is never interpreted as implicit multiplication or application."
+
+[[id]]
+id = "GR-08"
+level = "build"
+suite = "grammar"
+statement = "Universal, existential, unique-existential, conditional, and connective proposition forms have the specified compositional semantics."
+
+[[id]]
+id = "GR-09"
+level = "build"
+suite = "grammar"
+statement = "Proposition precedence and associativity produce the specified parse or an ambiguity error."
+
+[[id]]
+id = "GR-10"
+level = "build"
+suite = "grammar"
+statement = "Articles, plural forms, capitalization, and inflections are explicit lexicon data rather than inferred language rules."
+
+[[id]]
+id = "GR-11"
+level = "build"
+suite = "grammar"
+statement = "A component with no complete grammar parse fails with a bounded structured diagnostic."
+
+[[id]]
+id = "GR-12"
+level = "build"
+suite = "grammar"
+statement = "Distinct surviving parses fail as ambiguity while semantically identical canonical IR alternatives collapse."
+
+[[id]]
+id = "GR-13"
+level = "build"
+suite = "grammar"
+statement = "Free expository paragraphs and opaque text nodes are rejected."
+
+[[id]]
+id = "GR-14"
+level = "build"
+suite = "grammar"
+statement = "Definition and theorem-like components enforce exact sentence, policy, and proof cardinalities."
+
+[[id]]
+id = "GR-15"
+level = "build"
+suite = "grammar"
+statement = "Explicit module imports form an acyclic graph and selected builds include their transitive closure."
+
+[[id]]
+id = "GR-16"
+level = "build"
+suite = "grammar"
+statement = "A same-module declaration cannot reference a later declaration."
+
+[[id]]
+id = "SM-01"
+level = "build"
+suite = "semantic-ir"
+statement = "Compiler phases execute in the required order and no backend receives an unlinked or ambiguous program."
+
+[[id]]
+id = "SM-02"
+level = "build"
+suite = "semantic-ir"
+statement = "Every global and local reference has one closed typed reference variant and one stable identity."
+
+[[id]]
+id = "SM-03"
+level = "build"
+suite = "semantic-ir"
+statement = "Term IR contains only the specified closed variants and represents every accepted semantic term."
+
+[[id]]
+id = "SM-04"
+level = "build"
+suite = "semantic-ir"
+statement = "Proof IR contains only the specified closed variants and represents every accepted proof form."
+
+[[id]]
+id = "SM-05"
+level = "build"
+suite = "semantic-ir"
+statement = "Conservative signature elaboration checks arity, binders, categories, and expected types without claiming Lean kernel equivalence."
+
+[[id]]
+id = "SM-06"
+level = "build"
+suite = "semantic-ir"
+statement = "Omitted implicit binders are recorded as controlled application metadata and user holes are rejected."
+
+[[id]]
+id = "SM-07"
+level = "build"
+suite = "semantic-ir"
+statement = "Document-entry signatures and generated declaration signatures are compared canonically before rendering."
+
+[[id]]
+id = "SM-08"
+level = "build"
+suite = "semantic-ir"
+statement = "Module, component, local, and hypothesis name generation is deterministic and collision checked."
+
+[[id]]
+id = "SM-09"
+level = "build"
+suite = "semantic-ir"
+statement = "Linked IR has stable schema-tagged canonical JSON with alpha-safe binder serialization."
+
+[[id]]
+id = "SM-10"
+level = "build"
+suite = "semantic-ir"
+statement = "Source ID and semantic ID use exactly the specified framed hash inputs."
+
+[[id]]
+id = "SM-11"
+level = "build"
+suite = "semantic-ir"
+statement = "Linked project result sets contain every selected module and imported module exactly once in stable order."
+
+[[id]]
+id = "SM-12"
+level = "build"
+suite = "semantic-ir"
+statement = "No semantic IR node can contain opaque prose, raw backend text, or an unknown extension."
+
+[[id]]
+id = "SM-13"
+level = "build"
+suite = "semantic-ir"
+statement = "Inherited section parameters are represented explicitly and emitted only on declarations that use them."
+
+[[id]]
+id = "SM-14"
+level = "build"
+suite = "semantic-ir"
+statement = "A numeral without a unique expected type is rejected rather than defaulted."
+
+[[id]]
+id = "DF-01"
+level = "build"
+suite = "declarations"
+statement = "A valid type-definition sentence emits one nonrecursive sort-valued Lean def linked to its document entry."
+
+[[id]]
+id = "DF-02"
+level = "build"
+suite = "declarations"
+statement = "A valid term-definition sentence emits one nonrecursive explicitly typed Lean def."
+
+[[id]]
+id = "DF-03"
+level = "build"
+suite = "declarations"
+statement = "A valid predicate-definition sentence emits one nonrecursive Prop-valued Lean def."
+
+[[id]]
+id = "DF-04"
+level = "build"
+suite = "declarations"
+statement = "Self recursion, mutual recursion, and later-declaration references are rejected."
+
+[[id]]
+id = "DF-05"
+level = "build"
+suite = "declarations"
+statement = "A definition's self head, explicit arguments, and signature order are checked exactly."
+
+[[id]]
+id = "DF-06"
+level = "build"
+suite = "declarations"
+statement = "Every generated definition and theorem-like declaration carries one explicit axiom policy."
+
+[[id]]
+id = "DF-07"
+level = "build"
+suite = "declarations"
+statement = "Theorem, lemma, and corollary each emit Lean theorem declarations while retaining distinct document metadata."
+
+[[id]]
+id = "DF-08"
+level = "build"
+suite = "declarations"
+statement = "Author-defined axioms, opaque declarations, and proofless theorem-like components are rejected."
+
+[[id]]
+id = "DF-09"
+level = "build"
+suite = "declarations"
+statement = "Every theorem-like component contains exactly one nonempty structured proof."
+
+[[id]]
+id = "DF-10"
+level = "build"
+suite = "declarations"
+statement = "Generated declarations preserve source order and every document reference respects that order."
+
+[[id]]
+id = "PF-01"
+level = "build"
+suite = "proofs"
+statement = "Assume and exact-style simple proof sentences create scoped introductions and exact proof nodes."
+
+[[id]]
+id = "PF-02"
+level = "build"
+suite = "proofs"
+statement = "Simple Apply is accepted only when its declared signature yields exactly one residual premise."
+
+[[id]]
+id = "PF-03"
+level = "build"
+suite = "proofs"
+statement = "Structured apply requires every numbered residual premise exactly once and in signature order."
+
+[[id]]
+id = "PF-04"
+level = "build"
+suite = "proofs"
+statement = "Reflexivity lowers only to pinned Lean rfl and closes the current goal."
+
+[[id]]
+id = "PF-05"
+level = "build"
+suite = "proofs"
+statement = "Witness steps supply the next existential witness with no implicit search."
+
+[[id]]
+id = "PF-06"
+level = "build"
+suite = "proofs"
+statement = "Left and right alternative steps select only the corresponding disjunction constructor."
+
+[[id]]
+id = "PF-07"
+level = "build"
+suite = "proofs"
+statement = "Have establishes a nested proposition before introducing its fresh hypothesis into subsequent scope."
+
+[[id]]
+id = "PF-08"
+level = "build"
+suite = "proofs"
+statement = "Rewrite applies every explicitly directed rule strictly in source order at exactly one target."
+
+[[id]]
+id = "PF-09"
+level = "build"
+suite = "proofs"
+statement = "Simplify lowers to simp only with exactly the listed rules and target."
+
+[[id]]
+id = "PF-10"
+level = "build"
+suite = "proofs"
+statement = "Constructor requires the exact ordered branch count and every branch closes."
+
+[[id]]
+id = "PF-11"
+level = "build"
+suite = "proofs"
+statement = "Cases requires a validated descriptor, every constructor once, and exact branch binders."
+
+[[id]]
+id = "PF-12"
+level = "build"
+suite = "proofs"
+statement = "Induction requires a validated descriptor, every constructor once, and exact field and induction-hypothesis binders."
+
+[[id]]
+id = "PF-13"
+level = "build"
+suite = "proofs"
+statement = "Calculation chains use one declared relation, at least one step, and exact endpoint proofs."
+
+[[id]]
+id = "PF-14"
+level = "build"
+suite = "proofs"
+statement = "Proof locals, hypotheses, premise scopes, and case scopes cannot capture or leak."
+
+[[id]]
+id = "PF-15"
+level = "build"
+suite = "proofs"
+statement = "Every proof and nested branch must close all goals and rejects steps after closure."
+
+[[id]]
+id = "PF-16"
+level = "build"
+suite = "proofs"
+statement = "Raw tactics, custom proof nodes, unrestricted automation, and proof holes are rejected."
+
+[[id]]
+id = "PF-17"
+level = "build"
+suite = "proofs"
+statement = "native_decide is never accepted or generated."
+
+[[id]]
+id = "PF-18"
+level = "build"
+suite = "proofs"
+statement = "Lean proof failures remap to the smallest originating LexLean proof or statement span."
+
+[[id]]
+id = "LN-01"
+level = "build"
+suite = "lean-backend"
+statement = "Each generated Lean file has the exact module, import, option, namespace, declaration, and end structure."
+
+[[id]]
+id = "LN-02"
+level = "build"
+suite = "lean-backend"
+statement = "Imports are explicit, deduplicated, sorted, and every external global is fully qualified."
+
+[[id]]
+id = "LN-03"
+level = "build"
+suite = "lean-backend"
+statement = "Generated Lean contains no comments, documentation, strings, or copied source prose."
+
+[[id]]
+id = "LN-04"
+level = "build"
+suite = "lean-backend"
+statement = "Generated Lean contains no sorry, admit, axiom, opaque, unsafe, native_decide, or placeholder declaration."
+
+[[id]]
+id = "LN-05"
+level = "build"
+suite = "lean-backend"
+statement = "Every linked term and proof variant has one defined Lean lowering and missing lowering is a hard error."
+
+[[id]]
+id = "LN-06"
+level = "build"
+suite = "lean-backend"
+statement = "Leading universal binders become deterministic declaration parameters with complete source mapping."
+
+[[id]]
+id = "LN-07"
+level = "build"
+suite = "lean-backend"
+statement = "All document definitions emit def and never alternate declaration forms."
+
+[[id]]
+id = "LN-08"
+level = "build"
+suite = "lean-backend"
+statement = "Proof lowering uses only the fixed pinned Lean forms enumerated by the specification."
+
+[[id]]
+id = "LN-09"
+level = "build"
+suite = "lean-backend"
+statement = "Lean formatting is byte-deterministic with fixed indentation, LF, and final LF."
+
+[[id]]
+id = "LN-10"
+level = "build"
+suite = "lean-backend"
+statement = "Every non-whitespace generated Lean token has a source, glossary, IR, or synthetic-core mapping."
+
+[[id]]
+id = "LN-11"
+level = "build"
+suite = "lean-backend"
+statement = "The generated-source audit tokenizes and rejects prose-bearing or forbidden Lean tokens before verification."
+
+[[id]]
+id = "LN-12"
+level = "build"
+suite = "lean-backend"
+statement = "Generated file paths and module names exactly mirror the configured module prefix and source module."
+
+[[id]]
+id = "TX-01"
+level = "build"
+suite = "latex-pdf"
+statement = "Canonical LaTeX is rendered solely from linked IR and never copies source text or controls."
+
+[[id]]
+id = "TX-02"
+level = "build"
+suite = "latex-pdf"
+statement = "Every module uses the exact canonical LaTeX preamble and no host or timestamp metadata."
+
+[[id]]
+id = "TX-03"
+level = "build"
+suite = "latex-pdf"
+statement = "Statements use only canonical controlled proposition and definition renderings."
+
+[[id]]
+id = "TX-04"
+level = "build"
+suite = "latex-pdf"
+statement = "Proof prose is generated from proof IR using fixed core lexical forms."
+
+[[id]]
+id = "TX-05"
+level = "build"
+suite = "latex-pdf"
+statement = "Titles, sections, parameters, environments, numbering, and labels follow the exact document rules."
+
+[[id]]
+id = "TX-06"
+level = "build"
+suite = "latex-pdf"
+statement = "Every visible LaTeX word, symbol, punctuation mark, and control has complete coverage."
+
+[[id]]
+id = "TX-07"
+level = "build"
+suite = "latex-pdf"
+statement = "Non-core lexicons cannot inject a raw TeX control or unclassified output segment."
+
+[[id]]
+id = "TX-08"
+level = "build"
+suite = "latex-pdf"
+statement = "Canonical LaTeX bytes are deterministic, LF-normalized, and final-LF terminated."
+
+[[id]]
+id = "TX-09"
+level = "build"
+suite = "latex-pdf"
+statement = "An enabled external PDF provider runs without a shell in an isolated directory with exact hashes and resources."
+
+[[id]]
+id = "TX-10"
+level = "build"
+suite = "latex-pdf"
+statement = "The PDF recipe ID and actual PDF hash use the specified independent content records."
+
+[[id]]
+id = "TX-11"
+level = "build"
+suite = "latex-pdf"
+statement = "PDF success or failure never changes mathematical verification authority."
+
+[[id]]
+id = "TX-12"
+level = "build"
+suite = "latex-pdf"
+statement = "The publishable document is the canonical renderer output rather than unchecked source bytes."
+
+[[id]]
+id = "AR-01"
+level = "build"
+suite = "artifacts"
+statement = "Diagnostics use the canonical schema, exact spans, stable sorting, and registered codes."
+
+[[id]]
+id = "AR-02"
+level = "build"
+suite = "artifacts"
+statement = "Source maps contain complete module, source, artifact, node, and range records."
+
+[[id]]
+id = "AR-03"
+level = "build"
+suite = "artifacts"
+statement = "Lean diagnostics remap by the specified smallest-enclosing mapping algorithm."
+
+[[id]]
+id = "AR-04"
+level = "build"
+suite = "artifacts"
+statement = "Coverage files record every required source and output token with no gap or overlap."
+
+[[id]]
+id = "AR-05"
+level = "build"
+suite = "artifacts"
+statement = "All compound hashes use the specified length-prefixed frame function."
+
+[[id]]
+id = "AR-06"
+level = "build"
+suite = "artifacts"
+statement = "Compiler-semantics identity is recomputed from the exact normative language, schema, backend, and parser inputs."
+
+[[id]]
+id = "AR-07"
+level = "build"
+suite = "artifacts"
+statement = "Source IDs are independent of absolute checkout location and include exact normalized inputs."
+
+[[id]]
+id = "AR-08"
+level = "build"
+suite = "artifacts"
+statement = "Semantic IDs are platform independent and include linked IR, lexicon closure, language semantics, and toolchain ID."
+
+[[id]]
+id = "AR-09"
+level = "build"
+suite = "artifacts"
+statement = "Successful builds publish only the fixed content-addressed build-ID layout."
+
+[[id]]
+id = "AR-10"
+level = "build"
+suite = "artifacts"
+statement = "Build manifests enumerate every input and output with stable paths, sizes, and hashes."
+
+[[id]]
+id = "AR-11"
+level = "build"
+suite = "artifacts"
+statement = "Normative JSON obeys the restricted canonical JSON format and hash/file newline distinction."
+
+[[id]]
+id = "AR-12"
+level = "build"
+suite = "artifacts"
+statement = "Concurrent and failed builds preserve atomic content-addressed artifacts and never overwrite unexplained bytes."
+
+[[id]]
+id = "AR-13"
+level = "build"
+suite = "artifacts"
+statement = "Two clean builds in different absolute directories produce byte-identical platform-independent artifacts."
+
+[[id]]
+id = "AR-14"
+level = "build"
+suite = "artifacts"
+statement = "Platform-independent build evidence is distinguished from platform-bound oleans, process records, PDF bytes, and attestations."
+
+[[id]]
+id = "VR-01"
+level = "build"
+suite = "verification"
+statement = "Verification runs every specified stage in order and exposes no stage-suppression option."
+
+[[id]]
+id = "VR-02"
+level = "build"
+suite = "verification"
+statement = "Lean, Lake, and leanchecker versions and executable hashes are checked and recorded before use."
+
+[[id]]
+id = "VR-03"
+level = "build"
+suite = "verification"
+statement = "Lean execution uses the pinned Lake environment and never updates or fetches workspace dependencies."
+
+[[id]]
+id = "VR-04"
+level = "build"
+suite = "verification"
+statement = "Every used external interface is elaborated in the unique reserved probe module."
+
+[[id]]
+id = "VR-05"
+level = "build"
+suite = "verification"
+statement = "Generated modules compile in topological order and produce one required olean each."
+
+[[id]]
+id = "VR-06"
+level = "build"
+suite = "verification"
+statement = "Verification neither requests nor includes ilean artifacts."
+
+[[id]]
+id = "VR-07"
+level = "build"
+suite = "verification"
+statement = "A Lean warning, unknown informational message, overflow, or missing output fails verification."
+
+[[id]]
+id = "VR-08"
+level = "build"
+suite = "verification"
+statement = "Every generated module is replayed by a separate leanchecker process and every replay must succeed."
+
+[[id]]
+id = "VR-09"
+level = "build"
+suite = "verification"
+statement = "The unique reserved audit module prints axioms for every generated declaration exactly once."
+
+[[id]]
+id = "VR-10"
+level = "build"
+suite = "verification"
+statement = "The axiom parser accepts only the pinned exact output forms and rejects missing, duplicate, extra, or malformed records."
+
+[[id]]
+id = "VR-11"
+level = "build"
+suite = "verification"
+statement = "None, allow-subset, and exact axiom policies are enforced exactly and recorded per declaration."
+
+[[id]]
+id = "VR-12"
+level = "build"
+suite = "verification"
+statement = "Child process output is normalized with the exact path and line rules before hashing."
+
+[[id]]
+id = "VR-13"
+level = "build"
+suite = "verification"
+statement = "A verified directory contains the complete fixed source, map, coverage, olean, probe, audit, and process artifact set."
+
+[[id]]
+id = "VR-14"
+level = "build"
+suite = "verification"
+statement = "The attestation ID is computed over the canonical body with its ID field removed."
+
+[[id]]
+id = "VR-15"
+level = "build"
+suite = "verification"
+statement = "Any failed verification stage removes staging and produces no verified artifact or verified status."
+
+[[id]]
+id = "VR-16"
+level = "build"
+suite = "verification"
+statement = "Axioms flowing from imported theorems remain subject to the generated declaration's policy."
+
+[[id]]
+id = "VR-17"
+level = "build"
+suite = "verification"
+statement = "Lean workspace configuration and manifest hashes must match the lock and all dependencies must be locally available."
+
+[[id]]
+id = "VR-18"
+level = "build"
+suite = "verification"
+statement = "Check and build results never claim verified or kernel-checked status."
+
+[[id]]
+id = "CL-01"
+level = "build"
+suite = "cli-api"
+statement = "Global options and upward project discovery obey the exact CLI contract."
+
+[[id]]
+id = "CL-02"
+level = "build"
+suite = "cli-api"
+statement = "Init creates the complete canonical skeleton only in an absent or empty destination and never overwrites."
+
+[[id]]
+id = "CL-03"
+level = "build"
+suite = "cli-api"
+statement = "Lock check, local update, and explicit network acquisition obey their exact mutually exclusive behavior."
+
+[[id]]
+id = "CL-04"
+level = "build"
+suite = "cli-api"
+statement = "Check runs through linked IR and emits no build artifacts."
+
+[[id]]
+id = "CL-05"
+level = "build"
+suite = "cli-api"
+statement = "Build emits the fixed build-ID artifact set without running Lean or claiming verification."
+
+[[id]]
+id = "CL-06"
+level = "build"
+suite = "cli-api"
+statement = "Verify runs the complete fixed verification pipeline and accepts no output or suppression option."
+
+[[id]]
+id = "CL-07"
+level = "build"
+suite = "cli-api"
+statement = "Format and format-check are idempotent and preserve linked IR."
+
+[[id]]
+id = "CL-08"
+level = "build"
+suite = "cli-api"
+statement = "Clean removes only the validated configured build root and no source or external cache."
+
+[[id]]
+id = "CL-09"
+level = "build"
+suite = "cli-api"
+statement = "Explain prints exactly one registered diagnostic entry and rejects unknown codes."
+
+[[id]]
+id = "CL-10"
+level = "build"
+suite = "cli-api"
+statement = "All, explicit-files, and entrypoint selections return sorted project result sets including import closure."
+
+[[id]]
+id = "CL-11"
+level = "build"
+suite = "cli-api"
+statement = "Every command maps failures to the exact documented exit code."
+
+[[id]]
+id = "CL-12"
+level = "build"
+suite = "cli-api"
+statement = "Human and canonical-JSON output modes obey exact stream, color, and cardinality rules."
+
+[[id]]
+id = "CL-13"
+level = "build"
+suite = "cli-api"
+statement = "The public Engine exposes exactly the stable load, lock, check, build, verify, and format entry points."
+
+[[id]]
+id = "CL-14"
+level = "build"
+suite = "cli-api"
+statement = "Every public multi-module operation returns a ProjectResultSet or VerifiedProject rather than a singular unit."
+
+[[id]]
+id = "CL-15"
+level = "build"
+suite = "cli-api"
+statement = "Public requests cannot override backends, toolchain, verification stages, limits, policies, or fixed artifact sets."
+
+[[id]]
+id = "CL-16"
+level = "build"
+suite = "cli-api"
+statement = "Every public failure is a LexLeanError and malformed user input cannot panic."
+
+[[id]]
+id = "CL-17"
+level = "build"
+suite = "cli-api"
+statement = "Environment variables cannot alter semantic project configuration."
+
+[[id]]
+id = "CL-18"
+level = "build"
+suite = "cli-api"
+statement = "Version output reports compiler, language, semantics ID, and Lean toolchain exactly."
+
+[[id]]
+id = "SE-01"
+level = "build"
+suite = "security"
+statement = "Source, package, workspace, resource, and output paths are confined and symlinks are rejected."
+
+[[id]]
+id = "SE-02"
+level = "build"
+suite = "security"
+statement = "Special files, duplicate filesystem identities, and case-fold collisions are rejected before processing."
+
+[[id]]
+id = "SE-03"
+level = "build"
+suite = "security"
+statement = "All child processes use direct executable and argv invocation with no shell."
+
+[[id]]
+id = "SE-04"
+level = "build"
+suite = "security"
+statement = "No command except lock --allow-network may perform package network acquisition."
+
+[[id]]
+id = "SE-05"
+level = "build"
+suite = "security"
+statement = "Child environments use the specified deterministic allow-list and recorded normalization."
+
+[[id]]
+id = "SE-06"
+level = "build"
+suite = "security"
+statement = "Every configured parser, graph, IR, diagnostic, child-output, and timeout limit is enforced with checked arithmetic."
+
+[[id]]
+id = "SE-07"
+level = "build"
+suite = "security"
+statement = "Temporary data uses confined owner-only staging and is removed after atomic publication or failure."
+
+[[id]]
+id = "SE-08"
+level = "build"
+suite = "security"
+statement = "External executables and PDF resources are hash-checked before use."
+
+[[id]]
+id = "SE-09"
+level = "build"
+suite = "security"
+statement = "PDF execution receives only canonical TeX and declared resources in an isolated working directory."
+
+[[id]]
+id = "SE-10"
+level = "build"
+suite = "security"
+statement = "Internal invariant failures use LLI9001 and exit 70 without misclassifying user input."
+
+[[id]]
+id = "SE-11"
+level = "build"
+suite = "security"
+statement = "Diagnostics and process records do not expose secret environment values or arbitrary unrelated file contents."
+
+[[id]]
+id = "SE-12"
+level = "build"
+suite = "security"
+statement = "Git lexicon acquisition accepts only an exact 40-hex commit over HTTPS and rejects submodules and LFS indirection."
+
+[[id]]
+id = "EX-01"
+level = "build"
+suite = "examples"
+statement = "The committed nat-add-zero example formats, locks, checks, builds, and verifies with an empty axiom set."
+
+[[id]]
+id = "EX-02"
+level = "build"
+suite = "examples"
+statement = "Changing the example proposition while retaining the old proof causes remapped Lean verification failure."
+
+[[id]]
+id = "EX-03"
+level = "build"
+suite = "examples"
+statement = "Replacing a title concept with an undeclared word causes lexical-closure failure."
+
+[[id]]
+id = "EX-04"
+level = "build"
+suite = "examples"
+statement = "Adding an indistinguishable same-surface entry causes ambiguity rather than priority selection."
+
+[[id]]
+id = "EX-05"
+level = "build"
+suite = "examples"
+statement = "An axiom-dependent fixture fails an insufficient declaration policy and records the observed excess."
+
+[[id]]
+id = "EX-06"
+level = "build"
+suite = "examples"
+statement = "Two clean example builds in distinct paths have byte-identical platform-independent artifacts."
+
+[[id]]
+id = "EX-07"
+level = "build"
+suite = "examples"
+statement = "The negative fixture suite covers every required rejection class and prescribed diagnostic family."
+
+[[id]]
+id = "EX-08"
+level = "build"
+suite = "examples"
+statement = "Every example directory is discovered automatically and must satisfy the full example gate."

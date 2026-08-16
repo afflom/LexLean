@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "exactly"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.exactly"
+
+[[form]]
+id = "exactly-l"
+channel = "text"
+surface = "exactly"
+canonical_source = true
+features = ["lower-case"]

@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "title"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.title"
+
+[[form]]
+id = "title"
+channel = "both"
+surface = "\\title"
+canonical_source = true
+features = []

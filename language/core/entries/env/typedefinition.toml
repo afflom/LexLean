@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.typedefinition"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-typedefinition"
+
+[[form]]
+id = "typedefinition"
+channel = "both"
+surface = "typedefinition"
+canonical_source = true
+features = []

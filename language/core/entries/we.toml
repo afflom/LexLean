@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "we"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.we"
+
+[[form]]
+id = "we-s"
+channel = "text"
+surface = "We"
+canonical_source = true
+features = ["sentence-case"]

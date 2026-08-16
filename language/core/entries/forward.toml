@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "forward"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.forward"
+
+[[form]]
+id = "forward"
+channel = "both"
+surface = "\\forward"
+canonical_source = true
+features = []

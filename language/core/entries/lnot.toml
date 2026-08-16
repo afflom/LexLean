@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "lnot"
+category = "prefix-function"
+signature = "(pi ((explicit p (sort prop))) (sort prop))"
+surface_arity = 1
+frame = "prefix"
+precedence = 40
+
+[denotation]
+kind = "core"
+constructor = "logic.not"
+
+[[form]]
+id = "lnot"
+channel = "math"
+surface = "¬"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (token logical-not) (slot 0))"

@@ -1,167 +1,65 @@
-//! The grep-shaped gates.
-//!
-//! These are crude on purpose. A gate that needs interpretation is a gate that
-//! gets argued with; these ones read the source, find a token, and fail. Each
-//! carries the rule it enforces in its failure message, because the point of a
-//! red gate is to name the promise that was broken.
+//! The repository audits (SPEC.md §27.10). Crude on purpose: each reads the
+//! source, finds the defect, and fails naming the rule it enforces.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::Fail;
 
-/// The crates that ship: every crate under `crates/` that is not
-/// `publish = false`. The rules below apply to those and not to the
-/// dev-and-CI-only crates, which may use `std`, `alloc`, and floats freely.
-///
-/// Derived from the manifests rather than listed here. A list would be a second
-/// place to remember, and the failure mode of a second place is that a crate
-/// added to one is missing from the other --- silently, because a gate that
-/// skips a crate cannot report on it. Reading `publish = false` asks the same
-/// question `cargo publish` asks.
-fn shipped(root: &Path) -> Result<Vec<String>, Fail> {
-    let mut out = Vec::new();
-    let dir = root.join("crates");
-    if !dir.exists() {
-        return Ok(out);
-    }
-    for entry in std::fs::read_dir(&dir)? {
-        let path = entry?.path();
-        let manifest = path.join("Cargo.toml");
-        let Ok(toml) = std::fs::read_to_string(&manifest) else {
-            continue;
-        };
-        if toml.lines().any(|l| l.trim() == "publish = false") {
+const SKIP_DIRS: [&str; 5] = ["target", ".git", ".lexlean", "expected", "node_modules"];
+
+fn gather(root: &Path, dirs: &[&str], extensions: &[&str], out: &mut Vec<PathBuf>) {
+    for dir in dirs {
+        let base = root.join(dir);
+        if !base.exists() {
             continue;
         }
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            out.push(name.to_string());
+        for entry in walkdir::WalkDir::new(&base)
+            .follow_links(false)
+            .into_iter()
+            .flatten()
+        {
+            if entry.file_type().is_dir() {
+                continue;
+            }
+            let path = entry.path();
+            if path.components().any(|component| {
+                SKIP_DIRS.contains(&component.as_os_str().to_string_lossy().as_ref())
+            }) {
+                continue;
+            }
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            if extensions.iter().any(|extension| name.ends_with(extension)) {
+                out.push(path.to_path_buf());
+            }
+        }
+    }
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|extension| extension == "md") {
+            out.push(path);
         }
     }
     out.sort();
-    Ok(out)
+    out.dedup();
 }
 
-struct Source {
-    rel: String,
-    text: String,
-}
-
-fn shipped_sources(root: &Path) -> Result<Vec<Source>, Fail> {
-    let mut out = Vec::new();
-    for name in shipped(root)? {
-        let dir = root.join("crates").join(&name).join("src");
-        if !dir.exists() {
-            continue;
+/// Does `marker` occur in `line` outside every backtick-delimited span?
+fn outside_code_spans(line: &str, marker: &str) -> bool {
+    let mut at = 0usize;
+    while let Some(position) = line[at..].find(marker) {
+        let absolute = at + position;
+        if line[..absolute].matches('`').count().is_multiple_of(2) {
+            return true;
         }
-        collect(&dir, root, &mut out)?;
+        at = absolute + marker.len();
     }
-    Ok(out)
+    false
 }
 
-fn collect(dir: &Path, root: &Path, out: &mut Vec<Source>) -> Result<(), Fail> {
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            collect(&path, root, out)?;
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            let text = std::fs::read_to_string(&path)?;
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .display()
-                .to_string();
-            out.push(Source { rel, text });
-        }
-    }
-    Ok(())
-}
-
-/// Lines of `text` outside comments and outside `#[cfg(test)]` modules.
-///
-/// A rule about what the code *does* must not be tripped by a doc comment
-/// explaining what it does not do, nor by a test that deliberately constructs
-/// the forbidden thing to prove it is caught.
-fn effective_lines(text: &str) -> Vec<(usize, &str)> {
-    let mut out = Vec::new();
-    let mut in_test = false;
-    let mut test_depth = 0i32;
-    let mut depth = 0i32;
-    for (i, raw) in text.lines().enumerate() {
-        let line = raw.trim();
-        if line.starts_with("//") || line.starts_with("#!") {
-            // A `#![deny(...)]` or a comment states policy; it never is the
-            // behaviour the gate is looking for.
-            continue;
-        }
-        let opens = raw.matches('{').count() as i32;
-        let closes = raw.matches('}').count() as i32;
-        if line.starts_with("#[cfg(test)]") {
-            in_test = true;
-            test_depth = depth;
-        }
-        if !in_test {
-            let code = line.split("//").next().unwrap_or("");
-            if !code.trim().is_empty() {
-                out.push((i + 1, code));
-            }
-        }
-        depth += opens - closes;
-        if in_test && depth <= test_depth && closes > 0 {
-            in_test = false;
-        }
-    }
-    out
-}
-
-/// R5: no arbitrary limitation. Every bound is a property of the caller's
-/// chosen instantiation, never of the code.
-///
-/// Concretely: no shipped crate may return an error the model does not
-/// sanction. The absence of a class of error is checked here --- the absence of
-/// negative testing is only honest if there is nothing to test negatively.
-pub fn audit_limits(root: &Path) -> Result<(), Fail> {
-    let sources = shipped_sources(root)?;
-    // The only error type a shipped crate may name, plus the declaration check at
-    // a declared boundary, which is not the operation failing.
-    let sanctioned = ["NotAProduct", "ObservedBound", "KappaError"];
-
-    let mut violations = Vec::new();
-    for src in &sources {
-        for (line_no, line) in effective_lines(&src.text) {
-            let Some(pos) = line.find("Result<") else {
-                continue;
-            };
-            let tail = &line[pos..];
-            if sanctioned.iter().any(|s| tail.contains(s)) {
-                continue;
-            }
-            violations.push(format!("{}:{line_no}:{}", src.rel, line.trim()));
-        }
-    }
-    if !violations.is_empty() {
-        return Err(format!(
-            "R5: every bound is derived from declared parameters and is a \
-             property of the caller's chosen instantiation. The only reportable \
-             condition is that the requested object does not exist, reported at view \
-             construction. A `Result` over anything else is a limitation the model does \
-             not sanction.\n\n{}",
-            violations.join("\n")
-        )
-        .into());
-    }
-    println!("audit-limits: no shipped crate returns an unsanctioned error (R5)");
-    Ok(())
-}
-
-/// R4: nothing is deferred. No deferral marker, no stub, no placeholder
-/// document section, no capability behind a flag that turns it off.
-///
-/// The markers are spelled in halves. This gate reads every crate *and*
-/// `xtask`, which means it reads this file, and a list of forbidden tokens
-/// written out in full is a list that matches itself --- the gate would fail on
-/// its own definition, for ever. The alternative is exempting this file, and an
-/// exemption is a hole: a real deferral parked in the gate would then be the one
-/// place nothing looks. Split, the gate scans itself like anything else.
+/// R4: nothing is deferred. The markers are spelled in halves so this gate
+/// can scan its own source; exempting the file would put a hole exactly
+/// where a deferral parked in a gate would sit.
 pub fn audit_deferral(root: &Path) -> Result<(), Fail> {
     let markers = [
         concat!("TO", "DO"),
@@ -172,27 +70,19 @@ pub fn audit_deferral(root: &Path) -> Result<(), Fail> {
         concat!("for ", "now"),
         concat!("later ", "version"),
     ];
+    let mut files = Vec::new();
+    gather(
+        root,
+        &[
+            "crates", "xtask", "language", "schemas", "features", "examples", "model", "tests",
+        ],
+        &[
+            ".rs", ".toml", ".json", ".md", ".feature", ".lex.tex", ".lean", ".txt",
+        ],
+        &mut files,
+    );
     let mut violations = Vec::new();
-
-    // Every crate, not only the shipped ones, and `xtask` with them: R4 is a
-    // promise about the repository, and a deferral parked in a gate is the same
-    // deferral as one parked in shipped code.
-    let mut files: Vec<PathBuf> = Vec::new();
-    for dir in [root.join("crates"), root.join("xtask")] {
-        if dir.exists() {
-            gather_all(&dir, &mut files)?;
-        }
-    }
-    // Every Markdown file at the root, discovered rather than listed. A list
-    // here would go stale the first time a document was added or renamed, and
-    // the failure would be silent: a document nobody scans reports nothing.
-    for entry in std::fs::read_dir(root)? {
-        let p = entry?.path();
-        if p.extension().is_some_and(|e| e == "md") {
-            files.push(p);
-        }
-    }
-
+    let mut in_fence = false;
     for path in files {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
@@ -202,26 +92,27 @@ pub fn audit_deferral(root: &Path) -> Result<(), Fail> {
             .unwrap_or(&path)
             .display()
             .to_string();
-        for (i, line) in text.lines().enumerate() {
+        let is_markdown = rel.ends_with(".md");
+        in_fence = false;
+        for (index, line) in text.lines().enumerate() {
+            if is_markdown && line.trim_start().starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if is_markdown && in_fence {
+                continue;
+            }
             for marker in markers {
-                if !line.contains(marker) {
-                    continue;
-                }
-                // A backticked marker is a *mention*, not a use: the
-                // documentation has to be able to name what the gate catches
-                // without tripping it. Anything outside code spans is real.
-                if outside_code_spans(line, marker) {
-                    violations.push(format!("{rel}:{}: {}", i + 1, line.trim()));
+                if line.contains(marker) && (!is_markdown || outside_code_spans(line, marker)) {
+                    violations.push(format!("{rel}:{}: {}", index + 1, line.trim()));
                 }
             }
         }
     }
-
+    let _ = in_fence;
     if !violations.is_empty() {
         return Err(format!(
-            "R4: nothing is deferred. None of {} may appear, and no stub, no \
-             placeholder section, and no capability behind a flag that turns it \
-             off. Every capability ships in the one release.\n\n{}",
+            "R4: nothing is deferred. None of {} may appear outside a code span.\n\n{}",
             markers.join(", "),
             violations.join("\n")
         )
@@ -231,37 +122,369 @@ pub fn audit_deferral(root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
-/// Does `marker` occur in `line` outside every backtick-delimited span?
-fn outside_code_spans(line: &str, marker: &str) -> bool {
-    let mut rest = line;
-    let mut at = 0usize;
-    while let Some(pos) = rest.find(marker) {
-        let absolute = at + pos;
-        // An odd number of backticks before this occurrence means it is inside
-        // a span.
-        if line[..absolute].matches('`').count().is_multiple_of(2) {
-            return true;
+/// R5, §26.1: every diagnostic code used in Rust, tests, fixtures, or
+/// documentation is registered, and every registered code is emitted
+/// somewhere in the shipped sources.
+pub fn audit_errors(root: &Path, model: &repo_model::Model) -> Result<(), Fail> {
+    let registered: BTreeSet<&str> = model
+        .errors
+        .error
+        .iter()
+        .map(|row| row.code.as_str())
+        .collect();
+
+    // Codes constructed in Rust through the checked macro.
+    let mut constructed: BTreeSet<String> = BTreeSet::new();
+    let mut rust_files = Vec::new();
+    gather(root, &["crates", "xtask"], &[".rs"], &mut rust_files);
+    for path in &rust_files {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let mut at = 0usize;
+        while let Some(position) = text[at..].find("code!(\"") {
+            let start = at + position + 7;
+            if let Some(end) = text[start..].find('"') {
+                constructed.insert(text[start..start + end].to_owned());
+                at = start + end;
+            } else {
+                break;
+            }
         }
-        at = absolute + marker.len();
-        rest = &line[at..];
     }
-    false
+    for code in &constructed {
+        if !registered.contains(code.as_str()) {
+            return Err(format!(
+                "R5: `{code}` is constructed in Rust but not registered in model/errors.toml"
+            )
+            .into());
+        }
+    }
+    for code in &registered {
+        if !constructed.contains(*code as &str) {
+            return Err(format!(
+                "R5: `{code}` is registered but never constructed; an unused registered code is a claim with nothing behind it (§26.1)"
+            )
+            .into());
+        }
+    }
+
+    // Codes mentioned anywhere else must be registered too.
+    let mut mention_files = Vec::new();
+    gather(
+        root,
+        &["tests", "features", "examples", "model"],
+        &[".toml", ".json", ".feature", ".md", ".txt"],
+        &mut mention_files,
+    );
+    for path in mention_files {
+        // SPEC.md is the normative source and states whole code *ranges*
+        // (`LLC0001`-`LLC0999`, SPEC.md 26.2); range bounds are not claims
+        // this repository makes, so the specification is not scanned.
+        if path.file_name().is_some_and(|name| name == "SPEC.md") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for token in text.split(|c: char| !c.is_ascii_alphanumeric()) {
+            if token.len() == 7
+                && token.starts_with("LL")
+                && token.as_bytes()[2].is_ascii_uppercase()
+                && token.as_bytes()[3..].iter().all(u8::is_ascii_digit)
+                && !registered.contains(token)
+            {
+                return Err(format!(
+                    "R5: `{token}` in {} is not a registered diagnostic code",
+                    path.display()
+                )
+                .into());
+            }
+        }
+    }
+    println!(
+        "audit-errors: {} registered codes, every one constructed and none unsanctioned (R5)",
+        registered.len()
+    );
+    Ok(())
 }
 
-fn gather_all(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), Fail> {
-    for entry in std::fs::read_dir(dir)? {
+/// R6, §8.4: only `lexlean` ships, and no shipped crate depends on a
+/// `publish = false` repository crate.
+pub fn audit_shipped(root: &Path) -> Result<(), Fail> {
+    let mut shipped = Vec::new();
+    for entry in std::fs::read_dir(root.join("crates"))? {
         let path = entry?.path();
-        if path.is_dir() {
-            if path.file_name().is_some_and(|n| n == "target") {
-                continue;
-            }
-            gather_all(&path, out)?;
-        } else if path
-            .extension()
-            .is_some_and(|e| e == "rs" || e == "md" || e == "toml")
-        {
-            out.push(path);
+        let manifest = path.join("Cargo.toml");
+        let Ok(text) = std::fs::read_to_string(&manifest) else {
+            continue;
+        };
+        if !text.lines().any(|line| line.trim() == "publish = false") {
+            shipped.push((
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                text,
+            ));
         }
     }
+    let names: Vec<&str> = shipped.iter().map(|(name, _)| name.as_str()).collect();
+    if names != ["lexlean"] {
+        return Err(
+            format!("R6: exactly the lexlean crate ships; shipped set is {names:?}").into(),
+        );
+    }
+    for (name, manifest) in &shipped {
+        for forbidden in ["repo-model", "repo-conformance", "xtask"] {
+            if manifest.contains(&format!("{forbidden} ="))
+                || manifest.contains(&format!("{forbidden}.workspace"))
+            {
+                return Err(format!(
+                    "R6: shipped crate `{name}` depends on repository-only `{forbidden}`"
+                )
+                .into());
+            }
+        }
+    }
+    println!("audit-shipped: only lexlean ships, with no repository-only dependency (R6)");
+    Ok(())
+}
+
+/// §27.10: generated documents and schemas are current. The document halves
+/// are compared by `check_model`; this audit proves every committed schema
+/// is canonical JSON with the expected identity.
+pub fn audit_generated(root: &Path) -> Result<(), Fail> {
+    let schema_dir = root.join("schemas");
+    let mut count = 0usize;
+    for entry in std::fs::read_dir(&schema_dir)? {
+        let path = entry?.path();
+        if path.extension().is_none_or(|extension| extension != "json") {
+            continue;
+        }
+        count += 1;
+        let bytes = std::fs::read(&path)?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let canonical = serde_json::to_string(&sorted(value))?;
+        let expected = format!("{canonical}\n");
+        if bytes != expected.as_bytes() {
+            return Err(format!(
+                "R10: {} is not canonical JSON; regenerate the schema",
+                path.display()
+            )
+            .into());
+        }
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let identity = format!("https://github.com/afflom/lexlean/schemas/{name}");
+        if !canonical.contains(&identity) {
+            return Err(format!("{}: missing its $id `{identity}`", path.display()).into());
+        }
+    }
+    if count != 9 {
+        return Err(format!("§7 commits exactly 9 schemas, found {count}").into());
+    }
+    println!("audit-generated: {count} schemas canonical and identified");
+    Ok(())
+}
+
+fn sorted(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut ordered = serde_json::Map::new();
+            let mut keys: Vec<String> = map.keys().cloned().collect();
+            keys.sort();
+            for key in keys {
+                let inner = map.get(&key).cloned().unwrap_or(serde_json::Value::Null);
+                ordered.insert(key, sorted(inner));
+            }
+            serde_json::Value::Object(ordered)
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(sorted).collect())
+        }
+        other => other,
+    }
+}
+
+/// §13.10, §27.10: the renderer-token registry equals the minimal transitive
+/// closure of tokens referenced by the preamble and backend constructs
+/// (language/bootstrap.toml) and every shipped LRE, and carries every
+/// required semantic ID.
+pub fn audit_language_closure(root: &Path) -> Result<(), Fail> {
+    let registry_text = std::fs::read_to_string(root.join("language/renderer-tokens.toml"))?;
+    let registry: toml::Value = registry_text.parse()?;
+    let registry_ids: BTreeSet<String> = registry
+        .get("token")
+        .and_then(|tokens| tokens.as_array())
+        .map(|tokens| {
+            tokens
+                .iter()
+                .filter_map(|token| token.get("id").and_then(|id| id.as_str()))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let bootstrap_text = std::fs::read_to_string(root.join("language/bootstrap.toml"))?;
+    let bootstrap: toml::Value = bootstrap_text.parse()?;
+    let mut referenced: BTreeSet<String> = bootstrap
+        .get("backend")
+        .and_then(|backend| backend.get("tokens"))
+        .and_then(|tokens| tokens.as_array())
+        .map(|tokens| {
+            tokens
+                .iter()
+                .filter_map(|token| token.as_str())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for entry in walkdir::WalkDir::new(root.join("language"))
+        .into_iter()
+        .flatten()
+    {
+        if !entry.file_type().is_file()
+            || entry
+                .path()
+                .extension()
+                .is_none_or(|extension| extension != "toml")
+        {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let mut at = 0usize;
+        while let Some(position) = text[at..].find("(token ") {
+            let start = at + position + 7;
+            let end = text[start..]
+                .find(')')
+                .map(|offset| start + offset)
+                .unwrap_or(text.len());
+            referenced.insert(text[start..end].trim().to_owned());
+            at = end;
+        }
+    }
+
+    const REQUIRED: [&str; 58] = [
+        "documentclass",
+        "usepackage",
+        "newtheorem",
+        "theoremstyle",
+        "begin",
+        "end",
+        "center",
+        "large",
+        "section",
+        "subsection",
+        "label",
+        "texttt",
+        "operatorname",
+        "mathbb",
+        "mathrm",
+        "proof",
+        "definition",
+        "theorem",
+        "lemma",
+        "corollary",
+        "plus",
+        "minus",
+        "times",
+        "cdot",
+        "slash",
+        "equals",
+        "not-equals",
+        "less",
+        "less-equal",
+        "greater",
+        "greater-equal",
+        "member",
+        "not-member",
+        "subset",
+        "subset-equal",
+        "union",
+        "intersection",
+        "forall",
+        "exists",
+        "exists-unique",
+        "logical-and",
+        "logical-or",
+        "logical-not",
+        "implies",
+        "iff",
+        "mapsto",
+        "arrow",
+        "left-arrow",
+        "comma",
+        "period",
+        "colon",
+        "semicolon",
+        "left-paren",
+        "right-paren",
+        "left-bracket",
+        "right-bracket",
+        "operatorname",
+        "section-counter",
+    ];
+    for required in REQUIRED {
+        if !registry_ids.contains(required) {
+            return Err(format!("R8: required renderer token `{required}` is missing").into());
+        }
+    }
+    let missing: Vec<&String> = referenced.difference(&registry_ids).collect();
+    if !missing.is_empty() {
+        return Err(format!("R8: referenced tokens missing from the registry: {missing:?}").into());
+    }
+    let unused: Vec<&String> = registry_ids.difference(&referenced).collect();
+    if !unused.is_empty() {
+        return Err(format!(
+            "R8: unused registry rows fail the language audit (§13.10): {unused:?}"
+        )
+        .into());
+    }
+    println!(
+        "audit-language-closure: {} tokens, registry equals the referenced closure (R8)",
+        registry_ids.len()
+    );
+    Ok(())
+}
+
+/// §8.1, §27.10: the shipped crate forbids unsafe Rust and the prohibition
+/// is active in every shipped source file.
+pub fn audit_no_unsafe(root: &Path) -> Result<(), Fail> {
+    let lib = std::fs::read_to_string(root.join("crates/lexlean/src/lib.rs"))?;
+    let marker = concat!("#![forbid(un", "safe_code)]");
+    if !lib.contains(marker) {
+        return Err("R6: crates/lexlean/src/lib.rs must carry the crate-level prohibition".into());
+    }
+    let needle = concat!("un", "safe ");
+    let mut files = Vec::new();
+    gather(root, &["crates/lexlean/src"], &[".rs"], &mut files);
+    for path in files {
+        if path.extension().is_none_or(|extension| extension != "rs") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (index, line) in text.lines().enumerate() {
+            let stripped = line.split("//").next().unwrap_or("");
+            if stripped.contains(needle) && !stripped.contains("forbid") {
+                return Err(format!(
+                    "R6: {}:{} contains an unguarded keyword the shipped crate forbids",
+                    path.display(),
+                    index + 1
+                )
+                .into());
+            }
+        }
+    }
+    println!("audit-no-unsafe: the prohibition is active (RP-09)");
     Ok(())
 }

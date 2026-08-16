@@ -1,0 +1,16 @@
+spec = "lexlean/negative-case/1"
+class = "recursive-definition"
+kind = "mutation"
+command = "check"
+relock = true
+codes = ["LLF5001", "LLR3003", "LLR3005"]
+
+[[edit]]
+file = "lexlean.toml"
+from = "\n[limits]"
+to = "\n[[lexicon_source]]\npackage = \"test.defs\"\nkind = \"path\"\npath = \"lexicons/test-defs\"\n\n[limits]"
+
+[[edit]]
+file = "src/Main.lex.tex"
+from = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{add-zero}\n\\noaxioms\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n"
+to = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.defs@1.0.0}\n\\title{Natural number addition}\n\n\\begin{termdefinition}{double}{test.defs::double}\n\\noaxioms\nFor every natural number \\(n\\), \\(double(n)\\) is defined as \\(double(n) + n\\).\n\\end{termdefinition}\n\\end{lexlean}\n"

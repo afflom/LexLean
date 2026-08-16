@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "lexeme"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.lexeme"
+
+[[form]]
+id = "lexeme"
+channel = "both"
+surface = "\\lexeme"
+canonical_source = true
+features = []

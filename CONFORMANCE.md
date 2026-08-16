@@ -15,8 +15,292 @@ The three honesty levels (R2):
 | `build` | Constructed here and validated against its oracle. Evidence, not a proof. |
 | `open` | Measured and reported. **Never asserted.** |
 
-`cargo xtask audit-limits` fails if any code path returns an error the
-model does not sanction.
+`cargo xtask validate-model` fails if any code path emits a diagnostic
+the error registry does not sanction (R5, `ERRORS.md`).
+
+## artifacts
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `AR-01` | `build` | Diagnostics use the canonical schema, exact spans, stable sorting, and registered codes. |
+| `AR-02` | `build` | Source maps contain complete module, source, artifact, node, and range records. |
+| `AR-03` | `build` | Lean diagnostics remap by the specified smallest-enclosing mapping algorithm. |
+| `AR-04` | `build` | Coverage files record every required source and output token with no gap or overlap. |
+| `AR-05` | `build` | All compound hashes use the specified length-prefixed frame function. |
+| `AR-06` | `build` | Compiler-semantics identity is recomputed from the exact normative language, schema, backend, and parser inputs. |
+| `AR-07` | `build` | Source IDs are independent of absolute checkout location and include exact normalized inputs. |
+| `AR-08` | `build` | Semantic IDs are platform independent and include linked IR, lexicon closure, language semantics, and toolchain ID. |
+| `AR-09` | `build` | Successful builds publish only the fixed content-addressed build-ID layout. |
+| `AR-10` | `build` | Build manifests enumerate every input and output with stable paths, sizes, and hashes. |
+| `AR-11` | `build` | Normative JSON obeys the restricted canonical JSON format and hash/file newline distinction. |
+| `AR-12` | `build` | Concurrent and failed builds preserve atomic content-addressed artifacts and never overwrite unexplained bytes. |
+| `AR-13` | `build` | Two clean builds in different absolute directories produce byte-identical platform-independent artifacts. |
+| `AR-14` | `build` | Platform-independent build evidence is distinguished from platform-bound oleans, process records, PDF bytes, and attestations. |
+
+## cli-api
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `CL-01` | `build` | Global options and upward project discovery obey the exact CLI contract. |
+| `CL-02` | `build` | Init creates the complete canonical skeleton only in an absent or empty destination and never overwrites. |
+| `CL-03` | `build` | Lock check, local update, and explicit network acquisition obey their exact mutually exclusive behavior. |
+| `CL-04` | `build` | Check runs through linked IR and emits no build artifacts. |
+| `CL-05` | `build` | Build emits the fixed build-ID artifact set without running Lean or claiming verification. |
+| `CL-06` | `build` | Verify runs the complete fixed verification pipeline and accepts no output or suppression option. |
+| `CL-07` | `build` | Format and format-check are idempotent and preserve linked IR. |
+| `CL-08` | `build` | Clean removes only the validated configured build root and no source or external cache. |
+| `CL-09` | `build` | Explain prints exactly one registered diagnostic entry and rejects unknown codes. |
+| `CL-10` | `build` | All, explicit-files, and entrypoint selections return sorted project result sets including import closure. |
+| `CL-11` | `build` | Every command maps failures to the exact documented exit code. |
+| `CL-12` | `build` | Human and canonical-JSON output modes obey exact stream, color, and cardinality rules. |
+| `CL-13` | `build` | The public Engine exposes exactly the stable load, lock, check, build, verify, and format entry points. |
+| `CL-14` | `build` | Every public multi-module operation returns a ProjectResultSet or VerifiedProject rather than a singular unit. |
+| `CL-15` | `build` | Public requests cannot override backends, toolchain, verification stages, limits, policies, or fixed artifact sets. |
+| `CL-16` | `build` | Every public failure is a LexLeanError and malformed user input cannot panic. |
+| `CL-17` | `build` | Environment variables cannot alter semantic project configuration. |
+| `CL-18` | `build` | Version output reports compiler, language, semantics ID, and Lean toolchain exactly. |
+
+## configuration-lock
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `CF-01` | `build` | Project configuration accepts exactly the project/1 schema and rejects unknown or missing fields. |
+| `CF-02` | `build` | Every operational limit is explicit, positive, parsed with checked arithmetic, and has no hidden default. |
+| `CF-03` | `build` | Configured paths resolve within the project under the specified UTF-8 and nonsymlink rules. |
+| `CF-04` | `build` | Project discovery selects the nearest valid regular lexlean.toml and stops at the filesystem root. |
+| `CF-05` | `build` | Entrypoint, explicit-file, and all-module selections are mutually exclusive and canonicalized as specified. |
+| `CF-06` | `build` | Builtin, path, and exact-commit HTTPS Git lexicon sources obey their disjoint schemas. |
+| `CF-07` | `build` | The lock file is canonical, comment-free, sorted, generated, and exact-byte checkable. |
+| `CF-08` | `build` | The lock contains the complete exact transitive lexicon package closure including lexlean.core. |
+| `CF-09` | `build` | Package tree digests use the specified length-framed sorted-file algorithm and reject special files. |
+| `CF-10` | `build` | A changed config, package, workspace pin, or digest makes lock checking fail rather than silently refresh. |
+| `CF-11` | `build` | Check, build, format, and verify resolve only locked locally available dependencies. |
+| `CF-12` | `build` | Network package acquisition occurs only through lock --allow-network and only for an exact configured commit. |
+| `CF-13` | `build` | The Lake workspace contains exactly one supported Lake configuration and the recorded workspace files match. |
+| `CF-14` | `build` | Language 1.0 accepts only leanprover/lean4:v4.32.1 for verification. |
+| `CF-15` | `build` | Duplicate logical modules and case-folded path or module collisions are rejected. |
+
+## declarations
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `DF-01` | `build` | A valid type-definition sentence emits one nonrecursive sort-valued Lean def linked to its document entry. |
+| `DF-02` | `build` | A valid term-definition sentence emits one nonrecursive explicitly typed Lean def. |
+| `DF-03` | `build` | A valid predicate-definition sentence emits one nonrecursive Prop-valued Lean def. |
+| `DF-04` | `build` | Self recursion, mutual recursion, and later-declaration references are rejected. |
+| `DF-05` | `build` | A definition's self head, explicit arguments, and signature order are checked exactly. |
+| `DF-06` | `build` | Every generated definition and theorem-like declaration carries one explicit axiom policy. |
+| `DF-07` | `build` | Theorem, lemma, and corollary each emit Lean theorem declarations while retaining distinct document metadata. |
+| `DF-08` | `build` | Author-defined axioms, opaque declarations, and proofless theorem-like components are rejected. |
+| `DF-09` | `build` | Every theorem-like component contains exactly one nonempty structured proof. |
+| `DF-10` | `build` | Generated declarations preserve source order and every document reference respects that order. |
+
+## examples
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `EX-01` | `build` | The committed nat-add-zero example formats, locks, checks, builds, and verifies with an empty axiom set. |
+| `EX-02` | `build` | Changing the example proposition while retaining the old proof causes remapped Lean verification failure. |
+| `EX-03` | `build` | Replacing a title concept with an undeclared word causes lexical-closure failure. |
+| `EX-04` | `build` | Adding an indistinguishable same-surface entry causes ambiguity rather than priority selection. |
+| `EX-05` | `build` | An axiom-dependent fixture fails an insufficient declaration policy and records the observed excess. |
+| `EX-06` | `build` | Two clean example builds in distinct paths have byte-identical platform-independent artifacts. |
+| `EX-07` | `build` | The negative fixture suite covers every required rejection class and prescribed diagnostic family. |
+| `EX-08` | `build` | Every example directory is discovered automatically and must satisfy the full example gate. |
+
+## grammar
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `GR-01` | `build` | A source module parses only under the exact structural grammar and environment set. |
+| `GR-02` | `build` | Glossary imports, module imports, title, and blocks obey exact header order and cardinality. |
+| `GR-03` | `build` | Sections nest within the configured scope limit and section parameters introduce explicit inherited context. |
+| `GR-04` | `build` | Titles and headings accept only bounded concept phrases and cannot encode an unproved proposition. |
+| `GR-05` | `build` | Only parenthesized and display control delimiters create math islands; dollar math is rejected. |
+| `GR-06` | `build` | Dynamic mathematical operators obey declared precedence, associativity, and explicit grouping. |
+| `GR-07` | `build` | Mathematical juxtaposition is never interpreted as implicit multiplication or application. |
+| `GR-08` | `build` | Universal, existential, unique-existential, conditional, and connective proposition forms have the specified compositional semantics. |
+| `GR-09` | `build` | Proposition precedence and associativity produce the specified parse or an ambiguity error. |
+| `GR-10` | `build` | Articles, plural forms, capitalization, and inflections are explicit lexicon data rather than inferred language rules. |
+| `GR-11` | `build` | A component with no complete grammar parse fails with a bounded structured diagnostic. |
+| `GR-12` | `build` | Distinct surviving parses fail as ambiguity while semantically identical canonical IR alternatives collapse. |
+| `GR-13` | `build` | Free expository paragraphs and opaque text nodes are rejected. |
+| `GR-14` | `build` | Definition and theorem-like components enforce exact sentence, policy, and proof cardinalities. |
+| `GR-15` | `build` | Explicit module imports form an acyclic graph and selected builds include their transitive closure. |
+| `GR-16` | `build` | A same-module declaration cannot reference a later declaration. |
+
+## latex-pdf
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `TX-01` | `build` | Canonical LaTeX is rendered solely from linked IR and never copies source text or controls. |
+| `TX-02` | `build` | Every module uses the exact canonical LaTeX preamble and no host or timestamp metadata. |
+| `TX-03` | `build` | Statements use only canonical controlled proposition and definition renderings. |
+| `TX-04` | `build` | Proof prose is generated from proof IR using fixed core lexical forms. |
+| `TX-05` | `build` | Titles, sections, parameters, environments, numbering, and labels follow the exact document rules. |
+| `TX-06` | `build` | Every visible LaTeX word, symbol, punctuation mark, and control has complete coverage. |
+| `TX-07` | `build` | Non-core lexicons cannot inject a raw TeX control or unclassified output segment. |
+| `TX-08` | `build` | Canonical LaTeX bytes are deterministic, LF-normalized, and final-LF terminated. |
+| `TX-09` | `build` | An enabled external PDF provider runs without a shell in an isolated directory with exact hashes and resources. |
+| `TX-10` | `build` | The PDF recipe ID and actual PDF hash use the specified independent content records. |
+| `TX-11` | `build` | PDF success or failure never changes mathematical verification authority. |
+| `TX-12` | `build` | The publishable document is the canonical renderer output rather than unchecked source bytes. |
+
+## lean-backend
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `LN-01` | `build` | Each generated Lean file has the exact module, import, option, namespace, declaration, and end structure. |
+| `LN-02` | `build` | Imports are explicit, deduplicated, sorted, and every external global is fully qualified. |
+| `LN-03` | `build` | Generated Lean contains no comments, documentation, strings, or copied source prose. |
+| `LN-04` | `build` | Generated Lean contains no sorry, admit, axiom, opaque, unsafe, native_decide, or placeholder declaration. |
+| `LN-05` | `build` | Every linked term and proof variant has one defined Lean lowering and missing lowering is a hard error. |
+| `LN-06` | `build` | Leading universal binders become deterministic declaration parameters with complete source mapping. |
+| `LN-07` | `build` | All document definitions emit def and never alternate declaration forms. |
+| `LN-08` | `build` | Proof lowering uses only the fixed pinned Lean forms enumerated by the specification. |
+| `LN-09` | `build` | Lean formatting is byte-deterministic with fixed indentation, LF, and final LF. |
+| `LN-10` | `build` | Every non-whitespace generated Lean token has a source, glossary, IR, or synthetic-core mapping. |
+| `LN-11` | `build` | The generated-source audit tokenizes and rejects prose-bearing or forbidden Lean tokens before verification. |
+| `LN-12` | `build` | Generated file paths and module names exactly mirror the configured module prefix and source module. |
+
+## lexical-closure
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `LX-01` | `build` | Source decoding and line normalization enforce valid UTF-8, LF, final LF, and forbidden-scalar rules. |
+| `LX-02` | `build` | Non-NFC source is diagnosed and canonical formatting rewrites it without semantic change. |
+| `LX-03` | `build` | Raw percent, comments, tabs, trailing spaces, and non-ASCII whitespace are rejected. |
+| `LX-04` | `build` | The primitive scanner recognizes exactly the specified atom classes and records exact spans. |
+| `LX-05` | `build` | Core braces, controls, punctuation, and grammar tokens receive glossary coverage rather than TeX trust. |
+| `LX-06` | `build` | An undeclared prose word is rejected with an exact unknown-atom diagnostic. |
+| `LX-07` | `build` | An undeclared symbol or control sequence is rejected with an exact unknown-atom diagnostic. |
+| `LX-08` | `build` | Lexical analysis builds all valid form edges without greedy import-order selection. |
+| `LX-09` | `build` | Every accepted non-whitespace source atom is covered exactly once in the selected path. |
+| `LX-10` | `build` | A local identifier is accepted only when introduced by a binder and every later occurrence resolves by scope. |
+| `LX-11` | `build` | TeX macro definition, expansion, file access, and execution controls are rejected even if a package declares them. |
+| `LX-12` | `build` | Qualified lexeme and document-reference controls select only existing closed entries or declarations. |
+| `LX-13` | `build` | Lexical or semantic ambiguity is rejected and no priority or heuristic chooses a candidate. |
+| `LX-14` | `build` | Canonical formatting chooses safe canonical forms and proves linked-IR preservation. |
+
+## lexicon
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `GL-01` | `build` | Lexicon packages obey the exact package layout, schema, ID-to-path rule, and exact imports. |
+| `GL-02` | `build` | Entry files obey the exact entry schema and category-specific field rules. |
+| `GL-03` | `build` | Forms obey channel, feature, canonical-source, safety, and explicit-inflection requirements. |
+| `GL-04` | `build` | Every entry uses one fixed frame and packages cannot add grammar productions. |
+| `GL-05` | `build` | Denotations are exactly core, Lean, document, or acyclic defined values. |
+| `GL-06` | `build` | Every semantic entry has a valid canonical LSE signature with scoped binders and universes. |
+| `GL-07` | `build` | Every canonical render uses valid LRE with complete slot use and no raw TeX. |
+| `GL-08` | `build` | Only the core renderer-token registry can authorize emitted LaTeX controls and glyphs. |
+| `GL-09` | `build` | Package import cycles and excessive import depth are rejected. |
+| `GL-10` | `build` | Defined-denotation cycles and document-definition cycles are rejected. |
+| `GL-11` | `build` | A document denotation must resolve to an available declaration with a matching signature. |
+| `GL-12` | `build` | Every used external Lean entry is checked by a generated interface probe during verification. |
+| `GL-13` | `build` | Duplicate packages, entries, forms, and qualified IDs are rejected while same-surface overloads remain explicit candidates. |
+| `GL-14` | `build` | Cases and induction are available only through a complete validated eliminator descriptor. |
+| `GL-15` | `build` | Glossary files reject free description, documentation, note, meaning, and unknown prose fields. |
+| `GL-16` | `build` | Package and entry bytes participate in lock and semantic closure hashes exactly as specified. |
+
+## proofs
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `PF-01` | `build` | Assume and exact-style simple proof sentences create scoped introductions and exact proof nodes. |
+| `PF-02` | `build` | Simple Apply is accepted only when its declared signature yields exactly one residual premise. |
+| `PF-03` | `build` | Structured apply requires every numbered residual premise exactly once and in signature order. |
+| `PF-04` | `build` | Reflexivity lowers only to pinned Lean rfl and closes the current goal. |
+| `PF-05` | `build` | Witness steps supply the next existential witness with no implicit search. |
+| `PF-06` | `build` | Left and right alternative steps select only the corresponding disjunction constructor. |
+| `PF-07` | `build` | Have establishes a nested proposition before introducing its fresh hypothesis into subsequent scope. |
+| `PF-08` | `build` | Rewrite applies every explicitly directed rule strictly in source order at exactly one target. |
+| `PF-09` | `build` | Simplify lowers to simp only with exactly the listed rules and target. |
+| `PF-10` | `build` | Constructor requires the exact ordered branch count and every branch closes. |
+| `PF-11` | `build` | Cases requires a validated descriptor, every constructor once, and exact branch binders. |
+| `PF-12` | `build` | Induction requires a validated descriptor, every constructor once, and exact field and induction-hypothesis binders. |
+| `PF-13` | `build` | Calculation chains use one declared relation, at least one step, and exact endpoint proofs. |
+| `PF-14` | `build` | Proof locals, hypotheses, premise scopes, and case scopes cannot capture or leak. |
+| `PF-15` | `build` | Every proof and nested branch must close all goals and rejects steps after closure. |
+| `PF-16` | `build` | Raw tactics, custom proof nodes, unrestricted automation, and proof holes are rejected. |
+| `PF-17` | `build` | native_decide is never accepted or generated. |
+| `PF-18` | `build` | Lean proof failures remap to the smallest originating LexLean proof or statement span. |
+
+## repository
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `RP-01` | `build` | The repository, crate, executable, metadata, and licenses have the exact LexLean identity specified. |
+| `RP-02` | `build` | The repository is derived from the pinned UOR template commit and contains no inherited domain-specific claim logic. |
+| `RP-03` | `build` | The completed repository has the required file and crate layout. |
+| `RP-04` | `build` | Only the lexlean crate is shipped and no shipped crate depends on repository-only tooling. |
+| `RP-05` | `build` | The just vv recipe runs every normative acceptance gate in the specified order. |
+| `RP-06` | `build` | CONFORMANCE.md and ERRORS.md are exact generated views of model files. |
+| `RP-07` | `build` | The specification conformance table and model register are bijective and text-consistent. |
+| `RP-08` | `build` | Repository source contains no unsanctioned deferral marker, stub, placeholder, ignored capability, or disabling feature. |
+| `RP-09` | `build` | The shipped crate forbids unsafe Rust and the audit proves the prohibition is active. |
+| `RP-10` | `build` | The embedded compiler-semantics ID equals a clean recomputation from normative language and schema inputs. |
+| `RP-11` | `build` | Every public README capability claim is tied to a registered model ID and honesty level. |
+| `RP-12` | `build` | A release is refused unless the complete release criterion and all required artifacts are satisfied. |
+
+## security
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `SE-01` | `build` | Source, package, workspace, resource, and output paths are confined and symlinks are rejected. |
+| `SE-02` | `build` | Special files, duplicate filesystem identities, and case-fold collisions are rejected before processing. |
+| `SE-03` | `build` | All child processes use direct executable and argv invocation with no shell. |
+| `SE-04` | `build` | No command except lock --allow-network may perform package network acquisition. |
+| `SE-05` | `build` | Child environments use the specified deterministic allow-list and recorded normalization. |
+| `SE-06` | `build` | Every configured parser, graph, IR, diagnostic, child-output, and timeout limit is enforced with checked arithmetic. |
+| `SE-07` | `build` | Temporary data uses confined owner-only staging and is removed after atomic publication or failure. |
+| `SE-08` | `build` | External executables and PDF resources are hash-checked before use. |
+| `SE-09` | `build` | PDF execution receives only canonical TeX and declared resources in an isolated working directory. |
+| `SE-10` | `build` | Internal invariant failures use LLI9001 and exit 70 without misclassifying user input. |
+| `SE-11` | `build` | Diagnostics and process records do not expose secret environment values or arbitrary unrelated file contents. |
+| `SE-12` | `build` | Git lexicon acquisition accepts only an exact 40-hex commit over HTTPS and rejects submodules and LFS indirection. |
+
+## semantic-ir
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `SM-01` | `build` | Compiler phases execute in the required order and no backend receives an unlinked or ambiguous program. |
+| `SM-02` | `build` | Every global and local reference has one closed typed reference variant and one stable identity. |
+| `SM-03` | `build` | Term IR contains only the specified closed variants and represents every accepted semantic term. |
+| `SM-04` | `build` | Proof IR contains only the specified closed variants and represents every accepted proof form. |
+| `SM-05` | `build` | Conservative signature elaboration checks arity, binders, categories, and expected types without claiming Lean kernel equivalence. |
+| `SM-06` | `build` | Omitted implicit binders are recorded as controlled application metadata and user holes are rejected. |
+| `SM-07` | `build` | Document-entry signatures and generated declaration signatures are compared canonically before rendering. |
+| `SM-08` | `build` | Module, component, local, and hypothesis name generation is deterministic and collision checked. |
+| `SM-09` | `build` | Linked IR has stable schema-tagged canonical JSON with alpha-safe binder serialization. |
+| `SM-10` | `build` | Source ID and semantic ID use exactly the specified framed hash inputs. |
+| `SM-11` | `build` | Linked project result sets contain every selected module and imported module exactly once in stable order. |
+| `SM-12` | `build` | No semantic IR node can contain opaque prose, raw backend text, or an unknown extension. |
+| `SM-13` | `build` | Inherited section parameters are represented explicitly and emitted only on declarations that use them. |
+| `SM-14` | `build` | A numeral without a unique expected type is rejected rather than defaulted. |
+
+## verification
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `VR-01` | `build` | Verification runs every specified stage in order and exposes no stage-suppression option. |
+| `VR-02` | `build` | Lean, Lake, and leanchecker versions and executable hashes are checked and recorded before use. |
+| `VR-03` | `build` | Lean execution uses the pinned Lake environment and never updates or fetches workspace dependencies. |
+| `VR-04` | `build` | Every used external interface is elaborated in the unique reserved probe module. |
+| `VR-05` | `build` | Generated modules compile in topological order and produce one required olean each. |
+| `VR-06` | `build` | Verification neither requests nor includes ilean artifacts. |
+| `VR-07` | `build` | A Lean warning, unknown informational message, overflow, or missing output fails verification. |
+| `VR-08` | `build` | Every generated module is replayed by a separate leanchecker process and every replay must succeed. |
+| `VR-09` | `build` | The unique reserved audit module prints axioms for every generated declaration exactly once. |
+| `VR-10` | `build` | The axiom parser accepts only the pinned exact output forms and rejects missing, duplicate, extra, or malformed records. |
+| `VR-11` | `build` | None, allow-subset, and exact axiom policies are enforced exactly and recorded per declaration. |
+| `VR-12` | `build` | Child process output is normalized with the exact path and line rules before hashing. |
+| `VR-13` | `build` | A verified directory contains the complete fixed source, map, coverage, olean, probe, audit, and process artifact set. |
+| `VR-14` | `build` | The attestation ID is computed over the canonical body with its ID field removed. |
+| `VR-15` | `build` | Any failed verification stage removes staging and produces no verified artifact or verified status. |
+| `VR-16` | `build` | Axioms flowing from imported theorems remain subject to the generated declaration's policy. |
+| `VR-17` | `build` | Lean workspace configuration and manifest hashes must match the lock and all dependencies must be locally available. |
+| `VR-18` | `build` | Check and build results never claim verified or kernel-checked status. |
 
 ## Cited authorities
 
@@ -24,8 +308,16 @@ Never re-derived, vendored, or gated on.
 
 | Authority | Citation | Evidence here |
 | --- | --- | --- |
+| `LEAN-REL-4-32-1` | https://github.com/leanprover/lean4/releases/tag/v4.32.1 | `CF-14`, `VR-02`, `VR-05` |
+| `LAKE-4-32-1` | https://github.com/leanprover/lean4/tree/v4.32.1/src/lake | `VR-03`, `VR-17` |
+| `LEANCHECKER-4-32-1` | https://github.com/leanprover/lean4/tree/v4.32.1 | `VR-08` |
+| `PRINT-AXIOMS-4-32-1` | https://github.com/leanprover/lean4/tree/v4.32.1 (the #print axioms command); observed output fixtures under tests/golden/axiom-parser/ | `VR-09`, `VR-10` |
 
 ## Claims that are not conformance IDs
 
 | ID | Level | Claim |
 | --- | --- | --- |
+| `AUTH-LEAN-REL-4-32-1` | `some-true` | Lean 4.32.1 is the release tagged leanprover/lean4:v4.32.1, built from source commit f054605aea4b840552cca2e725580bffd1e1b704. |
+| `AUTH-LAKE-4-32-1` | `some-true` | Lake as distributed with Lean 4.32.1 resolves a pinned workspace environment through lake env without network access when every locked dependency is locally available. |
+| `AUTH-LEANCHECKER-4-32-1` | `some-true` | The leanchecker executable distributed with Lean 4.32.1 replays a compiled module's environment through the Lean kernel in a separate process and is not an independent proof checker. |
+| `AUTH-PRINT-AXIOMS-4-32-1` | `some-true` | Lean 4.32.1 reports the transitive axiom dependencies of a declaration through #print axioms in exactly the output forms recorded by the committed axiom-parser fixtures. |

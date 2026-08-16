@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.branch"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-branch"
+
+[[form]]
+id = "branch"
+channel = "both"
+surface = "branch"
+canonical_source = true
+features = []

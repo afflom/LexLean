@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.calculate"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-calculate"
+
+[[form]]
+id = "calculate"
+channel = "both"
+surface = "calculate"
+canonical_source = true
+features = []

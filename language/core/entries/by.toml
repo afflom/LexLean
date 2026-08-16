@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "by"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.by"
+
+[[form]]
+id = "by-l"
+channel = "text"
+surface = "by"
+canonical_source = true
+features = ["lower-case"]

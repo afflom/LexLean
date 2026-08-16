@@ -1,0 +1,10 @@
+spec = "lexlean/negative-case/1"
+class = "raw-lean"
+kind = "mutation"
+command = "check"
+codes = ["LLP2003", "LLL1004"]
+
+[[edit]]
+file = "src/Main.lex.tex"
+from = "\\begin{theorem}{add-zero}"
+to = "theorem raw (n : Nat) : n = n := rfl\n\\begin{theorem}{add-zero}"

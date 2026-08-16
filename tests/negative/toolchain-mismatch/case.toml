@@ -1,0 +1,10 @@
+spec = "lexlean/negative-case/1"
+class = "toolchain-mismatch"
+kind = "mutation"
+command = "lock-check"
+codes = ["LLC0102"]
+
+[[edit]]
+file = "lean-toolchain"
+from = "leanprover/lean4:v4.32.1"
+to = "leanprover/lean4:v4.31.0"

@@ -1,4 +1,8 @@
-//! Reading `features/suites/*.feature` (R3).
+//! Reading `features/suites/*.feature` under the deliberately small
+//! Gherkin subset (R3, SPEC.md §27.7): a `Feature:` heading, one tag line
+//! `@<ID> @build` per scenario, one `Scenario:` line, and one or more
+//! steps. No background, outline, examples table, pending step, or
+//! alternate tag order is accepted.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -16,6 +20,8 @@ pub struct Scenario {
     pub suite: String,
     /// The steps, in order.
     pub steps: Vec<String>,
+    /// The raw tag line, for exact-order validation.
+    pub tag_line: String,
 }
 
 /// What a suite directory contains.
@@ -25,22 +31,22 @@ pub struct SuiteReport {
     pub scenarios: Vec<Scenario>,
     /// Files that were read.
     pub files: usize,
+    /// Subset violations: background, outline, examples, or malformed tags.
+    pub violations: Vec<String>,
 }
 
-/// Parse every `.feature` file in `dir`.
-///
-/// A deliberately small parser. Cucumber's full grammar buys nothing here: the
-/// scenarios are generated from the register and their job is to be *readable*
-/// and to carry the ID, not to be executed by a step-definition engine. What
-/// executes the claims are the tests, and `CM-02` is what ties the two together.
+/// Parse every `.feature` file in `dir` under the §27.7 subset.
 pub fn scenarios_in(dir: &Path) -> std::io::Result<SuiteReport> {
     let mut report = SuiteReport::default();
     let mut entries: Vec<_> = std::fs::read_dir(dir)?.collect::<Result<_, _>>()?;
-    entries.sort_by_key(|e| e.path());
+    entries.sort_by_key(std::fs::DirEntry::path);
 
     for entry in entries {
         let path = entry.path();
-        if path.extension().is_none_or(|e| e != "feature") {
+        if path
+            .extension()
+            .is_none_or(|extension| extension != "feature")
+        {
             continue;
         }
         report.files += 1;
@@ -51,29 +57,46 @@ pub fn scenarios_in(dir: &Path) -> std::io::Result<SuiteReport> {
             .to_string();
         let text = std::fs::read_to_string(&path)?;
 
-        let mut pending_tags: Vec<String> = Vec::new();
+        let mut pending_tag: Option<String> = None;
         let mut current: Option<Scenario> = None;
         for raw in text.lines() {
             let line = raw.trim();
+            for forbidden in ["Background:", "Scenario Outline:", "Examples:"] {
+                if line.starts_with(forbidden) {
+                    report.violations.push(format!(
+                        "{suite}: `{forbidden}` is outside the §27.7 subset"
+                    ));
+                }
+            }
             if line.starts_with('@') {
-                pending_tags = line
-                    .split_whitespace()
-                    .map(|t| t.trim_start_matches('@').to_string())
-                    .collect();
+                pending_tag = Some(line.to_owned());
             } else if let Some(rest) = line.strip_prefix("Scenario:") {
                 if let Some(done) = current.take() {
                     report.scenarios.push(done);
                 }
-                let id = pending_tags.first().cloned().unwrap_or_default();
-                let level = pending_tags.get(1).cloned().unwrap_or_default();
+                let tag_line = pending_tag.take().unwrap_or_default();
+                let tags: Vec<&str> = tag_line.split_whitespace().collect();
+                let id = tags
+                    .first()
+                    .map(|tag| tag.trim_start_matches('@').to_owned())
+                    .unwrap_or_default();
+                let level = tags
+                    .get(1)
+                    .map(|tag| tag.trim_start_matches('@').to_owned())
+                    .unwrap_or_default();
+                if tags.len() != 2 {
+                    report.violations.push(format!(
+                        "{suite}: the tag line is exactly `@<ID> @build`, found `{tag_line}`"
+                    ));
+                }
                 current = Some(Scenario {
                     id,
                     level,
-                    statement: rest.trim().to_string(),
+                    statement: rest.trim().to_owned(),
                     suite: suite.clone(),
                     steps: Vec::new(),
+                    tag_line,
                 });
-                pending_tags.clear();
             } else if let Some(scenario) = current.as_mut() {
                 for keyword in ["Given ", "When ", "Then ", "And ", "But "] {
                     if let Some(step) = line.strip_prefix(keyword) {
@@ -92,7 +115,11 @@ pub fn scenarios_in(dir: &Path) -> std::io::Result<SuiteReport> {
 
 impl SuiteReport {
     /// The set of IDs the suites cover.
+    #[must_use]
     pub fn ids(&self) -> BTreeSet<&str> {
-        self.scenarios.iter().map(|s| s.id.as_str()).collect()
+        self.scenarios
+            .iter()
+            .map(|scenario| scenario.id.as_str())
+            .collect()
     }
 }

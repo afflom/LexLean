@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "there"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.there"
+
+[[form]]
+id = "there-l"
+channel = "text"
+surface = "there"
+canonical_source = true
+features = ["lower-case"]
+
+[[form]]
+id = "there-s"
+channel = "text"
+surface = "There"
+canonical_source = false
+features = ["sentence-case"]

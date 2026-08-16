@@ -1,0 +1,10 @@
+spec = "lexlean/negative-case/1"
+class = "raw-percent-comment"
+kind = "mutation"
+command = "check"
+codes = ["LLL1002"]
+
+[[edit]]
+file = "src/Main.lex.tex"
+from = "For every"
+to = "% comment\nFor every"

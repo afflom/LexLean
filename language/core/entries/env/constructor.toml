@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.constructor"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-constructor"
+
+[[form]]
+id = "constructor"
+channel = "both"
+surface = "constructor"
+canonical_source = true
+features = []

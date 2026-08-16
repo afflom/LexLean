@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "for"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.for"
+
+[[form]]
+id = "for-l"
+channel = "text"
+surface = "for"
+canonical_source = true
+features = ["lower-case"]
+
+[[form]]
+id = "for-s"
+channel = "text"
+surface = "For"
+canonical_source = false
+features = ["sentence-case"]

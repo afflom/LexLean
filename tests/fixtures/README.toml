@@ -1,0 +1,2 @@
+spec = "lexlean/test-fixtures/1"
+role = "Sequence-behavior fixtures per SPEC.md 28.2; single-command rejection fixtures live in tests/negative and are driven by conformance_ex_07."

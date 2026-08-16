@@ -1,17 +1,48 @@
-# model/authorities.toml --- what this repository cites rather than proves.
+# model/authorities.toml --- what this repository cites rather than proves
+# (R2, SPEC.md §27.4).
 #
 # A `some-true` claim is reproduced from an authority and is not established
-# here. This file is where the authority is named well enough for a third party
-# to find it, with a checksum over the committed artifact when there is one and
-# a stated reason when there is not.
-#
-# `realized_by` lists the conformance IDs that are *evidence* this repository
-# realizes the cited fact. Evidence is not proof, and the meta-gate fails the
-# build if any document blurs the two registers.
-#
-# Empty. The first authority this repository cites goes here, before any claim
-# is allowed to say `some-true`.
+# here. Each row names the authority well enough for a third party to find it.
+# Nothing from these authorities is vendored into this repository, so each row
+# records `checksum = "none"` with the identifier a third party verifies
+# instead. `realized_by` lists the conformance IDs that are *evidence* this
+# repository realizes the cited fact; evidence is not proof, and the meta-gate
+# fails the build if any document blurs the two registers.
 
-spec = "template/1"
+spec = "lexlean/authorities/1"
 
-authority = []
+[[authority]]
+id = "LEAN-REL-4-32-1"
+name = "Lean 4.32.1 release"
+citation = "https://github.com/leanprover/lean4/releases/tag/v4.32.1"
+checksum = "none"
+checksum_reason = "The authority is an upstream release; nothing from it is vendored. It is identified by its tag leanprover/lean4:v4.32.1 and source commit f054605aea4b840552cca2e725580bffd1e1b704, and verification records the SHA-256 of the actual executables used."
+statement = "Lean 4.32.1 is the release tagged leanprover/lean4:v4.32.1, built from source commit f054605aea4b840552cca2e725580bffd1e1b704, and provides the elaborator and kernel that LexLean submits generated declarations to."
+realized_by = ["CF-14", "VR-02", "VR-05"]
+
+[[authority]]
+id = "LAKE-4-32-1"
+name = "Lake distributed with Lean 4.32.1"
+citation = "https://github.com/leanprover/lean4/tree/v4.32.1/src/lake"
+checksum = "none"
+checksum_reason = "Lake ships inside the pinned Lean toolchain; verification records the SHA-256 of the actual lake executable used rather than vendoring it."
+statement = "Lake as distributed with Lean 4.32.1 resolves a pinned workspace environment through lake env without network access when every locked dependency is locally available."
+realized_by = ["VR-03", "VR-17"]
+
+[[authority]]
+id = "LEANCHECKER-4-32-1"
+name = "leanchecker distributed with Lean 4.32.1"
+citation = "https://github.com/leanprover/lean4/tree/v4.32.1"
+checksum = "none"
+checksum_reason = "leanchecker ships inside the pinned Lean toolchain; verification records the SHA-256 of the actual leanchecker executable used rather than vendoring it."
+statement = "The leanchecker executable distributed with Lean 4.32.1 replays a compiled module's environment through the Lean kernel in a separate process; it shares the kernel implementation with Lean and is not an independent proof checker."
+realized_by = ["VR-08"]
+
+[[authority]]
+id = "PRINT-AXIOMS-4-32-1"
+name = "Lean 4.32.1 `#print axioms` output behavior"
+citation = "https://github.com/leanprover/lean4/tree/v4.32.1 (the #print axioms command); observed output fixtures under tests/golden/axiom-parser/"
+checksum = "none"
+checksum_reason = "The behavior belongs to the pinned toolchain; the committed axiom-parser fixtures record the observed output forms and participate in the compiler-semantics digest."
+statement = "Lean 4.32.1 reports the transitive axiom dependencies of a declaration through #print axioms in exactly the output forms recorded by the committed axiom-parser fixtures."
+realized_by = ["VR-09", "VR-10"]

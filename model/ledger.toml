@@ -1,18 +1,37 @@
 # model/ledger.toml --- the honesty ledger for claims that are not conformance
-# IDs (R2).
+# IDs (R2, SPEC.md §27.3).
 #
 # The conformance IDs and their levels live in `model/ids.toml`, which is the
 # register; duplicating them here would give a claim two sources, which is
-# exactly what R1 forbids. What remains is the two kinds of claim that have no
-# ID: the facts this repository *reproduces* from an authority, and the
-# quantities it *measures* and never asserts.
+# exactly what R1 forbids. What remains is the facts this repository
+# *reproduces* from an authority (§27.4): each is `some-true`, cites its
+# authority row, and is never presented as established here.
 #
-# The meta-gate proves the suite never asserts an `open` claim as established,
-# and `CM-03` proves every `some-true` row cites an authority that exists.
-#
-# The ledger is empty. A claim added here needs its level chosen first, because
-# the level decides what evidence it owes.
+# The initial repository has no `open` claim, and no `open` row may ever be
+# used as acceptance evidence (§27.3).
 
-spec = "template/1"
+spec = "lexlean/ledger/1"
 
-claim = []
+[[claim]]
+id = "AUTH-LEAN-REL-4-32-1"
+level = "some-true"
+statement = "Lean 4.32.1 is the release tagged leanprover/lean4:v4.32.1, built from source commit f054605aea4b840552cca2e725580bffd1e1b704."
+authority = "LEAN-REL-4-32-1"
+
+[[claim]]
+id = "AUTH-LAKE-4-32-1"
+level = "some-true"
+statement = "Lake as distributed with Lean 4.32.1 resolves a pinned workspace environment through lake env without network access when every locked dependency is locally available."
+authority = "LAKE-4-32-1"
+
+[[claim]]
+id = "AUTH-LEANCHECKER-4-32-1"
+level = "some-true"
+statement = "The leanchecker executable distributed with Lean 4.32.1 replays a compiled module's environment through the Lean kernel in a separate process and is not an independent proof checker."
+authority = "LEANCHECKER-4-32-1"
+
+[[claim]]
+id = "AUTH-PRINT-AXIOMS-4-32-1"
+level = "some-true"
+statement = "Lean 4.32.1 reports the transitive axiom dependencies of a declaration through #print axioms in exactly the output forms recorded by the committed axiom-parser fixtures."
+authority = "PRINT-AXIOMS-4-32-1"

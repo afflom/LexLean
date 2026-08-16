@@ -1,0 +1,4 @@
+spec = "lexlean/negative-case/1"
+class = "pdf-hash-mismatch"
+kind = "delegated"
+test = "conformance_tx_09"

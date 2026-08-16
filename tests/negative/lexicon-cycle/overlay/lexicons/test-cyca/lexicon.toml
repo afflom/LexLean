@@ -1,0 +1,5 @@
+spec = "lexlean/lexicon/1"
+package = "test.cyca"
+version = "1.0.0"
+language = "1.0"
+imports = ["lexlean.core@1.0.0", "test.cycb@1.0.0"]

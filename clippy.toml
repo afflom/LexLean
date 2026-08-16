@@ -6,4 +6,5 @@
 # anywhere. A crate with a contract worth enforcing declares it at crate scope,
 # where the deny lands on the code that owes it.
 
-msrv = "1.89"
+msrv = "1.97"
+large-error-threshold = 512

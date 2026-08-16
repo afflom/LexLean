@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Repository gates: check-model, check-constants, audit-limits, audit-purity, audit-deferral, verify-oracles, validate."
+description = "Repository gates: validate-model, validate-spec-links, verify-examples, check-golden, check-reproducibility, validate."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,14 @@ license.workspace = true
 publish = false
 
 [dependencies]
+camino = { workspace = true }
+lexlean = { workspace = true }
+repo-conformance = { workspace = true }
 repo-model = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+toml = { workspace = true }
+walkdir = { workspace = true }
 
 [lints]
 workspace = true

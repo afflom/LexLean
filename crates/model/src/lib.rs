@@ -13,8 +13,9 @@
 
 pub mod codegen;
 pub mod registry;
+pub mod release;
 
-pub use registry::{Authorities, AuthorityRow, Claim, IdRow, Ids, Ledger, Level};
+pub use registry::{Authorities, AuthorityRow, Claim, ErrorRow, Errors, IdRow, Ids, Ledger, Level};
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +28,8 @@ pub struct Model {
     pub ids: Ids,
     /// `model/authorities.toml`: what this repository cites rather than proves.
     pub authorities: Authorities,
+    /// `model/errors.toml`: the closed public diagnostic registry (R1, R5).
+    pub errors: Errors,
 }
 
 /// A failure to load or to cross-check the model.
@@ -59,6 +62,7 @@ impl Model {
             ledger: read(dir, "ledger.toml")?,
             ids: read(dir, "ids.toml")?,
             authorities: read(dir, "authorities.toml")?,
+            errors: read(dir, "errors.toml")?,
         })
     }
 
@@ -75,6 +79,7 @@ impl Model {
         self.ledger.check()?;
         self.check_ids()?;
         self.check_authorities()?;
+        self.errors.check()?;
         Ok(())
     }
 

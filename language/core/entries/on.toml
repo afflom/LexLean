@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "on"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.on"
+
+[[form]]
+id = "on-l"
+channel = "text"
+surface = "on"
+canonical_source = true
+features = ["lower-case"]

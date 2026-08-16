@@ -1,15 +1,9 @@
-//! The honesty meta-gate (R2).
+//! The honesty meta-gate (R2, R3, SPEC.md §27.7, §27.8).
 //!
-//! Three levels only mean something if the suite respects them, and nothing in
-//! the arithmetic can enforce that. What can is a check on the *names* and the
-//! *prose*: an `open` claim that a test asserts, or a `some-true` authority
-//! that the README presents as this repository's own result, is exactly the
-//! blurring of registers the discipline exists to prevent.
-//!
-//! The gate is deliberately about language, because that is where the failure
-//! mode lives. Nobody sets out to claim they proved an upstream theorem; they
-//! write "proves" where they meant "is evidence for", and six months later the
-//! sentence is load-bearing.
+//! Levels only mean something if the suite respects them, and the register
+//! only means something if every row has exactly one scenario whose
+//! statement equals the registered statement and exactly one test named
+//! `conformance_<id>`, neither ignored nor feature-gated.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -31,16 +25,15 @@ pub struct HonestyReport {
 
 impl HonestyReport {
     /// Did everything hold?
+    #[must_use]
     pub fn is_clean(&self) -> bool {
         self.violations.is_empty()
     }
 }
 
-/// Words that assert a claim as established.
-///
-/// A `build` claim may use them --- it *is* evidence, constructed here. An
-/// `open` claim may not, because it is a measurement, and a `some-true` claim
-/// may not, because it belongs to someone else.
+/// Words that assert a claim as established. A `build` claim may use them;
+/// an `open` claim may not, and a `some-true` claim belongs to someone
+/// else.
 const ASSERTIVE: &[&str] = &[
     "proves",
     "proven",
@@ -52,110 +45,132 @@ const ASSERTIVE: &[&str] = &[
     "confirms",
 ];
 
+/// The exact test name for an ID (§27.8).
+#[must_use]
+pub fn test_name_for(id: &str) -> String {
+    format!("conformance_{}", id.to_lowercase().replace('-', "_"))
+}
+
 /// Run the meta-gate.
-///
-/// `root` is the repository root. `tests` are the test names collected from the
-/// workspace, which the caller gathers because it knows how to run `cargo`.
+#[allow(clippy::too_many_lines)]
 pub fn check_honesty(root: &Path, tests: &BTreeSet<String>) -> std::io::Result<HonestyReport> {
     let mut report = HonestyReport::default();
     let model = match Model::load(&root.join("model")) {
-        Ok(m) => m,
-        Err(e) => {
+        Ok(model) => model,
+        Err(error) => {
             report
                 .violations
-                .push(format!("R1: the model does not load: {e}"));
+                .push(format!("R1: the model does not load: {error}"));
             return Ok(report);
         }
     };
     let suites: SuiteReport = crate::runner::scenarios_in(&root.join("features/suites"))?;
     report.scenarios_checked = suites.scenarios.len();
     report.ids_checked = model.ids.id.len();
+    report.violations.extend(suites.violations.clone());
 
-    let scenario_ids = suites.ids();
+    let (_all_names, flagged) = crate::workspace_test_names_with_flags(root);
 
-    // R3, CM-02: every registered ID has a scenario, and a test named for it.
+    // R3, §27.8: every registered ID has exactly one scenario in its named
+    // suite and exactly one test with the exact generated name.
     for row in &model.ids.id {
-        if !scenario_ids.contains(row.id.as_str()) {
-            report.violations.push(format!(
-                "R3: {} is registered but has no scenario in features/suites/. Every \
-                 capability begins as a Gherkin scenario.",
+        let matching: Vec<_> = suites
+            .scenarios
+            .iter()
+            .filter(|scenario| scenario.id == row.id)
+            .collect();
+        match matching.as_slice() {
+            [] => report.violations.push(format!(
+                "R3: {} is registered but has no scenario in features/suites/.",
                 row.id
-            ));
-        }
-        let slug = row.id.to_lowercase().replace('-', "_");
-        if !tests.iter().any(|t| t.ends_with(&slug)) {
-            report.violations.push(format!(
-                "CM-02: {} is registered but no test name ends in `{slug}`. A claim with \
-                 no test is an assertion.",
-                row.id
-            ));
-        }
-    }
-
-    // CM-02, the other direction: every scenario names a registered ID.
-    for s in &suites.scenarios {
-        if model.ids.get(&s.id).is_none() {
-            report.violations.push(format!(
-                "CM-02: scenario `{}` in {} names `{}`, which is not in the register.",
-                s.statement, s.suite, s.id
-            ));
-        }
-        if s.steps.is_empty() {
-            report.violations.push(format!(
-                "R3: scenario `{}` in {} has no steps. There are no pending steps.",
-                s.statement, s.suite
-            ));
-        }
-        // R2: the scenario's tag must agree with the register.
-        if let Some(row) = model.ids.get(&s.id) {
-            if s.level != row.level.as_str() {
-                report.violations.push(format!(
-                    "R2: {} is tagged `{}` in {} but `{}` in the register.",
-                    s.id,
-                    s.level,
-                    s.suite,
-                    row.level.as_str()
-                ));
+            )),
+            [scenario] => {
+                if scenario.suite != row.suite {
+                    report.violations.push(format!(
+                        "R3: {} lives in `{}`, the register says `{}`.",
+                        row.id, scenario.suite, row.suite
+                    ));
+                }
+                if scenario.statement.trim() != row.statement.trim() {
+                    report.violations.push(format!(
+                        "R3: {}'s scenario statement differs from the register (§27.7):\n    scenario: {}\n    register: {}",
+                        row.id, scenario.statement, row.statement
+                    ));
+                }
+                if scenario.tag_line != format!("@{} @{}", row.id, row.level.as_str()) {
+                    report.violations.push(format!(
+                        "R2: {}'s tag line must be exactly `@{} @{}`, found `{}` (§27.7).",
+                        row.id,
+                        row.id,
+                        row.level.as_str(),
+                        scenario.tag_line
+                    ));
+                }
+                if scenario.steps.is_empty() {
+                    report.violations.push(format!(
+                        "R3: {}'s scenario has no steps; there are no pending steps.",
+                        row.id
+                    ));
+                }
             }
+            many => report.violations.push(format!(
+                "R3: {} has {} scenarios; each ID has exactly one (§27.7).",
+                row.id,
+                many.len()
+            )),
+        }
+        let expected = test_name_for(&row.id);
+        let count = tests.iter().filter(|name| **name == expected).count();
+        match count {
+            1 => {}
+            0 => report.violations.push(format!(
+                "§27.8: {} is registered but no test is named `{expected}`.",
+                row.id
+            )),
+            _ => report.violations.push(format!(
+                "§27.8: more than one test claims {} through `{expected}`.",
+                row.id
+            )),
+        }
+        if flagged.contains(&expected) {
+            report.violations.push(format!(
+                "§27.8: `{expected}` is ignored or hidden behind a cfg; a disabled conformance test is a claim with nothing behind it.",
+            ));
         }
     }
 
-    // CM-02, the third direction: every ID a *test* names is registered.
-    //
-    // Without this the register can be a subset of what the suite claims: a test
-    // called `..._ct_04` looks like it discharges `CT-04`, but if `CT-04` is not
-    // a row then nothing checks it has a scenario and `CONFORMANCE.md` does not
-    // list it. Three IDs were in exactly that state --- `CK-08`, `CT-04`, and
-    // `CT-05` --- with passing tests and no register rows, which is a claim made
-    // by a name and by nothing else.
-    //
-    // Only prefixes the register already uses are checked, so a test whose name
-    // merely happens to end in two letters and two digits is not a claim.
+    // The other direction: every scenario names a registered ID.
+    for scenario in &suites.scenarios {
+        if model.ids.get(&scenario.id).is_none() {
+            report.violations.push(format!(
+                "R3: scenario `{}` in {} names `{}`, which is not in the register.",
+                scenario.statement, scenario.suite, scenario.id
+            ));
+        }
+    }
+
+    // The third direction: every ID a test name claims is registered.
     let prefixes: BTreeSet<String> = model
         .ids
         .id
         .iter()
-        .filter_map(|r| r.id.split('-').next().map(str::to_lowercase))
+        .filter_map(|row| row.id.split('-').next().map(str::to_lowercase))
         .collect();
     for name in tests {
-        let Some(tail) = name.rsplit("::").next() else {
+        let Some(rest) = name.strip_prefix("conformance_") else {
             continue;
         };
-        let parts: Vec<&str> = tail.rsplitn(3, '_').collect();
-        if parts.len() < 3 {
+        let mut parts = rest.splitn(2, '_');
+        let (Some(letters), Some(digits)) = (parts.next(), parts.next()) else {
             continue;
-        }
-        let (digits, letters) = (parts[0], parts[1]);
-        if digits.len() != 2 || !digits.bytes().all(|b| b.is_ascii_digit()) {
-            continue;
-        }
-        if letters.len() != 2 || !prefixes.contains(letters) {
+        };
+        if !prefixes.contains(letters) || digits.len() != 2 {
             continue;
         }
         let id = format!("{}-{digits}", letters.to_uppercase());
         if model.ids.get(&id).is_none() {
             report.violations.push(format!(
-                "CM-02: test `{name}` names `{id}`, which is not in the register. An ID                  that exists only in a test name has no scenario and no row in                  CONFORMANCE.md."
+                "§27.8: test `{name}` names `{id}`, which is not in the register."
             ));
         }
     }
@@ -165,56 +180,50 @@ pub fn check_honesty(root: &Path, tests: &BTreeSet<String>) -> std::io::Result<H
         .ids
         .id
         .iter()
-        .filter(|r| r.level == Level::Open)
-        .map(|r| r.id.as_str())
+        .filter(|row| row.level == Level::Open)
+        .map(|row| row.id.as_str())
         .collect();
-    for doc in [
+    for document in [
         "README.md",
         "CONFORMANCE.md",
         "VERIFICATION.md",
-        "ANALYSIS.md",
+        "ERRORS.md",
     ] {
-        let path = root.join(doc);
+        let path = root.join(document);
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        for (i, line) in text.lines().enumerate() {
+        for (index, line) in text.lines().enumerate() {
             let lower = line.to_lowercase();
             for id in &open_ids {
                 if !line.contains(id) {
                     continue;
                 }
-                if let Some(word) = ASSERTIVE.iter().find(|w| lower.contains(*w)) {
+                if let Some(word) = ASSERTIVE.iter().find(|word| lower.contains(*word)) {
                     report.violations.push(format!(
-                        "R2: {doc}:{}: `{id}` is an `open` claim --- measured and reported, \
-                         never asserted --- but this line says `{word}`.\n    {}",
-                        i + 1,
-                        line.trim()
+                        "R2: {document}:{}: `{id}` is an `open` claim but this line says `{word}`.",
+                        index + 1
                     ));
                 }
             }
         }
     }
-
-    // R2: a `some-true` authority is reproduced, not established here.
     for authority in &model.authorities.authority {
-        for doc in ["README.md", "CONFORMANCE.md"] {
-            let path = root.join(doc);
+        for document in ["README.md", "CONFORMANCE.md"] {
+            let path = root.join(document);
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            for (i, line) in text.lines().enumerate() {
+            for (index, line) in text.lines().enumerate() {
                 if !line.contains(&authority.id) {
                     continue;
                 }
                 let lower = line.to_lowercase();
-                if let Some(word) = ASSERTIVE.iter().find(|w| lower.contains(*w)) {
+                if let Some(word) = ASSERTIVE.iter().find(|word| lower.contains(*word)) {
                     report.violations.push(format!(
-                        "R2: {doc}:{}: `{}` is cited, not established here, but this line \
-                         says `{word}`.\n    {}",
-                        i + 1,
-                        authority.id,
-                        line.trim()
+                        "R2: {document}:{}: `{}` is cited, not established here, but this line says `{word}`.",
+                        index + 1,
+                        authority.id
                     ));
                 }
             }
@@ -233,14 +242,10 @@ mod tests {
     #[test]
     fn the_assertive_vocabulary_is_recognised() {
         for word in ASSERTIVE {
-            let line = format!("CG-01 {word} the exponent is one");
-            assert!(
-                ASSERTIVE.iter().any(|w| line.to_lowercase().contains(*w)),
-                "{word} must be recognised"
-            );
+            let line = format!("XX-00 {word} the claim");
+            assert!(ASSERTIVE.iter().any(|w| line.to_lowercase().contains(*w)));
         }
-        // And an honest sentence about an open claim does not trip it.
-        let honest = "CG-01 reports the fitted exponent with its confidence interval";
+        let honest = "XX-00 reports the measurement with its interval";
         assert!(!ASSERTIVE.iter().any(|w| honest.to_lowercase().contains(*w)));
     }
 }

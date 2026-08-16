@@ -1,0 +1,337 @@
+# model/errors.toml --- the closed public diagnostic registry (R1, R5, §26).
+#
+# Rows sort by code. `statement` is the §26.3 meaning byte-for-byte; `title`
+# is that meaning without its terminal period. ERRORS.md is generated from
+# this file, and `cargo xtask validate-model` rejects a code used anywhere
+# that is absent here, and an unused registered code (§26.1).
+
+spec = "lexlean/errors/1"
+
+[[error]]
+code = "LLB6001"
+class = "language"
+exit = 1
+title = "Lean lowering has no defined form"
+statement = "Lean lowering has no defined form."
+
+[[error]]
+code = "LLB6002"
+class = "language"
+exit = 1
+title = "LaTeX lowering or renderer-token coverage failure"
+statement = "LaTeX lowering or renderer-token coverage failure."
+
+[[error]]
+code = "LLB6003"
+class = "language"
+exit = 1
+title = "Artifact hash, schema, or atomic publication failure"
+statement = "Artifact hash, schema, or atomic publication failure."
+
+[[error]]
+code = "LLB6004"
+class = "environment"
+exit = 3
+title = "PDF-provider protocol failure"
+statement = "PDF-provider protocol failure."
+
+[[error]]
+code = "LLC0001"
+class = "cli-configuration"
+exit = 2
+title = "Invalid command-line usage"
+statement = "Invalid command-line usage."
+
+[[error]]
+code = "LLC0002"
+class = "cli-configuration"
+exit = 2
+title = "Mutually exclusive or empty selection"
+statement = "Mutually exclusive or empty selection."
+
+[[error]]
+code = "LLC0101"
+class = "cli-configuration"
+exit = 2
+title = "Invalid or unknown project configuration field"
+statement = "Invalid or unknown project configuration field."
+
+[[error]]
+code = "LLC0102"
+class = "cli-configuration"
+exit = 2
+title = "Missing, stale, or noncanonical lock file"
+statement = "Missing, stale, or noncanonical lock file."
+
+[[error]]
+code = "LLC0103"
+class = "cli-configuration"
+exit = 2
+title = "Unsupported schema or language version"
+statement = "Unsupported schema or language version."
+
+[[error]]
+code = "LLC0104"
+class = "cli-configuration"
+exit = 2
+title = "Duplicate module or case-folded path collision"
+statement = "Duplicate module or case-folded path collision."
+
+[[error]]
+code = "LLF5001"
+class = "language"
+exit = 1
+title = "Invalid definition form, self head, or recursion"
+statement = "Invalid definition form, self head, or recursion."
+
+[[error]]
+code = "LLF5002"
+class = "language"
+exit = 1
+title = "Invalid proof step for the current goal"
+statement = "Invalid proof step for the current goal."
+
+[[error]]
+code = "LLF5003"
+class = "language"
+exit = 1
+title = "Missing, duplicate, or malformed proof branch"
+statement = "Missing, duplicate, or malformed proof branch."
+
+[[error]]
+code = "LLF5004"
+class = "language"
+exit = 1
+title = "Proof does not close all goals"
+statement = "Proof does not close all goals."
+
+[[error]]
+code = "LLF5005"
+class = "language"
+exit = 1
+title = "Forbidden proof form or proof hole"
+statement = "Forbidden proof form or proof hole."
+
+[[error]]
+code = "LLI9001"
+class = "internal"
+exit = 70
+title = "Internal invariant failure"
+statement = "Internal invariant failure."
+
+[[error]]
+code = "LLL1001"
+class = "language"
+exit = 1
+title = "Invalid UTF-8, forbidden scalar, or line-ending form"
+statement = "Invalid UTF-8, forbidden scalar, or line-ending form."
+
+[[error]]
+code = "LLL1002"
+class = "language"
+exit = 1
+title = "Forbidden comment, raw percent, tab, or TeX escape"
+statement = "Forbidden comment, raw percent, tab, or TeX escape."
+
+[[error]]
+code = "LLL1003"
+class = "language"
+exit = 1
+title = "Non-NFC or noncanonical source requiring formatting"
+statement = "Non-NFC or noncanonical source requiring formatting."
+
+[[error]]
+code = "LLL1004"
+class = "language"
+exit = 1
+title = "Unknown non-whitespace primitive atom"
+statement = "Unknown non-whitespace primitive atom."
+
+[[error]]
+code = "LLL1005"
+class = "language"
+exit = 1
+title = "Source token-coverage gap or overlap"
+statement = "Source token-coverage gap or overlap."
+
+[[error]]
+code = "LLL1006"
+class = "language"
+exit = 1
+title = "Token-lattice construction failure"
+statement = "Token-lattice construction failure."
+
+[[error]]
+code = "LLP2001"
+class = "language"
+exit = 1
+title = "No grammar parse"
+statement = "No grammar parse."
+
+[[error]]
+code = "LLP2002"
+class = "language"
+exit = 1
+title = "More than one distinct linked interpretation"
+statement = "More than one distinct linked interpretation."
+
+[[error]]
+code = "LLP2003"
+class = "language"
+exit = 1
+title = "Invalid structural order or component cardinality"
+statement = "Invalid structural order or component cardinality."
+
+[[error]]
+code = "LLP2004"
+class = "language"
+exit = 1
+title = "Invalid math precedence, associativity, or grouping"
+statement = "Invalid math precedence, associativity, or grouping."
+
+[[error]]
+code = "LLR3001"
+class = "language"
+exit = 1
+title = "Missing package, version, source, or digest mismatch"
+statement = "Missing package, version, source, or digest mismatch."
+
+[[error]]
+code = "LLR3002"
+class = "language"
+exit = 1
+title = "Duplicate package, entry, form, or qualified ID"
+statement = "Duplicate package, entry, form, or qualified ID."
+
+[[error]]
+code = "LLR3003"
+class = "language"
+exit = 1
+title = "Import, denotation, module, or definition cycle"
+statement = "Import, denotation, module, or definition cycle."
+
+[[error]]
+code = "LLR3004"
+class = "language"
+exit = 1
+title = "Invalid LSE, LRE, frame, form, or renderer token"
+statement = "Invalid LSE, LRE, frame, form, or renderer token."
+
+[[error]]
+code = "LLR3005"
+class = "language"
+exit = 1
+title = "Unavailable or invalid document/external reference"
+statement = "Unavailable or invalid document/external reference."
+
+[[error]]
+code = "LLR3006"
+class = "language"
+exit = 1
+title = "Unsafe canonical form or raw renderer output"
+statement = "Unsafe canonical form or raw renderer output."
+
+[[error]]
+code = "LLS8001"
+class = "security-limit"
+exit = 4
+title = "Path escape, symlink, special file, or filesystem identity conflict"
+statement = "Path escape, symlink, special file, or filesystem identity conflict."
+
+[[error]]
+code = "LLS8002"
+class = "security-limit"
+exit = 4
+title = "Explicit project resource limit exceeded"
+statement = "Explicit project resource limit exceeded."
+
+[[error]]
+code = "LLS8003"
+class = "security-limit"
+exit = 4
+title = "Network operation attempted outside permitted lock acquisition"
+statement = "Network operation attempted outside permitted lock acquisition."
+
+[[error]]
+code = "LLS8004"
+class = "security-limit"
+exit = 4
+title = "Child environment, executable, hash, or shell-policy violation"
+statement = "Child environment, executable, hash, or shell-policy violation."
+
+[[error]]
+code = "LLT4001"
+class = "language"
+exit = 1
+title = "Arity, binder, category, or conservative type mismatch"
+statement = "Arity, binder, category, or conservative type mismatch."
+
+[[error]]
+code = "LLT4002"
+class = "language"
+exit = 1
+title = "Unresolved overloaded entry"
+statement = "Unresolved overloaded entry."
+
+[[error]]
+code = "LLT4003"
+class = "language"
+exit = 1
+title = "External-interface probe mismatch"
+statement = "External-interface probe mismatch."
+
+[[error]]
+code = "LLT4004"
+class = "language"
+exit = 1
+title = "Document-entry signature mismatch"
+statement = "Document-entry signature mismatch."
+
+[[error]]
+code = "LLV7001"
+class = "environment"
+exit = 3
+title = "Lean/Lake/leanchecker version or executable mismatch"
+statement = "Lean/Lake/leanchecker version or executable mismatch."
+
+[[error]]
+code = "LLV7002"
+class = "language"
+exit = 1
+title = "Generated Lean elaboration or compilation failure"
+statement = "Generated Lean elaboration or compilation failure."
+
+[[error]]
+code = "LLV7003"
+class = "language"
+exit = 1
+title = "`leanchecker` replay failure"
+statement = "`leanchecker` replay failure."
+
+[[error]]
+code = "LLV7004"
+class = "language"
+exit = 1
+title = "Missing, malformed, or unexpected axiom-audit output"
+statement = "Missing, malformed, or unexpected axiom-audit output."
+
+[[error]]
+code = "LLV7005"
+class = "language"
+exit = 1
+title = "Axiom policy violation"
+statement = "Axiom policy violation."
+
+[[error]]
+code = "LLV7006"
+class = "language"
+exit = 1
+title = "Lean warning or unexpected successful-process output"
+statement = "Lean warning or unexpected successful-process output."
+
+[[error]]
+code = "LLV7007"
+class = "environment"
+exit = 3
+title = "Lake workspace lock or dependency availability mismatch"
+statement = "Lake workspace lock or dependency availability mismatch."

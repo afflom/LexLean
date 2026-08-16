@@ -1,0 +1,10 @@
+spec = "lexlean/negative-case/1"
+class = "missing-proof"
+kind = "mutation"
+command = "check"
+codes = ["LLF5005"]
+
+[[edit]]
+file = "src/Main.lex.tex"
+from = "\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n"
+to = ""

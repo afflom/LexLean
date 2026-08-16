@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "allowaxioms"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.allowaxioms"
+
+[[form]]
+id = "allowaxioms"
+channel = "both"
+surface = "\\allowaxioms"
+canonical_source = true
+features = []

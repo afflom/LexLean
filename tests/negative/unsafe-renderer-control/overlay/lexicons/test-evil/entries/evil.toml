@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "evil"
+category = "term-constant"
+signature = "(const lexlean.std.nat::nat)"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.zero"
+
+[[form]]
+id = "evil"
+channel = "both"
+surface = "evil"
+canonical_source = true
+features = []
+
+[render]
+math = "(token unregistered-token)"

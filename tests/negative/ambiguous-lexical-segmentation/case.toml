@@ -1,0 +1,16 @@
+spec = "lexlean/negative-case/1"
+class = "ambiguous-lexical-segmentation"
+kind = "mutation"
+command = "check"
+relock = true
+codes = ["LLP2002"]
+
+[[edit]]
+file = "lexlean.toml"
+from = "\n[limits]"
+to = "\n[[lexicon_source]]\npackage = \"test.seg\"\nkind = \"path\"\npath = \"lexicons/test-seg\"\n\n[limits]"
+
+[[edit]]
+file = "src/Main.lex.tex"
+from = "\\useglossary{lexlean.std.nat@1.0.0}"
+to = "\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.seg@1.0.0}"

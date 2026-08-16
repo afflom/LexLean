@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "left"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.left"
+
+[[form]]
+id = "left-l"
+channel = "text"
+surface = "left"
+canonical_source = true
+features = ["lower-case"]

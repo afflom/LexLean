@@ -1,0 +1,584 @@
+# language/renderer-tokens.toml --- the single source for trusted LaTeX
+# controls and mathematical glyphs (SPEC.md §13.10). Rows sort by id.
+# `audit-language-closure` requires this registry to equal the minimal
+# transitive closure of tokens referenced by the exact preamble, the
+# backend constructs listed in language/bootstrap.toml, core LRE, and
+# shipped standard-package LRE.
+
+spec = "lexlean/renderer-tokens/1"
+
+[[token]]
+id = "amsmath"
+bytes = "amsmath"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "amssymb"
+bytes = "amssymb"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "amsthm"
+bytes = "amsthm"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "arrow"
+bytes = "\\rightarrow"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "article"
+bytes = "article"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "begin"
+bytes = "\\begin"
+channel = "text"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "blackboard-n"
+bytes = "N"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "cdot"
+bytes = "\\cdot"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "center"
+bytes = "center"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "colon"
+bytes = ":"
+channel = "both"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "comma"
+bytes = ","
+channel = "both"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "corollary"
+bytes = "corollary"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "corollary-title"
+bytes = "Corollary"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "definition"
+bytes = "definition"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "definition-title"
+bytes = "Definition"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "document"
+bytes = "document"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "documentclass"
+bytes = "\\documentclass"
+channel = "text"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "end"
+bytes = "\\end"
+channel = "text"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "equals"
+bytes = "="
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "exists"
+bytes = "\\exists"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "exists-unique"
+bytes = "\\exists!"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "fontenc"
+bytes = "fontenc"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "forall"
+bytes = "\\forall"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "greater"
+bytes = ">"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "greater-equal"
+bytes = "\\ge"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "hidelinks"
+bytes = "hidelinks"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "hyperref"
+bytes = "hyperref"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "iff"
+bytes = "\\leftrightarrow"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "implies"
+bytes = "\\to"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "intersection"
+bytes = "\\cap"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "label"
+bytes = "\\label"
+channel = "text"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "large"
+bytes = "\\LARGE"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "left-arrow"
+bytes = "\\leftarrow"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "left-bracket"
+bytes = "["
+channel = "both"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "left-paren"
+bytes = "("
+channel = "both"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "lemma"
+bytes = "lemma"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "lemma-title"
+bytes = "Lemma"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "less"
+bytes = "<"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "less-equal"
+bytes = "\\le"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "logical-and"
+bytes = "\\land"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "logical-not"
+bytes = "\\lnot"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "logical-or"
+bytes = "\\lor"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "mapsto"
+bytes = "\\mapsto"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "mathbb"
+bytes = "\\mathbb"
+channel = "math"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "mathrm"
+bytes = "\\mathrm"
+channel = "math"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "member"
+bytes = "\\in"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "minus"
+bytes = "-"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "newtheorem"
+bytes = "\\newtheorem"
+channel = "text"
+arity = 2
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "not-equals"
+bytes = "\\ne"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "not-member"
+bytes = "\\notin"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "operatorname"
+bytes = "\\operatorname"
+channel = "math"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "opt-11pt"
+bytes = "11pt"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "opt-t1"
+bytes = "T1"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "period"
+bytes = "."
+channel = "both"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "plus"
+bytes = "+"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "proof"
+bytes = "proof"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "right-bracket"
+bytes = "]"
+channel = "both"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "right-paren"
+bytes = ")"
+channel = "both"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "section"
+bytes = "\\section"
+channel = "text"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "section-counter"
+bytes = "section"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "semicolon"
+bytes = ";"
+channel = "both"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "slash"
+bytes = "/"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "subsection"
+bytes = "\\subsection"
+channel = "text"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "subset"
+bytes = "\\subset"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "subset-equal"
+bytes = "\\subseteq"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "texttt"
+bytes = "\\texttt"
+channel = "text"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "theorem"
+bytes = "theorem"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "theorem-title"
+bytes = "Theorem"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "theoremstyle"
+bytes = "\\theoremstyle"
+channel = "text"
+arity = 1
+grouping = true
+authority = "lexlean.core"
+
+[[token]]
+id = "times"
+bytes = "\\times"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "union"
+bytes = "\\cup"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
+id = "usepackage"
+bytes = "\\usepackage"
+channel = "text"
+arity = 1
+grouping = true
+authority = "lexlean.core"

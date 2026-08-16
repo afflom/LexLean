@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "start"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.start"
+
+[[form]]
+id = "start"
+channel = "both"
+surface = "\\start"
+canonical_source = true
+features = []

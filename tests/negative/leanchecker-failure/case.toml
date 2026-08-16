@@ -1,0 +1,4 @@
+spec = "lexlean/negative-case/1"
+class = "leanchecker-failure"
+kind = "delegated"
+test = "conformance_vr_08"

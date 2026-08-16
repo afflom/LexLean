@@ -1,0 +1,13 @@
+spec = "lexlean/test-case/1"
+command = "lock"
+args = ["--check"]
+expected_exit = 2
+expect_artifacts = false
+
+[[invocation]]
+command = "edit"
+args = ["lexlean.toml", "max_scope_depth = 1024", "max_scope_depth = 512"]
+
+[[invocation]]
+command = "lock"
+args = ["--check"]

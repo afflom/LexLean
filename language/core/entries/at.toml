@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "at"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.at"
+
+[[form]]
+id = "at"
+channel = "both"
+surface = "@"
+canonical_source = true
+features = []

@@ -1,76 +1,108 @@
-# Template
+# LexLean
 
-A repository template with the gate machinery and none of the content.
+A closed-lexicon LaTeX-to-Lean 4 compiler whose canonical document and prose-free Lean program are generated from one semantic representation.
 
-`just vv` passes as it stands. It has no shipped crates, an empty claim
-register, and an empty ledger --- and every check re-arms the moment the first
-capability is added, because the anti-vacuity checks are keyed to the register
-rather than asserted outright.
+The complete normative contract is [SPEC.md](SPEC.md) (`LEXLEAN-SPEC-1`). Every capability below is a claim in [`model/ids.toml`](model/ids.toml), carried at honesty level `build`: constructed here and validated against its oracle by the test named `conformance_<id>`. The generated register is [CONFORMANCE.md](CONFORMANCE.md); the closed diagnostic registry is [ERRORS.md](ERRORS.md); the falsifiability evidence is in [VERIFICATION.md](VERIFICATION.md).
 
-## Start here
+## What it does
 
-1. **Name it.** `Cargo.toml` has `CHANGEME` in `repository` and `homepage`, and
-   empty `keywords` and `categories`. They are inherited by every crate.
-2. **Rename the tooling crates if you want to.** `repo-model` and
-   `repo-conformance` are deliberately neutral; they are `publish = false` and
-   nothing outside the workspace sees them.
-3. **Add your first crate** under `crates/`. It is *shipped* unless its manifest
-   says `publish = false`, and the gates read that rather than a list.
-4. **Add your first capability** in the order `AGENTS.md` sets out: a row in
-   `model/ids.toml`, a scenario in `features/suites/`, a failing test named for
-   the ID, then the implementation.
+LexLean compiles `.lex.tex` modules written in a closed controlled language: every word, symbol, and control must be declared by a versioned lexicon package, every sentence parses under a fixed grammar, and one typed intermediate representation generates both the canonical LaTeX document and the prose-free Lean 4 program. Verification compiles the generated Lean under the pinned `leanprover/lean4:v4.32.1` toolchain, replays every module with `leanchecker`, audits axioms with exact `#print axioms` parsing, and publishes a content-addressed attestation.
 
-## What is here
+```text
+lexlean init --name my-doc --module-prefix MyDoc
+lexlean lock
+lexlean check
+lexlean build
+lexlean verify
+```
 
-| Path | What it is |
-| --- | --- |
-| `model/` | the single source of every claim: the ID register, the ledger, the authorities |
-| `features/suites/` | one Gherkin scenario per conformance ID |
-| `crates/model` | parses `model/*.toml` and generates `CONFORMANCE.md` |
-| `crates/conformance` | the BDD runner and the honesty meta-gate |
-| `xtask/` | the gates: `check-model`, `audit-limits`, `audit-deferral` |
+## The literal example
 
-## The gate
+[examples/nat-add-zero/src/Main.lex.tex](examples/nat-add-zero/src/Main.lex.tex) is the complete SPEC.md §29 document:
 
-| Recipe | What it does |
-| --- | --- |
-| `just vv` | the whole gate; everything below in order |
-| `just fmt-check` | formatting |
-| `just model` | the repository gates: R1, R4, R5 |
-| `just lint` | clippy at `-D warnings` |
-| `just test` | the workspace suite |
-| `just features` | every optional feature compiles, with its tests |
-| `just bdd` | R3 and the honesty meta-gate |
-| `just deny` | advisories, bans, licences and sources (needs `cargo-deny`) |
+```latex
+\begin{lexlean}{Main}
+\useglossary{lexlean.std.nat@1.0.0}
+\title{Natural number addition}
 
-`AGENTS.md` defines R1 through R6 and is the brief for changing anything here.
-`VERIFICATION.md` maps each gate to what it discharges and records the defect
-planted to prove it can fail.
+\begin{theorem}{add-zero}
+\noaxioms
+For every natural number \(n\), \(n + 0 = n\).
+\begin{proof}
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+\end{lexlean}
+```
 
-## Claim discipline
+From one linked representation it generates the prose-free Lean module
 
-Every claim carries one of three honesty levels, and the build fails if the two
-registers are blurred:
+```lean
+module
+import Init
+set_option autoImplicit false
+namespace LexLeanExample.Main
 
-| Level | Meaning |
-| --- | --- |
-| `some-true` | reproduced from an authority. **Not established here.** |
-| `build` | constructed here and validated against its oracle. Evidence, not proof. |
-| `open` | measured and reported, **never asserted**. |
+public theorem add_zero (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by
+  rfl
 
-`CONFORMANCE.md` is generated from `model/`, so a claim cannot exist in the
-documentation without a register row, or in the register without appearing in
-the documentation.
+end LexLeanExample.Main
+```
 
-## Licence
+and the canonical LaTeX document, regenerated from IR rather than copied ("The goal follows by reflexivity."), plus source maps, coverage, and a manifest — all byte-reproducible across directories. `lexlean verify` then compiles the module under the pinned toolchain, replays it with `leanchecker`, parses `#print axioms` exactly, and records the empty observed axiom set in a content-addressed attestation.
 
-Dual-licensed under either of
+## Building and running the gate
 
-- Apache License, Version 2.0 ([`LICENSE-APACHE`](LICENSE-APACHE))
-- MIT license ([`LICENSE-MIT`](LICENSE-MIT))
+Prerequisites: Rust 1.97 (`rust-toolchain.toml` pins it), [just](https://github.com/casey/just), `cargo-deny`, and the pinned Lean toolchain `leanprover/lean4:v4.32.1` installed through `elan` (the dev container in [.devcontainer/](.devcontainer/) provides all of them).
 
-at your option.
+```text
+just vv        # the complete normative acceptance gate (SPEC.md §9.2)
+just release   # vv, then the §30 release criterion; refused until 1.0.0
+```
 
-Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in this work by you, as defined in the Apache-2.0 licence, shall
-be dual-licensed as above, without any additional terms or conditions.
+All 209 registered conformance IDs are implemented and pass; `just vv` runs clean from a checkout with the pinned toolchain installed.
+
+## Capabilities
+
+Every row is validated by `just vv`; the IDs link the claim to its register row, scenario, and conformance test.
+
+| Capability | IDs | Level |
+| --- | --- | --- |
+| Exact repository identity, layout, generated documents, and release gate | `RP-01`..`RP-12` | `build` |
+| Closed project configuration, canonical lock file, and offline dependency policy | `CF-01`..`CF-15` | `build` |
+| Total lexical closure: every accepted atom is covered by exactly one declared origin | `LX-01`..`LX-14` | `build` |
+| Versioned lexicon packages with closed schemas, denotations, and renderer tokens | `GL-01`..`GL-16` | `build` |
+| Fixed structural, mathematical, and proposition grammar with closed ambiguity handling | `GR-01`..`GR-16` | `build` |
+| Typed closed IR with canonical serialization and content identities | `SM-01`..`SM-14` | `build` |
+| Document definitions with exact self-application and acyclicity rules | `DF-01`..`DF-10` | `build` |
+| The structured proof language with pinned Lean lowerings | `PF-01`..`PF-18` | `build` |
+| Prose-free deterministic generated Lean with complete token traceability | `LN-01`..`LN-12` | `build` |
+| Canonical LaTeX regeneration and the optional hash-checked PDF provider | `TX-01`..`TX-12` | `build` |
+| Canonical diagnostics, source maps, coverage, manifests, and reproducible builds | `AR-01`..`AR-14` | `build` |
+| Fifteen-stage verification with leanchecker replay and exact axiom audit | `VR-01`..`VR-18` | `build` |
+| The exact CLI contract and the stable six-method Rust `Engine` API | `CL-01`..`CL-18` | `build` |
+| Filesystem confinement, no shell, no hidden network, closed failure model | `SE-01`..`SE-12` | `build` |
+| The literal `nat-add-zero` example and the complete negative fixture suite | `EX-01`..`EX-08` | `build` |
+
+Range rows abbreviate consecutive registered IDs; every individual ID in each range is registered in [`model/ids.toml`](model/ids.toml) at the stated level with its own scenario and test.
+
+## Evidence, not belief
+
+- `check` and `build` never claim verification (`VR-18`); only `verify` runs Lean, and its attestation records toolchain hashes, process records, and observed axiom sets (`VR-01`..`VR-14`).
+- Facts about external tools (Lean 4.32.1, Lake, leanchecker, `#print axioms` output shapes) are level `some-true` rows in [`model/ledger.toml`](model/ledger.toml): reproduced from cited authorities, not established here.
+- The acceptance gate is `just vv` (SPEC.md §9.2); a release is refused until the complete §30 criterion holds (`RP-12`).
+
+## Documented deviations
+
+- Generated Lean declares `public theorem` / `public def` where SPEC.md §29.3 prints bare `theorem`: under the Lean 4.32.1 module system a non-`public` declaration is module-private, and the §18.9 axiom-audit module could not name it. The committed oracles carry `public`.
+- The §21.5 `modules/<full-module-path>` artifact naming is realized as slash-separated directories (`modules/LexLeanExample/Main.lean`).
+
+Both are enforced by the same golden and conformance gates as everything else.
+
+## Layout
+
+Language data lives in [language/](language/), claim data in [model/](model/), schemas in [schemas/](schemas/), the compiler in [crates/lexlean/](crates/lexlean/), gates in [xtask/](xtask/) and [crates/conformance/](crates/conformance/), the literal example in [examples/nat-add-zero/](examples/nat-add-zero/), and the negative fixtures in [tests/negative/](tests/negative/).
+
+## License
+
+Dual-licensed under [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your option.

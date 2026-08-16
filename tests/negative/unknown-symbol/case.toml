@@ -1,0 +1,10 @@
+spec = "lexlean/negative-case/1"
+class = "unknown-symbol"
+kind = "mutation"
+command = "check"
+codes = ["LLL1004"]
+
+[[edit]]
+file = "src/Main.lex.tex"
+from = "\\(n + 0 = n\\)"
+to = "\\(n ⊗ 0 = n\\)"

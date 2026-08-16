@@ -1,0 +1,162 @@
+# language/bootstrap.toml --- the compiler's structural bootstrap data.
+#
+# The single source for the fixed structural sets of SPEC.md §12.4 and §15.2
+# and for the renderer tokens the fixed backend itself references (§13.10:
+# the registry is the minimal transitive closure of tokens referenced by the
+# exact preamble, the backend's deterministic constructs, core LRE, and
+# shipped standard-package LRE; `audit-language-closure` recomputes that
+# closure from this file plus the entry renders and compares it to the
+# registry exactly). This file participates in the compiler-semantics digest.
+
+spec = "lexlean/bootstrap/1"
+language = "1.0"
+
+# The embedded builtin packages, loaded from language/ in this order.
+[[builtin_package]]
+id = "lexlean.core"
+version = "1.0.0"
+path = "core"
+
+[[builtin_package]]
+id = "lexlean.std.nat"
+version = "1.0.0"
+path = "std/nat"
+
+[structural]
+# §15.2: the complete structural control set for language 1.0.
+controls = [
+    "\\begin",
+    "\\end",
+    "\\useglossary",
+    "\\importmodule",
+    "\\title",
+    "\\heading",
+    "\\parameters",
+    "\\noaxioms",
+    "\\allowaxioms",
+    "\\exactaxioms",
+    "\\lexeme",
+    "\\reference",
+    "\\forward",
+    "\\backward",
+    "\\rule",
+    "\\start",
+    "\\step",
+    "\\bind",
+    "\\(",
+    "\\)",
+    "\\[",
+    "\\]",
+]
+# §15.2: the complete environment-name set.
+environments = [
+    "lexlean",
+    "section",
+    "typedefinition",
+    "termdefinition",
+    "predicatedefinition",
+    "theorem",
+    "lemma",
+    "corollary",
+    "proof",
+    "have",
+    "rewrite",
+    "simplify",
+    "apply",
+    "constructor",
+    "branch",
+    "premise",
+    "cases",
+    "case",
+    "induction",
+    "calculate",
+]
+# §12.4: always forbidden in source, whether or not a glossary declares them.
+forbidden_controls = [
+    "\\def",
+    "\\gdef",
+    "\\edef",
+    "\\xdef",
+    "\\let",
+    "\\futurelet",
+    "\\newcommand",
+    "\\renewcommand",
+    "\\providecommand",
+    "\\input",
+    "\\include",
+    "\\usepackage",
+    "\\documentclass",
+    "\\csname",
+    "\\catcode",
+    "\\write",
+    "\\read",
+    "\\openin",
+    "\\openout",
+    "\\special",
+    "\\immediate",
+    "\\verbatim",
+    "\\verb",
+]
+
+[backend]
+# Renderer tokens the fixed LaTeX backend emits itself: the exact preamble
+# (§19.2), document structure (§19.3), the core-constructor math map, lambda
+# and rewrite-direction markers (§19.5), grouping delimiters, and the
+# qualified-id fallback. Everything else is referenced through entry LRE.
+tokens = [
+    "documentclass",
+    "opt-11pt",
+    "article",
+    "usepackage",
+    "opt-t1",
+    "fontenc",
+    "amsmath",
+    "amssymb",
+    "amsthm",
+    "hidelinks",
+    "hyperref",
+    "newtheorem",
+    "theoremstyle",
+    "begin",
+    "end",
+    "document",
+    "center",
+    "large",
+    "section",
+    "subsection",
+    "label",
+    "texttt",
+    "mathrm",
+    "proof",
+    "definition",
+    "theorem",
+    "lemma",
+    "corollary",
+    "theorem-title",
+    "lemma-title",
+    "corollary-title",
+    "definition-title",
+    "equals",
+    "forall",
+    "exists",
+    "exists-unique",
+    "logical-and",
+    "logical-or",
+    "logical-not",
+    "implies",
+    "iff",
+    "mapsto",
+    "member",
+    "arrow",
+    "left-arrow",
+    "comma",
+    "period",
+    "colon",
+    "semicolon",
+    "left-paren",
+    "right-paren",
+    "left-bracket",
+    "right-bracket",
+    "operatorname",
+    "section-counter",
+]

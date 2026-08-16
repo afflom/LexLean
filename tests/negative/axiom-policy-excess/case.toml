@@ -1,0 +1,4 @@
+spec = "lexlean/negative-case/1"
+class = "axiom-policy-excess"
+kind = "delegated"
+test = "conformance_ex_05"

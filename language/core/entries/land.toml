@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "land"
+category = "infix-function"
+signature = "(pi ((explicit p (sort prop)) (explicit q (sort prop))) (sort prop))"
+surface_arity = 2
+frame = "infix"
+precedence = 35
+associativity = "right"
+
+[denotation]
+kind = "core"
+constructor = "logic.and"
+
+[[form]]
+id = "land"
+channel = "math"
+surface = "∧"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token logical-and) (space) (slot 1))"

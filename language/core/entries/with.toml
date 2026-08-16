@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "with"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.with"
+
+[[form]]
+id = "with-l"
+channel = "text"
+surface = "with"
+canonical_source = true
+features = ["lower-case"]

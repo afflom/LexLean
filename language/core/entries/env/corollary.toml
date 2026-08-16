@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.corollary"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-corollary"
+
+[[form]]
+id = "corollary"
+channel = "both"
+surface = "corollary"
+canonical_source = true
+features = []

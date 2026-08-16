@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "ssubset"
+category = "infix-predicate"
+signature = "(pi ((explicit a (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat))) (explicit b (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))) (sort prop))"
+surface_arity = 2
+frame = "infix"
+precedence = 50
+associativity = "none"
+
+[denotation]
+kind = "defined"
+value = "(lam ((explicit a (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat))) (explicit b (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))) (app (const lexlean.core::land) (app (const lexlean.std.nat::subseteq) (local a) (local b)) (app (const lexlean.core::lnot) (app (const lexlean.std.nat::subseteq) (local b) (local a)))))"
+
+[[form]]
+id = "ssubset"
+channel = "math"
+surface = "⊂"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token subset) (space) (slot 1))"

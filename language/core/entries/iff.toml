@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "iff"
+category = "infix-function"
+signature = "(pi ((explicit p (sort prop)) (explicit q (sort prop))) (sort prop))"
+surface_arity = 2
+frame = "infix"
+precedence = 20
+associativity = "none"
+
+[denotation]
+kind = "core"
+constructor = "logic.iff"
+
+[[form]]
+id = "iff"
+channel = "math"
+surface = "↔"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token iff) (space) (slot 1))"

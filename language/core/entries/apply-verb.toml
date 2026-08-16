@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "apply-verb"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.apply-verb"
+
+[[form]]
+id = "apply-s"
+channel = "text"
+surface = "Apply"
+canonical_source = true
+features = ["sentence-case"]

@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "rewrite-verb"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.rewrite-verb"
+
+[[form]]
+id = "rewrite-s"
+channel = "text"
+surface = "Rewrite"
+canonical_source = true
+features = ["sentence-case"]

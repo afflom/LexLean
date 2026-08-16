@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "double"
+category = "function"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "double"
+
+[[form]]
+id = "double"
+channel = "both"
+surface = "double"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name double) (paren (slot 0)))"

@@ -1,0 +1,3 @@
+'LexLeanExample.Main.add_zero' does not depend on any axioms
+'Demo.M.uses_choice' depends on axioms: [Classical.choice, propext, Quot.sound]
+$STAGING/audit/A.lean:3:0: information: 'Demo.M.enveloped' does not depend on any axioms

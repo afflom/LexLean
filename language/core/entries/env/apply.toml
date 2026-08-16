@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.apply"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-apply"
+
+[[form]]
+id = "apply"
+channel = "both"
+surface = "apply"
+canonical_source = true
+features = []

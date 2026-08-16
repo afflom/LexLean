@@ -1,0 +1,16 @@
+spec = "lexlean/negative-case/1"
+class = "lexicon-cycle"
+kind = "mutation"
+command = "check"
+relock = true
+codes = ["LLR3003"]
+
+[[edit]]
+file = "lexlean.toml"
+from = "\n[limits]"
+to = "\n[[lexicon_source]]\npackage = \"test.cyca\"\nkind = \"path\"\npath = \"lexicons/test-cyca\"\n\n[limits]"
+
+[[edit]]
+file = "lexlean.toml"
+from = "\n[limits]"
+to = "\n[[lexicon_source]]\npackage = \"test.cycb\"\nkind = \"path\"\npath = \"lexicons/test-cycb\"\n\n[limits]"

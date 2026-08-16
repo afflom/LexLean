@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "nzz"
+category = "proof-constant"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.core::lnot) (app (const lexlean.std.nat::ne) (local n) (local n))))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.le_refl"
+
+[[form]]
+id = "nzz"
+channel = "math"
+surface = "nzz"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name nzz) (paren (slot 0)))"

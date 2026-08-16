@@ -1,0 +1,10 @@
+spec = "lexlean/negative-case/1"
+class = "unknown-control"
+kind = "mutation"
+command = "check"
+codes = ["LLL1004"]
+
+[[edit]]
+file = "src/Main.lex.tex"
+from = "For every"
+to = "\\mystery{} For every"

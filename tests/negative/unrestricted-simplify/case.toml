@@ -1,0 +1,10 @@
+spec = "lexlean/negative-case/1"
+class = "unrestricted-simplify"
+kind = "mutation"
+command = "check"
+codes = ["LLF5003"]
+
+[[edit]]
+file = "src/Main.lex.tex"
+from = "Close the goal by reflexivity."
+to = "\\begin{simplify}{goal}\n\\end{simplify}"

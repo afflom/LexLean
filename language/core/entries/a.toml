@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "a"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.a"
+
+[[form]]
+id = "a-l"
+channel = "text"
+surface = "a"
+canonical_source = true
+features = ["lower-case"]
+
+[[form]]
+id = "a-s"
+channel = "text"
+surface = "A"
+canonical_source = false
+features = ["sentence-case"]

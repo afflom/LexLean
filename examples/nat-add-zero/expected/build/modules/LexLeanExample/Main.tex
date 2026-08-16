@@ -1,0 +1,23 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\begin{document}
+\begin{center}
+{\LARGE Natural number addition}
+\end{center}
+\begin{theorem}
+\label{ll:main:add-zero}
+For every natural number \(n\), \(n + 0 = n\).
+\end{theorem}
+\begin{proof}
+The goal follows by reflexivity.
+\end{proof}
+\end{document}

@@ -184,8 +184,9 @@ fn the_meta_gate_is_falsifiable_cm_02() {
             report
                 .violations
                 .iter()
-                .any(|v| v.contains("CM-02") && v.contains("no test name")),
-            "the missing-test violation must be reported"
+                .any(|v| v.contains("no test is named")),
+            "the missing-test violation must be reported: {:?}",
+            report.violations.first()
         );
     }
 

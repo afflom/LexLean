@@ -1,0 +1,24 @@
+spec = "lexlean/entry/1"
+id = "nat-list"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(app (const lexlean.std.nat::list) (const lexlean.std.nat::nat))"
+
+[[form]]
+id = "natural-number-list"
+channel = "text"
+surface = "natural number list"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+
+[[form]]
+id = "natural-number-lists"
+channel = "text"
+surface = "natural number lists"
+canonical_source = false
+features = ["lower-case", "plural"]

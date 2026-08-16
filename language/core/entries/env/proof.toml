@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.proof"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-proof"
+
+[[form]]
+id = "proof"
+channel = "both"
+surface = "proof"
+canonical_source = true
+features = []

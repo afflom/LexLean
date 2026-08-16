@@ -1,6 +1,7 @@
-# The normative acceptance gate.
+# The normative acceptance gate (SPEC.md §9.4).
 #
-# `just vv` is the single gate. `honesty` is split out so a claim that has
+# `just vv` is the single gate, run from a clean checkout on Linux x86-64 with
+# the exact pinned toolchains. `honesty` is split out so a claim that has
 # drifted from its evidence reads differently from broken code.
 name: ci
 
@@ -11,23 +12,41 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
 
 jobs:
   vv:
     name: just vv
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { components: rustfmt, clippy }
-      - uses: extractions/setup-just@v2
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just,cargo-deny
+      - name: Install elan and the pinned Lean toolchain
+        run: |
+          curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          "$HOME/.elan/bin/elan" toolchain install leanprover/lean4:v4.32.1
       - uses: Swatinem/rust-cache@v2
       - run: just vv
 
-  deny:
-    name: cargo-deny
-    runs-on: ubuntu-latest
+  host-matrix:
+    name: build and non-Lean tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04-arm, macos-13, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace --all-features
+      - run: cargo test --workspace --all-features

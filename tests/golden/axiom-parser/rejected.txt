@@ -1,0 +1,5 @@
+'Demo.M.dup' depends on axioms: [Classical.choice, Classical.choice]
+'Demo.M.empty' depends on axioms: []
+"Demo.M.wrongquote" does not depend on any axioms
+'Demo.M.trailing' does not depend on any axioms extra
+some unrelated informational text

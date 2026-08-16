@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "using"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.using"
+
+[[form]]
+id = "using-l"
+channel = "text"
+surface = "using"
+canonical_source = true
+features = ["lower-case"]

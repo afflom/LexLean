@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "exactaxioms"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.exactaxioms"
+
+[[form]]
+id = "exactaxioms"
+channel = "both"
+surface = "\\exactaxioms"
+canonical_source = true
+features = []

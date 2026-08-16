@@ -1,0 +1,4 @@
+spec = "lexlean/negative-case/1"
+class = "path-symlink"
+kind = "delegated"
+test = "conformance_se_01"

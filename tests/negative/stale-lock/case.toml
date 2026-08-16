@@ -1,0 +1,10 @@
+spec = "lexlean/negative-case/1"
+class = "stale-lock"
+kind = "mutation"
+command = "lock-check"
+codes = ["LLC0102"]
+
+[[edit]]
+file = "lexlean.toml"
+from = "max_diagnostics = 256"
+to = "max_diagnostics = 200"

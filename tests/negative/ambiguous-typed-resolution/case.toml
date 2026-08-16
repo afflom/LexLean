@@ -1,0 +1,21 @@
+spec = "lexlean/negative-case/1"
+class = "ambiguous-typed-resolution"
+kind = "mutation"
+command = "check"
+relock = true
+codes = ["LLP2002"]
+
+[[edit]]
+file = "lexlean.toml"
+from = "\n[limits]"
+to = "\n[[lexicon_source]]\npackage = \"test.dupa\"\nkind = \"path\"\npath = \"lexicons/test-dupa\"\n\n[limits]"
+
+[[edit]]
+file = "lexlean.toml"
+from = "\n[limits]"
+to = "\n[[lexicon_source]]\npackage = \"test.dupb\"\nkind = \"path\"\npath = \"lexicons/test-dupb\"\n\n[limits]"
+
+[[edit]]
+file = "src/Main.lex.tex"
+from = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{add-zero}\n\\noaxioms\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n"
+to = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.dupa@1.0.0}\n\\useglossary{test.dupb@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{not-ne}\n\\noaxioms\n\\(¬ (z ≠ z)\\).\n\\begin{proof}\nClose the goal with \\(nzz(z)\\).\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n"

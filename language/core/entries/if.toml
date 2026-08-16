@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "if"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.if"
+
+[[form]]
+id = "if-l"
+channel = "text"
+surface = "if"
+canonical_source = true
+features = ["lower-case"]
+
+[[form]]
+id = "if-s"
+channel = "text"
+surface = "If"
+canonical_source = false
+features = ["sentence-case"]
