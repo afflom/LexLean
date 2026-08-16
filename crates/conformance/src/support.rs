@@ -654,6 +654,7 @@ pub fn symlink_any(target: impl AsRef<Path>, link: impl AsRef<Path>) {
             std::os::windows::fs::symlink_file(target, link).expect("symlink");
         }
     }
+}
 
 // ---- WS-D helpers ----
 
