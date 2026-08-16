@@ -628,3 +628,174 @@ pub fn tex_text(build: &lexlean::api::RenderedBuild, module: &str) -> String {
         .tex_text
         .clone()
 }
+
+// ---- WS-B helpers ----
+/// The proof-forms module: cases, right, induction, intro, structured apply
+/// with a premise, and a one-step calculation, all Lean-verifiable.
+pub const PROOF_FORMS_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{cases-goal}\n\\noaxioms\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\begin{proof}\n\\begin{cases}{n}\n\\begin{case}{lexlean.std.nat::zero}\n\\bind{}\nClose the goal by reflexivity.\n\\end{case}\n\\begin{case}{lexlean.std.nat::succ}\n\\bind{m}\nClose the goal by reflexivity.\n\\end{case}\n\\end{cases}\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{right-goal}\n\\noaxioms\nFor every natural number \\(n\\), \\(n = 1\\) or \\(n + 0 = n\\).\n\\begin{proof}\nSelect the right alternative.\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{induction-goal}\n\\noaxioms\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\begin{proof}\n\\begin{induction}{n}\n\\begin{case}{lexlean.std.nat::zero}\n\\bind{}\nClose the goal by reflexivity.\n\\end{case}\n\\begin{case}{lexlean.std.nat::succ}\n\\bind{m;ih}\nClose the goal by reflexivity.\n\\end{case}\n\\end{induction}\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{first}\n\\noaxioms\nIf \\(0 + 0 = 0\\), then \\(0 * 0 = 0\\).\n\\begin{proof}\nAssume \\(h\\).\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{apply-goal}\n\\noaxioms\n\\(0 * 0 = 0\\).\n\\begin{proof}\n\\begin{apply}{\\reference{Main::first}}\n\\begin{premise}{1}\nClose the goal by reflexivity.\n\\end{premise}\n\\end{apply}\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{zz}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{calc-goal}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\n\\begin{calculate}\n\\start{0 + 0}\n\\step{lexlean.core::eq}{0}{\\reference{Main::zz}}\n\\end{calculate}\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+
+/// The exact generated Lean of [`PROOF_FORMS_MODULE`].
+pub const PROOF_FORMS_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem cases_goal (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  cases llv0 with\n    | zero =>\n      rfl\n    | succ llh0 =>\n      rfl\n\npublic theorem right_goal (llv0 : Nat) : Or (Eq llv0 (1 : Nat)) (Eq (Nat.add llv0 0) llv0) := by\n  right\n  rfl\n\npublic theorem induction_goal (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  induction llv0 with\n    | zero =>\n      rfl\n    | succ llh0 llh1 =>\n      rfl\n\npublic theorem first : (Eq (Nat.add 0 0) (0 : Nat)) → Eq (Nat.mul 0 0) (0 : Nat) := by\n  intro llh0\n  rfl\n\npublic theorem apply_goal : Eq (Nat.mul 0 0) (0 : Nat) := by\n  apply LexLeanExample.Main.first\n  rfl\n\npublic theorem zz : Eq (Nat.add 0 0) (0 : Nat) := by\n  rfl\n\npublic theorem calc_goal : Eq (Nat.add 0 0) (0 : Nat) := by\n  calc (Nat.add 0 0) = (0 : Nat) := LexLeanExample.Main.zz\n\nend LexLeanExample.Main\n";
+
+/// The exact canonical LaTeX body (after `\\begin{document}`) of
+/// [`PROOF_FORMS_MODULE`].
+pub const PROOF_FORMS_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{theorem}\n\\label{ll:main:cases-goal}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nConsider the cases of \\(n\\).\nCase zero:\nThe goal follows by reflexivity.\nCase \\(succ\\) with \\(m\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:right-goal}\nFor every natural number \\(n\\), \\(n = 1\\) or \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nSelect the right alternative.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:induction-goal}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nProceed by induction on \\(n\\).\nCase zero:\nThe goal follows by reflexivity.\nCase \\(succ\\) with \\(m\\), \\(ih\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:first}\nIf \\(0 + 0 = 0\\), then \\(0 \\cdot 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\nAssume \\(h\\).\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:apply-goal}\n\\(0 \\cdot 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\nApply \\(\\texttt{Main::first}\\).\nPremise \\(1\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:zz}\n\\(0 + 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:calc-goal}\n\\(0 + 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\n\\begin{align*}\n0 + 0 &= 0 && \\text{by } \\texttt{Main::zz}\n\\end{align*}\n\\end{proof}\n\\end{document}\n";
+
+/// A three-level section nest with two parameters of which one is used.
+pub const SECTIONS_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{section}{outer}\n\\heading{Natural number addition}\n\\parameters{natural number \\(p\\); natural number \\(q\\)}\n\\begin{section}{middle}\n\\heading{Natural number addition}\n\\begin{section}{inner}\n\\heading{Natural number addition}\n\\begin{theorem}{deep}\n\\noaxioms\n\\(q + 0 = q\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{section}\n\\end{section}\n\\end{section}\n\\end{lexlean}\n";
+
+/// The exact generated Lean of [`SECTIONS_MODULE`].
+pub const SECTIONS_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem deep (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl\n\nend LexLeanExample.Main\n";
+
+/// The exact canonical LaTeX body of [`SECTIONS_MODULE`].
+pub const SECTIONS_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\section{Natural number addition}\n\\label{ll:main:outer}\n\\[\\mathrm{Parameters}: \\forall p \\in \\mathbb{N}; \\forall q \\in \\mathbb{N}\\]\n\\subsection{Natural number addition}\n\\label{ll:main:middle}\n\\textbf{Natural number addition}\n\\label{ll:main:inner}\n\\begin{theorem}\n\\label{ll:main:deep}\n\\(q + 0 = q\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\end{document}\n";
+
+/// The definitions fixture rendered exactly.
+pub const DEFS_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic def count : Type :=\n  Nat\n\npublic def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0\n\npublic def good : Prop :=\n  Exists (fun (llv0 : Nat) => Eq llv0 llv0)\n\npublic theorem add_zero (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl\n\nend LexLeanExample.Main\n";
+
+/// The exact canonical LaTeX body of [`DEFS_MODULE`].
+pub const DEFS_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{definition}\n\\label{ll:main:count}\nA count is defined as \\(\\mathbb{N}\\).\n\\end{definition}\n\\begin{definition}\n\\label{ll:main:double}\nFor every natural number \\(n\\), \\(\\operatorname{double}(n)\\) is defined as \\(n + n\\).\n\\end{definition}\n\\begin{definition}\n\\label{ll:main:good}\n\\(\\operatorname{good}\\) holds exactly when there exists a natural number \\(k\\) such that \\(k = k\\).\n\\end{definition}\n\\begin{theorem}\n\\label{ll:main:add-zero}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\end{document}\n";
+
+/// A unique-existence theorem over the `test.ext` fixture.
+pub const UNIQUE_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.ext@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{unique}\n\\noaxioms\nThere exists exactly one natural number \\(k\\) such that \\(k = 0\\).\n\\begin{proof}\nUse \\(0\\) as the witness.\n\\begin{constructor}\n\\begin{branch}{1}\nClose the goal by reflexivity.\n\\end{branch}\n\\begin{branch}{2}\nAssume \\(y\\).\nAssume \\(h\\).\nClose the goal with \\(h\\).\n\\end{branch}\n\\end{constructor}\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+
+/// The exact generated Lean of [`UNIQUE_MODULE`].
+pub const UNIQUE_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem unique : Exists (fun (llv0 : Nat) => And (Eq llv0 (0 : Nat)) ((llv1 : Nat) → (Eq llv1 (0 : Nat)) → Eq llv1 llv0)) := by\n  refine ⟨(0 : Nat), ?_⟩\n  constructor\n  rfl\n  intro llh0\n  intro llh1\n  exact llh1\n\nend LexLeanExample.Main\n";
+
+/// The exact canonical LaTeX body of [`UNIQUE_MODULE`].
+pub const UNIQUE_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{theorem}\n\\label{ll:main:unique}\nThere exists exactly one natural number \\(k\\) such that \\(k = 0\\).\n\\end{theorem}\n\\begin{proof}\nUse \\(0\\) as the witness.\nBranch \\(1\\):\nThe goal follows by reflexivity.\nBranch \\(2\\):\nAssume \\(y\\).\nAssume \\(h\\).\nThe goal follows from \\(h\\).\n\\end{proof}\n\\end{document}\n";
+
+/// A defined value reaching Lean constants (`two`).
+pub const DEFINED_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.ext@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{twoeq}\n\\noaxioms\n\\(two = two\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+
+/// The exact generated Lean of [`DEFINED_MODULE`].
+pub const DEFINED_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem twoeq : Eq (Nat.succ (Nat.succ Nat.zero)) (Nat.succ (Nat.succ Nat.zero)) := by\n  rfl\n\nend LexLeanExample.Main\n";
+
+/// LRE `sup`, `sub`, and `frac` renders.
+pub const LRE_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.ext@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{sqhalf}\n\\noaxioms\nFor every natural number \\(n\\), \\(sq(n) = sq(n)\\) and \\(half(n) = half(n)\\).\n\\begin{proof}\n\\begin{constructor}\n\\begin{branch}{1}\nClose the goal by reflexivity.\n\\end{branch}\n\\begin{branch}{2}\nClose the goal by reflexivity.\n\\end{branch}\n\\end{constructor}\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+
+/// The exact canonical LaTeX body of [`LRE_MODULE`].
+pub const LRE_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{theorem}\n\\label{ll:main:sqhalf}\nFor every natural number \\(n\\), \\({n}^{\\operatorname{two}} = {n}^{\\operatorname{two}}\\) and \\(\\frac{n}{{\\operatorname{h}}_{\\operatorname{i}}} = \\frac{n}{{\\operatorname{h}}_{\\operatorname{i}}}\\).\n\\end{theorem}\n\\begin{proof}\nBranch \\(1\\):\nThe goal follows by reflexivity.\nBranch \\(2\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\end{document}\n";
+
+/// A section parameter whose type depends on an earlier parameter.
+pub const DEPENDENT_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.ext@1.0.0}\n\\title{Natural number addition}\n\n\\begin{section}{outer}\n\\heading{Natural number addition}\n\\parameters{natural number \\(n\\); \\(fin(n)\\) \\(i\\)}\n\\begin{theorem}{dep}\n\\noaxioms\n\\(i = i\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{section}\n\\end{lexlean}\n";
+
+/// The exact generated Lean of [`DEPENDENT_MODULE`].
+pub const DEPENDENT_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem dep (llv0 : Nat) (llv1 : Fin llv0) : Eq llv1 llv1 := by\n  rfl\n\nend LexLeanExample.Main\n";
+
+/// The `test.ext` fixture entries: a universe-polymorphic proof constant
+/// (`Eq.symm`), a numeral-bearing signature (`Nat.zero_add`), a defined
+/// value reaching Lean constants, LRE sup/sub/frac renders, and a dependent
+/// type function (`Fin`).
+#[must_use]
+pub fn ext_entries() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("eqsymm.toml", "spec = \"lexlean/entry/1\"\nid = \"eqsymm\"\ncategory = \"proof-constant\"\nsignature = \"(pi ((implicit a (sort (type u))) (implicit x (local a)) (implicit y (local a)) (explicit h (app (const lexlean.core::eq) (local a) (local x) (local y)))) (app (const lexlean.core::eq) (local a) (local y) (local x)))\"\nuniverses = [\"u\"]\nsurface_arity = 1\nframe = \"call\"\n\n[denotation]\nkind = \"lean\"\nmodule = \"Init\"\nname = \"Eq.symm\"\n\n[[form]]\nid = \"eqsymm\"\nchannel = \"math\"\nsurface = \"eqsymm\"\ncanonical_source = true\nfeatures = []\n\n[render]\nmath = \"(seq (operator-name eqsymm) (paren (slot 0)))\"\n"),
+        ("fin.toml", "spec = \"lexlean/entry/1\"\nid = \"fin\"\ncategory = \"function\"\nsignature = \"(pi ((explicit n (const lexlean.std.nat::nat))) (sort (type 0)))\"\nsurface_arity = 1\nframe = \"call\"\n\n[denotation]\nkind = \"lean\"\nmodule = \"Init\"\nname = \"Fin\"\n\n[[form]]\nid = \"fin\"\nchannel = \"math\"\nsurface = \"fin\"\ncanonical_source = true\nfeatures = []\n\n[render]\nmath = \"(seq (operator-name fin) (paren (slot 0)))\"\n"),
+        ("half.toml", "spec = \"lexlean/entry/1\"\nid = \"half\"\ncategory = \"function\"\nsignature = \"(pi ((explicit n (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))\"\nsurface_arity = 1\nframe = \"call\"\n\n[denotation]\nkind = \"lean\"\nmodule = \"Init\"\nname = \"Nat.pred\"\n\n[[form]]\nid = \"half\"\nchannel = \"math\"\nsurface = \"half\"\ncanonical_source = true\nfeatures = []\n\n[render]\nmath = \"(frac (slot 0) (sub (operator-name h) (operator-name i)))\"\n"),
+        ("sq.toml", "spec = \"lexlean/entry/1\"\nid = \"sq\"\ncategory = \"function\"\nsignature = \"(pi ((explicit n (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))\"\nsurface_arity = 1\nframe = \"call\"\n\n[denotation]\nkind = \"lean\"\nmodule = \"Init\"\nname = \"Nat.succ\"\n\n[[form]]\nid = \"sq\"\nchannel = \"math\"\nsurface = \"sq\"\ncanonical_source = true\nfeatures = []\n\n[render]\nmath = \"(sup (slot 0) (operator-name two))\"\n"),
+        ("two.toml", "spec = \"lexlean/entry/1\"\nid = \"two\"\ncategory = \"term-constant\"\nsignature = \"(const lexlean.std.nat::nat)\"\nsurface_arity = 0\nframe = \"atom\"\n\n[denotation]\nkind = \"defined\"\nvalue = \"(app (const lexlean.std.nat::succ) (app (const lexlean.std.nat::succ) (const lexlean.std.nat::zero)))\"\n\n[[form]]\nid = \"two\"\nchannel = \"both\"\nsurface = \"two\"\ncanonical_source = true\nfeatures = []\n\n[render]\nmath = \"(operator-name two)\"\n"),
+        ("zeroadd.toml", "spec = \"lexlean/entry/1\"\nid = \"zeroadd\"\ncategory = \"proof-constant\"\nsignature = \"(pi ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (const lexlean.std.nat::nat) (app (const lexlean.std.nat::add) (nat 0) (local n)) (local n)))\"\nsurface_arity = 1\nframe = \"call\"\n\n[denotation]\nkind = \"lean\"\nmodule = \"Init\"\nname = \"Nat.zero_add\"\n\n[[form]]\nid = \"zeroadd\"\nchannel = \"math\"\nsurface = \"zeroadd\"\ncanonical_source = true\nfeatures = []\n\n[render]\nmath = \"(seq (operator-name zeroadd) (paren (slot 0)))\"\n"),
+    ]
+}
+
+/// A project registering the `test.ext` fixture package with `module` as
+/// its entrypoint source.
+#[must_use]
+pub fn ext_project(module: &str) -> P {
+    let project = P::example();
+    project.add_package(
+        "lexicons/test-ext",
+        "test.ext",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &ext_entries(),
+    );
+    project.write("src/Main.lex.tex", module);
+    project.relock();
+    project
+}
+
+/// Verify a project through the complete pipeline, expecting success, and
+/// return the verified outcome. Real Lean runs.
+pub fn verify_ok(project: &P) -> lexlean::VerifiedProject {
+    let _guard = env_lock();
+    project
+        .engine()
+        .verify(VerifyRequest {
+            selection: Selection::Entrypoints,
+        })
+        .expect("the module verifies with real Lean")
+}
+
+/// The canonical LaTeX body after `\begin{document}` and its newline.
+#[must_use]
+pub fn tex_body(tex: &str) -> &str {
+    tex.split_once("\\begin{document}\n")
+        .map_or(tex, |(_, body)| body)
+}
+
+/// Generate the §18.8 probe module for the named `package::entry` external
+/// entries of a project's closure and elaborate it with the pinned Lean
+/// through `lake env` in the project's workspace. Returns the probe and the
+/// process record. Real Lean runs.
+pub fn probe_lean(
+    project: &P,
+    entries: &[&str],
+) -> (
+    lexlean::backend::lean::ProbeModule,
+    lexlean::verify::child::ChildRecord,
+) {
+    use lexlean::lexicon::entry::Denotation;
+    let checked = checked_project(project);
+    let mut externals = std::collections::BTreeMap::new();
+    for entry_id in entries {
+        let qualified = lexlean::lexicon::lse::QualifiedId::parse(entry_id).expect("qualified");
+        let entry = checked.closure.entry(&qualified).expect("the entry exists");
+        let Denotation::Lean { module, name } = &entry.denotation else {
+            panic!("{entry_id} is not a Lean entry");
+        };
+        externals.insert(
+            (*entry_id).to_owned(),
+            lexlean::ir::term::ExternalConstRef {
+                package: qualified.package.clone(),
+                entry: (*entry_id).to_owned(),
+                lean_module: module.clone(),
+                lean_name: name.clone(),
+                signature_hash: entry.signature_hash.expect("a signature hash"),
+            },
+        );
+    }
+    let hex32: String = checked.semantic_id.to_hex()[..32].to_owned();
+    let probe = lexlean::backend::lean::probe_module(&hex32, &externals, &checked.closure)
+        .expect("probe renders");
+    let _guard = env_lock();
+    let toolchain = lexlean::verify::toolchain::preflight().expect("the pinned toolchain");
+    let scratch = project.root.join(".lexlean/probe-scratch");
+    std::fs::create_dir_all(scratch.as_std_path()).expect("scratch");
+    let source = scratch.join(format!("{}.lean", probe.name));
+    std::fs::write(source.as_std_path(), &probe.text).expect("write probe");
+    let inner = lexlean::project::Project::load(&project.root.join("lexlean.toml")).expect("load");
+    let normalizer = lexlean::verify::child::Normalizer::new(
+        &scratch,
+        &project.root,
+        &project.root,
+        &toolchain.root,
+    );
+    let bin = toolchain.root.join("bin");
+    let record = lexlean::verify::child::run(
+        &lexlean::verify::child::ChildSpec {
+            tool: "lean",
+            module: Some(probe.name.clone()),
+            program: &toolchain.lake.path,
+            executable_sha256: toolchain.lean.sha256,
+            argv: vec!["env".to_owned(), "lean".to_owned(), source.to_string()],
+            cwd: &project.root,
+            extra_env: vec![("LEAN_PATH".to_owned(), scratch.to_string())],
+            toolchain_bin: &bin,
+        },
+        &inner.config.limits,
+        &normalizer,
+    )
+    .expect("lean runs");
+    (probe, record)
+}

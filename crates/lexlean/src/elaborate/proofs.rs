@@ -657,7 +657,53 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                     _ => None,
                 };
                 let witness = self.term_island(&term, expected.as_ref())?;
-                let next = beta1(&explicit_args[0], &witness.term);
+                let instance = beta1(&explicit_args[0], &witness.term);
+                // Unique existence lowers to its expansion (backend/lean.rs
+                // module documentation), so the residual goal after the
+                // witness is `And (P t) ((y : T) → P y → Eq y t)`.
+                let next = if matches!(
+                    &**function,
+                    Term::Global(GlobalRef::Core(CoreRef::ExistsUnique), _)
+                ) {
+                    match (&explicit_args[0], expected) {
+                        (Term::Lambda { .. }, Some(ty)) => {
+                            let y = self.alloc.fresh();
+                            let hypothesis = self.alloc.fresh();
+                            let renamed = beta1(&explicit_args[0], &Term::Local(y));
+                            let core =
+                                |c: CoreRef| Box::new(Term::Global(GlobalRef::Core(c), Vec::new()));
+                            let uniqueness = Term::Pi {
+                                binders: vec![
+                                    crate::ir::term::Binder {
+                                        id: y,
+                                        mode: crate::lexicon::lse::BinderMode::Explicit,
+                                        ty: ty.clone(),
+                                        spelling: String::new(),
+                                    },
+                                    crate::ir::term::Binder {
+                                        id: hypothesis,
+                                        mode: crate::lexicon::lse::BinderMode::Explicit,
+                                        ty: renamed,
+                                        spelling: String::new(),
+                                    },
+                                ],
+                                body: Box::new(Term::App {
+                                    function: core(CoreRef::Eq),
+                                    explicit_args: vec![Term::Local(y), witness.term.clone()],
+                                    omitted_implicit_binders: Vec::new(),
+                                }),
+                            };
+                            Term::App {
+                                function: core(CoreRef::And),
+                                explicit_args: vec![instance, uniqueness],
+                                omitted_implicit_binders: Vec::new(),
+                            }
+                        }
+                        _ => instance,
+                    }
+                } else {
+                    instance
+                };
                 Ok((Proof::Witness(witness.term), Some(next), false))
             }
             SentenceAstKind::SelectLeft | SentenceAstKind::SelectRight => {

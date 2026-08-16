@@ -887,11 +887,19 @@ fn print_term(
             if parens {
                 sink.sym("(");
             }
+            // Binders are typed so Lean never has to infer a lambda's
+            // domain (`Exists (fun (x : Nat) => ...)`).
             sink.kw("fun");
             for binder in binders {
                 let name = namer.term_binder(binder.id);
                 sink.ws(" ");
+                print_binder_open(sink, binder.mode);
                 sink.ident(&name, Origin::Local(binder.id.0 as usize));
+                sink.ws(" ");
+                sink.sym(":");
+                sink.ws(" ");
+                print_term(sink, &binder.ty, namer, closure, false, false)?;
+                print_binder_close(sink, binder.mode);
             }
             sink.ws(" ");
             sink.sym("=>");
@@ -1278,6 +1286,10 @@ fn print_proof(
 // Externals: imports and the probe set
 // ---------------------------------------------------------------------------
 
+/// The external reference of a Lean-denoting entry. An entry without a
+/// signature has no interface to probe and no hash to record, so it yields
+/// no reference; the constructs that name it (a `cases` alternative) do so
+/// only through the type whose own reference carries the import.
 fn external_of(entry_id: &QualifiedId, entry: &Entry) -> Option<ExternalConstRef> {
     let Denotation::Lean { module, name } = &entry.denotation else {
         return None;
@@ -1287,9 +1299,7 @@ fn external_of(entry_id: &QualifiedId, entry: &Entry) -> Option<ExternalConstRef
         entry: entry_id.to_string(),
         lean_module: module.clone(),
         lean_name: name.clone(),
-        signature_hash: entry
-            .signature_hash
-            .unwrap_or(crate::artifact::content_id::Sha256Digest([0; 32])),
+        signature_hash: entry.signature_hash?,
     })
 }
 

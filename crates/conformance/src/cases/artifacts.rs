@@ -198,6 +198,56 @@ pub(crate) fn run(id: &str) {
                 mapping.role != lexlean::artifact::source_map::MapRole::Synthetic,
                 "a proof token maps to a real proof origin"
             );
+            // Lean columns count Unicode scalar values (§20.1); the byte
+            // conversion is per line.
+            use lexlean::verify::{lean_position_to_byte, parse_lean_messages};
+            let text = "ab\n  refine ⟨x, ?_⟩\nend\n";
+            assert_eq!(lean_position_to_byte(text, 1, 1), Some(1));
+            assert_eq!(lean_position_to_byte(text, 2, 9), Some(3 + 9));
+            assert_eq!(
+                lean_position_to_byte(text, 2, 10),
+                Some(3 + 9 + '⟨'.len_utf8()),
+                "the column after a multi-byte scalar advances by its byte length"
+            );
+            assert_eq!(
+                lean_position_to_byte(text, 3, 0),
+                Some(3 + "  refine ⟨x, ?_⟩".len() + 1)
+            );
+            assert_eq!(lean_position_to_byte(text, 9, 0), None);
+            // Every located message is parsed, continuation lines join.
+            let messages = parse_lean_messages(
+                "$S/A.lean:3:2: error: first\n  detail\n$S/A.lean:5:4: warning: second\nnoise\n$S/A.lean:7:0: info: third\n",
+            );
+            assert_eq!(messages.len(), 3);
+            assert_eq!(messages[0].line, 3);
+            assert_eq!(messages[0].column, 2);
+            assert_eq!(messages[0].severity, "error");
+            assert_eq!(messages[0].message, "first\n  detail");
+            assert_eq!(messages[1].severity, "warning");
+            assert_eq!(messages[1].message, "second\nnoise");
+            assert_eq!(messages[2].line, 7);
+            // The remapped verification failure of the shared broken proof
+            // carries a real source span and the generated location note.
+            let (project, error) = support::broken_proof();
+            let diagnostic = error
+                .diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic.code.as_str() == "LLV7002")
+                .expect("the Lean failure");
+            let span = diagnostic.primary.as_ref().expect("a primary source span");
+            let source = project.read("src/Main.lex.tex");
+            assert_eq!(
+                &source[span.byte_start..span.byte_end],
+                "Close the goal by reflexivity.",
+                "the failing rfl maps to its proof step"
+            );
+            assert!(
+                diagnostic
+                    .notes
+                    .iter()
+                    .any(|note| note.message.starts_with("generated location: ")),
+                "the generated location is a note: {diagnostic:?}"
+            );
         }
         // §20.5: complete coverage files with no gap or overlap.
         "AR-04" => {

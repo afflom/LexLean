@@ -8,10 +8,20 @@ use crate::support::{self, P};
 /// The §29.4 preamble, byte for byte.
 const PREAMBLE: &str = "\\documentclass[11pt]{article}\n\\usepackage[T1]{fontenc}\n\\usepackage{amsmath}\n\\usepackage{amssymb}\n\\usepackage{amsthm}\n\\usepackage[hidelinks]{hyperref}\n\\newtheorem{theorem}{Theorem}[section]\n\\newtheorem{lemma}[theorem]{Lemma}\n\\newtheorem{corollary}[theorem]{Corollary}\n\\theoremstyle{definition}\n\\newtheorem{definition}[theorem]{Definition}\n\\begin{document}\n";
 
-/// Install the fake PDF provider script and return its configuration.
-fn fake_provider(project: &P, exit_code: i32) -> PdfProvider {
+/// The §29.4 body of the literal example, byte for byte.
+const EXAMPLE_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{theorem}\n\\label{ll:main:add-zero}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\end{document}\n";
+
+/// The default stub provider body: records its working directory, its
+/// listing, and its environment into the PDF stream.
+const STUB_BODY: &str =
+    "{ printf '%%PDF-fake\\n'; pwd; ls -A .; env | sort; } > \"$2/$name.pdf\"\n";
+
+/// Install a stub PDF provider script whose compile step runs `body` (with
+/// `$2` the output directory and `$name` the stem) and return its
+/// configuration.
+fn stub_provider(project: &P, body: &str, exit_code: i32) -> PdfProvider {
     let script = format!(
-        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\nname=$(basename \"$3\" .tex)\n{{ printf '%%PDF-fake\\n'; pwd; ls -A .; }} > \"$2/$name.pdf\"\nexit {exit_code}\n"
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\nname=$(basename \"$3\" .tex)\n{body}exit {exit_code}\n"
     );
     project.write("tools/fakepdf", &script);
     let script_path = project.root.join("tools/fakepdf");
@@ -35,6 +45,10 @@ fn fake_provider(project: &P, exit_code: i32) -> PdfProvider {
     }
 }
 
+fn fake_provider(project: &P, exit_code: i32) -> PdfProvider {
+    stub_provider(project, STUB_BODY, exit_code)
+}
+
 fn run_fake_provider(
     project: &P,
     provider: &PdfProvider,
@@ -52,6 +66,10 @@ fn run_fake_provider(
     )
 }
 
+fn body_of(project: &P) -> String {
+    support::tex_body(&support::tex_text(&support::rendered(project), "Main")).to_owned()
+}
+
 pub(crate) fn run(id: &str) {
     match id {
         // §19.1: rendered solely from linked IR, deterministically.
@@ -66,71 +84,109 @@ pub(crate) fn run(id: &str) {
                 !first.contains("Close the goal by reflexivity"),
                 "source proof prose is not copied: {first}"
             );
-            assert!(
-                first.contains("The goal follows by reflexivity."),
-                "the canonical §29.4 proof rendering is generated: {first}"
-            );
+            assert_eq!(first, format!("{PREAMBLE}{EXAMPLE_BODY}"), "§29.4 bytes");
         }
         // §19.2: the exact preamble, no host or timestamp metadata.
         "TX-02" => {
-            let tex = support::tex_text(&support::rendered(&P::example()), "Main");
-            assert!(
-                tex.starts_with(PREAMBLE),
-                "the §29.4 preamble opens every module: {tex}"
-            );
-            for forbidden in ["\\today", "\\date", "hostname"] {
-                assert!(!tex.contains(forbidden), "no host or time metadata: {tex}");
+            for tex in [
+                support::tex_text(&support::rendered(&P::example()), "Main"),
+                support::tex_text(&support::rendered(&support::defs_project()), "Main"),
+            ] {
+                assert!(
+                    tex.starts_with(PREAMBLE),
+                    "the §29.4 preamble opens every module: {tex}"
+                );
+                for forbidden in ["\\today", "\\date", "hostname", "%"] {
+                    assert!(!tex.contains(forbidden), "no host, time, or comment: {tex}");
+                }
             }
         }
-        // §19.4: canonical proposition renderings only.
+        // §19.4: canonical proposition and definition renderings, exactly.
         "TX-03" => {
-            let tex = support::tex_text(&support::rendered(&P::example()), "Main");
-            assert!(
-                tex.contains("For every natural number \\(n\\), \\(n + 0 = n\\)."),
-                "the canonical §29.4 statement rendering: {tex}"
+            assert_eq!(body_of(&P::example()), EXAMPLE_BODY);
+            assert_eq!(body_of(&support::defs_project()), support::DEFS_TEX_BODY);
+            let unique = support::ext_project(support::UNIQUE_MODULE);
+            assert_eq!(body_of(&unique), support::UNIQUE_TEX_BODY);
+            let lre = support::ext_project(support::LRE_MODULE);
+            assert_eq!(
+                body_of(&lre),
+                support::LRE_TEX_BODY,
+                "LRE sup, sub, and frac lower to `^{{}}`, `_{{}}`, and `\\frac{{}}{{}}`"
             );
         }
-        // §19.5: proof prose from proof IR with fixed core forms.
+        // §19.5: proof prose from proof IR with fixed core forms: every
+        // variant, branches visible, calculations aligned.
         "TX-04" => {
             let tex = support::tex_text(&support::rendered(&P::example()), "Main");
             assert!(
                 tex.contains("\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}"),
                 "the canonical proof block: {tex}"
             );
+            let project = P::example();
+            project.write("src/Main.lex.tex", support::PROOF_FORMS_MODULE);
+            assert_eq!(body_of(&project), support::PROOF_FORMS_TEX_BODY);
+            let unique = support::ext_project(support::UNIQUE_MODULE);
+            assert_eq!(body_of(&unique), support::UNIQUE_TEX_BODY);
         }
-        // §19.3: exact document structure, numbering, and labels.
+        // §19.3: exact document structure, numbering, labels, sections
+        // three deep, and parameters.
         "TX-05" => {
-            let tex = support::tex_text(&support::rendered(&P::example()), "Main");
-            for required in [
-                "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}",
-                "\\begin{theorem}\n\\label{ll:main:add-zero}",
-                "\\newtheorem{theorem}{Theorem}[section]",
-                "\\end{document}",
-            ] {
-                assert!(tex.contains(required), "§29.4 requires {required:?}: {tex}");
-            }
+            assert_eq!(body_of(&P::example()), EXAMPLE_BODY);
+            let project = P::example();
+            project.write("src/Main.lex.tex", support::SECTIONS_MODULE);
+            assert_eq!(body_of(&project), support::SECTIONS_TEX_BODY);
+            assert!(
+                support::SECTIONS_TEX_BODY
+                    .contains("\\textbf{Natural number addition}\n\\label{ll:main:inner}"),
+                "the third level is the registered bold construct"
+            );
+            assert!(
+                !support::SECTIONS_TEX_BODY.contains("\\mathrm{Natural"),
+                "no math-mode heading"
+            );
         }
-        // §19.6: complete output lexical coverage.
+        // §19.6: complete output lexical coverage, mechanically closed.
         "TX-06" => {
-            let build = support::rendered(&P::example());
-            let module = &build.modules[0];
-            let bytes = module.tex_text.as_bytes();
-            for (index, byte) in bytes.iter().enumerate() {
-                if byte.is_ascii_whitespace() {
-                    continue;
+            for project in [
+                P::example(),
+                support::defs_project(),
+                support::ext_project(support::LRE_MODULE),
+                {
+                    let project = P::example();
+                    project.write("src/Main.lex.tex", support::PROOF_FORMS_MODULE);
+                    project
+                },
+            ] {
+                let build = support::rendered(&project);
+                let module = &build.modules[0];
+                lexlean::backend::check_output_closure(&module.tex_text, &module.coverage.latex)
+                    .expect("closure");
+                let bytes = module.tex_text.as_bytes();
+                for (index, byte) in bytes.iter().enumerate() {
+                    if byte.is_ascii_whitespace() {
+                        continue;
+                    }
+                    let covering = module
+                        .coverage
+                        .latex
+                        .iter()
+                        .filter(|row| row.byte_start <= index && index < row.byte_end)
+                        .count();
+                    assert_eq!(
+                        covering,
+                        1,
+                        "tex byte {index} ({:?}) is covered exactly once, found {covering}",
+                        module.tex_text[index..].chars().next()
+                    );
                 }
-                let covering = module
-                    .coverage
-                    .latex
-                    .iter()
-                    .filter(|row| row.byte_start <= index && index < row.byte_end)
-                    .count();
-                assert_eq!(
-                    covering,
-                    1,
-                    "tex byte {index} ({:?}) is covered exactly once, found {covering}",
-                    module.tex_text[index..].chars().next()
-                );
+                for row in &module.coverage.latex {
+                    if let lexlean::source::coverage::Origin::Metadata { owner } = &row.origin {
+                        assert!(
+                            !matches!(owner.as_str(), "core:lean-syntax/1"),
+                            "no sort renders as metadata"
+                        );
+                    }
+                }
             }
         }
         // §13.10: no raw TeX injection from non-core lexicons.
@@ -187,7 +243,8 @@ math = "(token write18)"
                 "deterministic bytes"
             );
         }
-        // §19.7: hash-checked, shell-free, isolated execution.
+        // §19.7: hash-checked, shell-free, isolated execution with exact
+        // resources, timeout, output cap, and exactly one output.
         "TX-09" => {
             let project = P::example();
             let mut provider = fake_provider(&project, 0);
@@ -203,9 +260,15 @@ math = "(token write18)"
             );
 
             // The honest hash runs in an isolated directory seeing only the
-            // canonical TeX.
+            // canonical TeX and an isolated environment.
             provider.program_sha256 = correct;
-            let result = run_fake_provider(&project, &provider).expect("the provider runs");
+            let result = support::with_env(
+                &[
+                    ("HTTP_PROXY", Some("http://proxy.invalid")),
+                    ("LEXLEAN_TEST_LEAK", Some("leaked")),
+                ],
+                || run_fake_provider(&project, &provider).expect("the provider runs"),
+            );
             let recorded = String::from_utf8_lossy(&result.pdf_bytes).into_owned();
             assert!(recorded.starts_with("%PDF-"), "the output is a PDF stream");
             let workdir = recorded.lines().nth(1).expect("the recorded pwd");
@@ -217,12 +280,149 @@ math = "(token write18)"
             let listing: Vec<&str> = recorded
                 .lines()
                 .skip(2)
+                .take_while(|line| !line.contains('='))
                 .filter(|line| !line.is_empty())
                 .collect();
             assert_eq!(
                 listing,
                 vec!["LexLeanExample.Main.tex"],
                 "the provider sees exactly the canonical TeX: {recorded}"
+            );
+            let env_lines: Vec<&str> = recorded.lines().filter(|line| line.contains('=')).collect();
+            assert!(
+                !env_lines.iter().any(|line| line.starts_with("HTTP_PROXY=")),
+                "no inherited proxy variable: {env_lines:?}"
+            );
+            assert!(
+                !env_lines
+                    .iter()
+                    .any(|line| line.starts_with("LEXLEAN_TEST_LEAK=")),
+                "no inherited arbitrary variable: {env_lines:?}"
+            );
+            let home = env_lines
+                .iter()
+                .find_map(|line| line.strip_prefix("HOME="))
+                .expect("a HOME");
+            assert!(
+                home.contains("/.lexlean/") && home.ends_with("/home"),
+                "a temporary HOME: {home}"
+            );
+            assert_eq!(result.version.exit_code, 0);
+            assert_eq!(result.compile.exit_code, 0);
+            assert_eq!(
+                result.compile.argv,
+                vec![
+                    "--outdir".to_owned(),
+                    format!("{}/out", workdir.trim_end_matches("/work")),
+                    "LexLeanExample.Main.tex".to_owned()
+                ],
+                "placeholders expand as whole arguments"
+            );
+
+            // Declared resources are copied by basename next to the TeX.
+            project.write("assets/logo.dat", "logo");
+            project.write("assets/style.sty", "sty");
+            provider.resources = vec!["assets/logo.dat".to_owned(), "assets/style.sty".to_owned()];
+            let result = run_fake_provider(&project, &provider).expect("resources run");
+            let recorded = String::from_utf8_lossy(&result.pdf_bytes).into_owned();
+            let listing: Vec<&str> = recorded
+                .lines()
+                .skip(2)
+                .take_while(|line| !line.contains('='))
+                .filter(|line| !line.is_empty())
+                .collect();
+            assert_eq!(
+                listing,
+                vec!["LexLeanExample.Main.tex", "logo.dat", "style.sty"],
+                "declared resources are staged: {recorded}"
+            );
+            // A resource basename collision, or a collision with the TeX
+            // itself, is refused.
+            project.write("other/logo.dat", "other");
+            provider.resources = vec!["assets/logo.dat".to_owned(), "other/logo.dat".to_owned()];
+            let error = run_fake_provider(&project, &provider).expect_err("collision");
+            assert_eq!(error.code.as_str(), "LLB6004");
+            assert!(error.message.contains("logo.dat"), "{}", error.message);
+            project.write("assets/LexLeanExample.Main.tex", "clobber");
+            provider.resources = vec!["assets/LexLeanExample.Main.tex".to_owned()];
+            let error = run_fake_provider(&project, &provider).expect_err("tex collision");
+            assert_eq!(error.code.as_str(), "LLB6004");
+            provider.resources = Vec::new();
+
+            // The output must be a bare file name.
+            for bad in ["../{stem}.pdf", "sub/{stem}.pdf", "..", "a\\b.pdf"] {
+                let mut escaping = provider.clone();
+                escaping.output = bad.to_owned();
+                let error = run_fake_provider(&project, &escaping).expect_err("bare name");
+                assert_eq!(error.code.as_str(), "LLB6004", "`{bad}` is refused");
+            }
+
+            // Exactly one output: an extra file in the output directory
+            // fails and is named.
+            let extra = stub_provider(
+                &project,
+                "printf '%%PDF-x' > \"$2/$name.pdf\"; printf 'log' > \"$2/$name.log\"\n",
+                0,
+            );
+            let error = run_fake_provider(&project, &extra).expect_err("extra output");
+            assert_eq!(error.code.as_str(), "LLB6004");
+            assert!(
+                error.message.contains("LexLeanExample.Main.log"),
+                "the extra entry is named: {}",
+                error.message
+            );
+            // No output at all fails.
+            let none = stub_provider(&project, "true\n", 0);
+            let error = run_fake_provider(&project, &none).expect_err("no output");
+            assert_eq!(error.code.as_str(), "LLB6004");
+            // A non-PDF stream fails.
+            let not_pdf = stub_provider(&project, "printf 'hello' > \"$2/$name.pdf\"\n", 0);
+            let error = run_fake_provider(&project, &not_pdf).expect_err("not a pdf");
+            assert_eq!(error.code.as_str(), "LLB6004");
+
+            // The output cap (`max_child_output_bytes`) bounds the PDF.
+            let capped = P::example();
+            capped.edit(
+                "lexlean.toml",
+                "max_child_output_bytes = 16777216",
+                "max_child_output_bytes = 64",
+            );
+            capped.relock();
+            let big = stub_provider(
+                &capped,
+                "{ printf '%%PDF-'; head -c 200 /dev/zero; } > \"$2/$name.pdf\"\n",
+                0,
+            );
+            let error = run_fake_provider(&capped, &big).expect_err("too big");
+            assert_eq!(error.code.as_str(), "LLS8002");
+            assert!(
+                error.message.contains("max_child_output_bytes"),
+                "{}",
+                error.message
+            );
+            let small = stub_provider(&capped, "printf '%%PDF-small' > \"$2/$name.pdf\"\n", 0);
+            run_fake_provider(&capped, &small).expect("within the cap");
+
+            // The child timeout is enforced.
+            let slow = P::example();
+            slow.edit(
+                "lexlean.toml",
+                "child_timeout_ms = 300000",
+                "child_timeout_ms = 200",
+            );
+            slow.relock();
+            let sleeper = stub_provider(&slow, "sleep 5\nprintf '%%PDF-' > \"$2/$name.pdf\"\n", 0);
+            let started = std::time::Instant::now();
+            let error = run_fake_provider(&slow, &sleeper).expect_err("timeout");
+            assert_eq!(error.code.as_str(), "LLS8002");
+            assert!(
+                error.message.contains("child_timeout_ms"),
+                "{}",
+                error.message
+            );
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(4),
+                "the child was killed at the deadline"
             );
         }
         // §19.8: the recipe ID and the PDF hash are independent records.
@@ -309,6 +509,31 @@ math = "(token write18)"
                 without,
                 "§19.8: PDF configuration does not affect the semantic ID"
             );
+            // A configured provider records one row and two process records
+            // per module in the attestation, and the PDF lands only in the
+            // verified set.
+            let verified = support::verify_ok(&with_pdf);
+            let attestation: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(verified.root.join("attestation.json").as_std_path()).expect("read"),
+            )
+            .expect("parses");
+            let pdf = attestation["pdf"].as_array().expect("pdf rows");
+            assert_eq!(pdf.len(), 1);
+            assert_eq!(pdf[0]["module"].as_str(), Some("LexLeanExample.Main"));
+            assert_eq!(pdf[0]["version"]["tool"].as_str(), Some("pdf"));
+            assert_eq!(pdf[0]["compile"]["tool"].as_str(), Some("pdf"));
+            let pdf_processes = attestation["processes"]
+                .as_array()
+                .expect("processes")
+                .iter()
+                .filter(|row| row["tool"].as_str() == Some("pdf"))
+                .count();
+            assert_eq!(pdf_processes, 2, "version and compile records");
+            assert!(verified
+                .root
+                .join("pdf/LexLeanExample.Main.pdf")
+                .as_std_path()
+                .is_file());
         }
         // §19.1, I8: the publishable document is the renderer output.
         "TX-12" => {
