@@ -323,24 +323,36 @@ pub(crate) fn run(id: &str) {
             math_symbol.relock();
             math_symbol.check_ok();
 
-            // A non-canonical alias may spell raw TeX, but the moment an LRE
-            // references it (self-form or a cross-package form), the alias
-            // must satisfy the same safety predicate.
-            let alias_only = with_entries(&[(
+            // A non-canonical alias is either renderer-safe or exactly one
+            // control sequence (§13.5 rule 3, an input-only spelling); a
+            // mixed raw-TeX alias is rejected at load whether or not an LRE
+            // references it (§13.9: raw TeX strings do not exist).
+            let control_alias = with_entries(&[(
+                "probe.toml",
+                &atom_entry("probe").replace(
+                    "[render]",
+                    "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\probe\"\ncanonical_source = false\nfeatures = []\n\n[render]",
+                ),
+            )]);
+            control_alias.relock();
+            control_alias.check_ok();
+            let raw_alias = with_entries(&[(
                 "probe.toml",
                 &atom_entry("probe").replace(
                     "[render]",
                     "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\jobname{x} $ \\\\relax\"\ncanonical_source = false\nfeatures = []\n\n[render]",
                 ),
             )]);
-            alias_only.relock();
-            alias_only.check_ok();
+            lock_fails_with(&raw_alias, "LLR3006");
+            // An LRE that references a control alias (self-form or a
+            // cross-package form) is rejected: the referenced form must be
+            // renderer-safe.
             let self_injected = with_entries(&[(
                 "probe.toml",
                 &atom_entry("probe")
                     .replace(
                         "[render]",
-                        "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\jobname{x} $ \\\\relax\"\ncanonical_source = false\nfeatures = []\n\n[render]",
+                        "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\probe\"\ncanonical_source = false\nfeatures = []\n\n[render]",
                     )
                     .replace("math = \"(operator-name probe)\"", "math = \"(self-form alias)\""),
             )]);
@@ -370,14 +382,23 @@ pub(crate) fn run(id: &str) {
                     "probe.toml",
                     &atom_entry("probe").replace(
                         "[render]",
-                        "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\jobname{x} $ \\\\relax\"\ncanonical_source = false\nfeatures = []\n\n[render]",
+                        "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\probe\"\ncanonical_source = false\nfeatures = []\n\n[render]",
                     ),
                 )],
             );
             closure_fails_with(&cross_injected, "LLR3006");
 
+            // A brace is never a renderer-safe alias surface (§13.5).
+            let brace_alias = with_entries(&[(
+                "probe.toml",
+                &atom_entry("probe").replace(
+                    "[render]",
+                    "[[form]]\nid = \"alias\"\nchannel = \"both\"\nsurface = \"}\"\ncanonical_source = false\nfeatures = []\n\n[render]",
+                ),
+            )]);
+            lock_fails_with(&brace_alias, "LLR3006");
             // Core structural and grammar surfaces are reserved.
-            for reserved in ["\\\\begin", "}", "\\\\lexeme", "the"] {
+            for reserved in ["\\\\begin", "\\\\lexeme", "the", "of"] {
                 let aliased = with_entries(&[(
                     "probe.toml",
                     &atom_entry("probe").replace(

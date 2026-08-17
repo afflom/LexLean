@@ -997,15 +997,31 @@ pub fn parse_entry(
                 ),
             ));
         }
-        if raw_form.canonical_source && !is_core {
-            if let Err(reason) = surface_safety(&atoms, channel) {
-                diagnostics.push(form_unsafe(
-                    path,
-                    format!(
-                        "form `{}`: the canonical surface `{}` is not renderer-safe: {reason}",
-                        raw_form.id, raw_form.surface
-                    ),
-                ));
+        if !is_core {
+            // Every non-core form is either renderer-safe (it may be
+            // rendered as the selected spelling of the entry) or exactly one
+            // control-sequence alias such as `\N` (§13.5 rule 3: an input
+            // spelling that is never rendered). A canonical form must be
+            // renderer-safe (§13.5 rules 4-5).
+            let single_control_alias = !raw_form.canonical_source
+                && atoms.len() == 1
+                && atoms[0].class == AtomClass::Control;
+            if !single_control_alias {
+                if let Err(reason) = surface_safety(&atoms, channel) {
+                    diagnostics.push(form_unsafe(
+                        path,
+                        format!(
+                            "form `{}`: the {} surface `{}` is not renderer-safe: {reason}",
+                            raw_form.id,
+                            if raw_form.canonical_source {
+                                "canonical"
+                            } else {
+                                "alias"
+                            },
+                            raw_form.surface
+                        ),
+                    ));
+                }
             }
         }
         let features = raw_form.features.clone();

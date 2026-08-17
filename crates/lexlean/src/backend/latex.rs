@@ -258,6 +258,34 @@ impl Sink<'_, '_> {
             .ok_or_else(|| {
                 Diagnostic::new(code!("LLB6002"), format!("`{qualified}` has no form"))
             })?;
+        // Defense in depth (§13.9, §19.1): only a renderer-safe spelling
+        // reaches the document. A control-sequence alias selected in the
+        // source renders as the entry's canonical form of the same channel.
+        let form = if crate::lexicon::entry::surface_safety(&form.atoms, form.channel).is_ok() {
+            form
+        } else {
+            glossary_entry
+                .forms
+                .iter()
+                .find(|candidate| {
+                    candidate.canonical_source
+                        && candidate.channel.covers(form.channel)
+                        && crate::lexicon::entry::surface_safety(
+                            &candidate.atoms,
+                            candidate.channel,
+                        )
+                        .is_ok()
+                })
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        code!("LLB6002"),
+                        format!(
+                            "`{qualified}`: form `{}` is not renderer-safe and no renderer-safe canonical form replaces it",
+                            form.id
+                        ),
+                    )
+                })?
+        };
         let surface = form.surface.clone();
         let chosen = form.id.clone();
         self.emitter.piece(
