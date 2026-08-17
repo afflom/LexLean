@@ -1473,11 +1473,20 @@ math = "(operator-name probe)"
             &ctx(false, &forbidden)
         ))
         .contains(&"LLR3006".to_owned()));
-        // A non-canonical alias may be anything scannable, but once an LRE
-        // references it, it must be renderer-safe.
-        let alias = PROBE.replace(
+        // A non-canonical alias is one control sequence (an input-only
+        // spelling, §13.5 rule 3) or renderer-safe; a mixed raw-TeX alias is
+        // rejected at load whether or not an LRE references it.
+        let raw_alias = PROBE.replace(
             "[render]",
             "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\jobname{x} $ \\\\relax\"\ncanonical_source = false\nfeatures = []\n\n[render]",
+        );
+        assert_eq!(
+            codes(parse_entry("p.toml", &raw_alias, &ctx(false, &forbidden))),
+            vec!["LLR3006"]
+        );
+        let alias = PROBE.replace(
+            "[render]",
+            "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\probe\"\ncanonical_source = false\nfeatures = []\n\n[render]",
         );
         assert!(parse_entry("p.toml", &alias, &ctx(false, &forbidden)).is_ok());
         let injected = alias.replace("(operator-name probe)", "(self-form alias)");
