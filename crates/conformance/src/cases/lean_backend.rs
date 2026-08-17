@@ -302,6 +302,28 @@ pub(crate) fn run(id: &str) {
                 );
             }
             support::verify_ok(&project);
+
+            // §18.4: a numeral whose expected type is a document type
+            // definition ascribes the type that definition unfolds to.
+            // Lean synthesizes `OfNat` against the type as written, and a
+            // `def count : Type := Nat` carries no instance, so `(0 : count)`
+            // and a bare `0` in that position are both rejected by the
+            // pinned toolchain — the emitted `(0 : Nat)` is not.
+            let aliased = support::alias_numeral_project();
+            let lean = support::lean_text(&support::rendered(&aliased), "Main");
+            assert!(
+                lean.contains("tally (0 : Nat)"),
+                "the numeral ascribes the unfolded type: {lean}"
+            );
+            assert!(
+                !lean.contains("(0 : LexLeanExample.Main.count)") && !lean.contains("tally 0"),
+                "neither the alias nor a bare numeral reaches Lean: {lean}"
+            );
+            assert!(
+                lean.contains("def count : Type :=") && lean.contains("def tally"),
+                "the alias itself is still emitted as a def naming the alias: {lean}"
+            );
+            support::verify_ok(&aliased);
         }
         // §18.7: proof lowering uses only the fixed pinned forms.
         "LN-08" => {
@@ -387,6 +409,49 @@ pub(crate) fn run(id: &str) {
                 assert!(
                     module.map.remap(0, index).is_some(),
                     "lean byte {index} has a mapping"
+                );
+            }
+
+            // An inlined defined lexicon value (§13.6) is a whole term, not
+            // an identifier: `two` inlines as `(Nat.succ (Nat.succ
+            // Nat.zero))`. It is covered token by token, so a Lean
+            // diagnostic inside it remaps to a token-sized range rather
+            // than to the entire inlined value (§20.3, §20.4).
+            let inlined = support::rendered(&support::ext_project(support::DEFINED_MODULE));
+            let module = &inlined.modules[0];
+            let rows: Vec<&lexlean::source::coverage::OutputRow> = module
+                .coverage
+                .lean
+                .iter()
+                .filter(|row| {
+                    matches!(
+                        &row.origin,
+                        lexlean::source::coverage::Origin::Form { package, entry, .. }
+                            if package == "test.ext" && entry == "two"
+                    )
+                })
+                .collect();
+            let spelled: Vec<&str> = rows
+                .iter()
+                .map(|row| &module.lean_text[row.byte_start..row.byte_end])
+                .collect();
+            assert_eq!(
+                spelled,
+                vec![
+                    "(", "Nat.succ", "(", "Nat.succ", "Nat.zero", ")", ")", "(", "Nat.succ", "(",
+                    "Nat.succ", "Nat.zero", ")", ")"
+                ],
+                "both occurrences of the inlined value are covered token by token: {}",
+                module.lean_text
+            );
+            for row in rows {
+                let mapping = module
+                    .map
+                    .remap(0, row.byte_start)
+                    .expect("every inlined token has a mapping");
+                assert!(
+                    mapping.gen_end - mapping.gen_start <= row.byte_end - row.byte_start,
+                    "the smallest enclosing mapping is the token, not the whole inlined value"
                 );
             }
         }

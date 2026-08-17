@@ -1585,12 +1585,13 @@ pub fn probe_lean(
     let probe = lexlean::backend::lean::probe_module(&hex32, &externals, &checked.closure)
         .expect("probe renders");
     let _guard = env_lock();
-    let toolchain = lexlean::verify::toolchain::preflight().expect("the pinned toolchain");
+    let inner = lexlean::project::Project::load(&project.root.join("lexlean.toml")).expect("load");
+    let toolchain =
+        lexlean::verify::toolchain::preflight(&inner.config.limits).expect("the pinned toolchain");
     let scratch = project.root.join(".lexlean/probe-scratch");
     std::fs::create_dir_all(scratch.as_std_path()).expect("scratch");
     let source = scratch.join(format!("{}.lean", probe.name));
     std::fs::write(source.as_std_path(), &probe.text).expect("write probe");
-    let inner = lexlean::project::Project::load(&project.root.join("lexlean.toml")).expect("load");
     let normalizer = lexlean::verify::child::Normalizer::new(
         &scratch,
         &project.root,
@@ -1607,7 +1608,9 @@ pub fn probe_lean(
             argv: vec!["env".to_owned(), "lean".to_owned(), source.to_string()],
             cwd: &project.root,
             extra_env: vec![("LEAN_PATH".to_owned(), scratch.to_string())],
-            toolchain_bin: &bin,
+            home: lexlean::verify::child::ChildHome::Toolchain {
+                toolchain_bin: &bin,
+            },
         },
         &inner.config.limits,
         &normalizer,
@@ -2290,6 +2293,92 @@ pub fn frames_project() -> P {
     project.write("src/Main.lex.tex", FRAMES_MODULE);
     project.relock();
     project
+}
+
+// ---- WS-F2 helpers (planted Lean messages, alias-typed numerals) ----
+
+/// The `test.defs` entry for a one-argument function over the document
+/// type alias `count`, denoting this module's `tally` declaration.
+const TALLY_ENTRY: &str = r#"spec = "lexlean/entry/1"
+id = "tally"
+category = "function"
+signature = "(pi ((explicit c (const test.defs::count))) (const test.defs::count))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "tally"
+
+[[form]]
+id = "tally"
+channel = "math"
+surface = "tally"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name tally) (paren (slot 0)))"
+"#;
+
+/// The module of [`alias_numeral_project`]: the document type alias
+/// `count`, a function over it, and a statement applying that function to
+/// a numeral — the numeral whose expected type is the alias.
+pub const ALIAS_NUMERAL_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.defs@1.0.0}\n\\title{Natural number addition}\n\n\\begin{typedefinition}{count}{test.defs::count}\n\\noaxioms\nA count is defined as \\(ℕ\\).\n\\end{typedefinition}\n\n\\begin{termdefinition}{tally}{test.defs::tally}\n\\noaxioms\nFor every count \\(c\\), \\(tally(c)\\) is defined as \\(c\\).\n\\end{termdefinition}\n\n\\begin{theorem}{tally-zero}\n\\noaxioms\n\\(tally(0) = tally(0)\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+
+/// A project whose numeral is typed by a document type alias (§18.4): the
+/// generated Lean must ascribe the type the alias unfolds to, because Lean
+/// synthesizes `OfNat` against the ascription as written.
+#[must_use]
+pub fn alias_numeral_project() -> P {
+    let project = P::example();
+    let mut entries = defs_entries();
+    entries.push(("tally.toml", TALLY_ENTRY.to_owned()));
+    let entry_refs: Vec<(&str, &str)> = entries
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect();
+    project.add_package(
+        "lexicons/test-defs",
+        "test.defs",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &entry_refs,
+    );
+    project.write("src/Main.lex.tex", ALIAS_NUMERAL_MODULE);
+    project.relock();
+    project
+}
+
+// ---- WS-F2 helpers (planted Lean messages) ----
+
+/// A `lake` wrapper that replaces the compilation of a generated module
+/// with one printed message on stdout — where Lean itself writes messages
+/// under `lake env lean` — and the given exit code. Unlike
+/// [`lake_wrapper`], the real `lake` never runs for that file, so the
+/// planted message is the whole output of the stage and a nonzero code
+/// plants a rejection.
+#[must_use]
+pub fn lake_message_wrapper(message: &str, exit_code: i32) -> String {
+    format!(
+        "#!/bin/sh\nreal=\"$(dirname \"$(readlink -f \"$(dirname \"$0\")/lean\")\")/lake\"\nif [ \"$1\" = \"env\" ] && [ \"$2\" = \"lean\" ]; then\n  for argument in \"$@\"; do\n    case \"$argument\" in\n      */lean-src/*.lean)\n        printf '%s\\n' '{message}'\n        exit {exit_code}\n        ;;\n    esac\n  done\nfi\nexec \"$real\" \"$@\"\n"
+    )
+}
+
+/// The one-based line and zero-based Unicode-scalar column of the first
+/// occurrence of `needle` in generated Lean text: the position Lean itself
+/// would report for that token (§20.1).
+#[must_use]
+pub fn lean_position_of(text: &str, needle: &str) -> (usize, usize) {
+    let offset = text
+        .find(needle)
+        .unwrap_or_else(|| panic!("`{needle}` occurs in the generated module:\n{text}"));
+    let line = text[..offset].matches('\n').count() + 1;
+    let column = text[..offset]
+        .rsplit('\n')
+        .next()
+        .map_or(0, |prefix| prefix.chars().count());
+    (line, column)
 }
 
 /// The one shared Lean-verified run of the frames module: its statements

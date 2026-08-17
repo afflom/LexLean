@@ -27,12 +27,23 @@ fn stub_provider(project: &P, body: &str, exit_code: i32) -> PdfProvider {
         "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\nname=$(basename \"$3\" .tex)\n{body}exit {exit_code}\n"
     );
     project.write("tools/fakepdf", &script);
-    let script_path = project.root.join("tools/fakepdf");
-    let mut permissions = std::fs::metadata(script_path.as_std_path())
-        .expect("stat")
-        .permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-    std::fs::set_permissions(script_path.as_std_path(), permissions).expect("chmod");
+    // The stub provider is a `#!/bin/sh` script: the executable bit exists
+    // only on unix hosts, and `PermissionsExt` does not compile elsewhere.
+    // A host without a POSIX shell cannot run these cases at all, and says
+    // so rather than passing vacuously (§8.3, R2).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let script_path = project.root.join("tools/fakepdf");
+        let mut permissions = std::fs::metadata(script_path.as_std_path())
+            .expect("stat")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(script_path.as_std_path(), permissions).expect("chmod");
+    }
+    #[cfg(not(unix))]
+    panic!("the PDF-provider cases require a POSIX shell host (§8.3)");
+    #[cfg(unix)]
     PdfProvider {
         program: "tools/fakepdf".to_owned(),
         program_sha256: Sha256Digest::of(script.as_bytes()),
@@ -66,6 +77,7 @@ fn run_fake_provider(
         build.modules[0].tex_text.as_bytes(),
         &build.modules[0].lean_module,
         &staging,
+        &lexlean::verify::child::Normalizer::default(),
     )
 }
 
@@ -519,6 +531,29 @@ math = "(token write18)"
                 escaping.output = bad.to_owned();
                 let error = run_fake_provider(&project, &escaping).expect_err("bare name");
                 assert_eq!(error.code.as_str(), "LLB6004", "`{bad}` is refused");
+            }
+            // And it is refused when the configuration is loaded, not only
+            // when a provider eventually runs: an output that can never
+            // satisfy the protocol is a configuration error (§19.7).
+            for bad in ["../{stem}.pdf", "sub/{stem}.pdf"] {
+                let configured = P::example();
+                configured.edit(
+                    "lexlean.toml",
+                    "\n[limits]",
+                    &format!(
+                        "\n[pdf]\nmode = \"external\"\nprogram = \"tools/fakepdf\"\nprogram_sha256 = \"{}\"\nversion_argv = [\"--version\"]\nversion_stdout_sha256 = \"{}\"\ncompile_argv = [\"--outdir\", \"{{out_dir}}\", \"{{input}}\"]\noutput = \"{bad}\"\nresources = []\n\n[limits]",
+                        Sha256Digest::of(b"").to_hex(),
+                        Sha256Digest::of(b"\n").to_hex(),
+                    ),
+                );
+                let error = lexlean::Engine::load(&configured.root.join("lexlean.toml"))
+                    .err()
+                    .unwrap_or_else(|| panic!("`{bad}` is refused at load"));
+                support::expect_code(&error, "LLC0101");
+                assert!(
+                    format!("{error}").contains("bare file name"),
+                    "the failure says why: {error}"
+                );
             }
 
             // Exactly one output: an extra file in the output directory

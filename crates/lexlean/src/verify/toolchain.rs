@@ -6,7 +6,9 @@ use camino::Utf8PathBuf;
 
 use crate::artifact::content_id::Sha256Digest;
 use crate::code;
+use crate::config::Limits;
 use crate::diagnostic::Diagnostic;
+use crate::verify::child::{run as run_child, ChildHome, ChildSpec, Normalizer};
 
 /// One preflighted tool.
 #[derive(Debug, Clone)]
@@ -52,42 +54,39 @@ pub fn toolchain_root() -> Result<Utf8PathBuf, Diagnostic> {
 }
 
 /// The version banner of a tool under the allow-list environment: stdout,
-/// or stderr when stdout is empty.
+/// or stderr when stdout is empty. The probe is a child like any other
+/// (§25.5), so it runs through the shared runner and is bounded by the
+/// configured `child_timeout_ms` and `max_child_output_bytes`: a toolchain
+/// executable that hangs or floods its banner is `LLS8002`, never an
+/// unbounded read. The banner carries no path, so the normalizer's
+/// line-ending and trailing-blank rules are the whole normalization.
 fn version_probe(
+    name: &str,
     path: &Utf8PathBuf,
     argv: &[&str],
     bin_dir: &Utf8PathBuf,
+    sha256: Sha256Digest,
+    limits: &Limits,
 ) -> Result<String, Diagnostic> {
-    let existing_path = std::env::var("PATH").unwrap_or_default();
-    let mut command = std::process::Command::new(path.as_std_path());
-    command
-        .args(argv)
-        .env_clear()
-        .env("PATH", format!("{bin_dir}:{existing_path}"))
-        .env(
-            "HOME",
-            std::env::var_os("HOME").unwrap_or_else(|| "/".into()),
-        )
-        .env("NO_COLOR", "1")
-        .env("LANG", "C.UTF-8")
-        .env("LC_ALL", "C.UTF-8")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(std::process::Stdio::null());
-    if let Some(elan_home) = std::env::var_os("ELAN_HOME") {
-        command.env("ELAN_HOME", elan_home);
-    }
-    let output = command
-        .output()
-        .map_err(|io_error| environment(format!("{path}: {io_error}")))?;
-    let normalize = |bytes: &[u8]| {
-        String::from_utf8_lossy(bytes)
-            .replace("\r\n", "\n")
-            .trim_end()
-            .to_owned()
-    };
-    let stdout = normalize(&output.stdout);
+    let record = run_child(
+        &ChildSpec {
+            tool: name,
+            module: None,
+            program: path,
+            executable_sha256: sha256,
+            argv: argv.iter().map(|argument| (*argument).to_owned()).collect(),
+            cwd: bin_dir,
+            extra_env: Vec::new(),
+            home: ChildHome::Toolchain {
+                toolchain_bin: bin_dir,
+            },
+        },
+        limits,
+        &Normalizer::default(),
+    )?;
+    let stdout = record.stdout.trim_end().to_owned();
     Ok(if stdout.trim().is_empty() {
-        normalize(&output.stderr)
+        record.stderr.trim_end().to_owned()
     } else {
         stdout
     })
@@ -97,6 +96,7 @@ fn load_tool(
     bin_dir: &Utf8PathBuf,
     name: &str,
     version_argv: Option<&[&str]>,
+    limits: &Limits,
 ) -> Result<Tool, Diagnostic> {
     let path = bin_dir.join(name);
     let bytes = std::fs::read(path.as_std_path()).map_err(|io_error| {
@@ -106,7 +106,7 @@ fn load_tool(
     })?;
     let sha256 = Sha256Digest::of(&bytes);
     let version_output = match version_argv {
-        Some(argv) => version_probe(&path, argv, bin_dir)?,
+        Some(argv) => version_probe(name, &path, argv, bin_dir, sha256, limits)?,
         None => String::new(),
     };
     Ok(Tool {
@@ -117,8 +117,9 @@ fn load_tool(
 }
 
 /// Locate and preflight the pinned toolchain: `lean` and `lake` must report
-/// version 4.32.1 (§8.2); every executable digest is recorded (§22.9).
-pub fn preflight() -> Result<Toolchain, Diagnostic> {
+/// version 4.32.1 (§8.2); every executable digest is recorded (§22.9). The
+/// version probes run under the configured child limits (§25.5).
+pub fn preflight(limits: &Limits) -> Result<Toolchain, Diagnostic> {
     let root = toolchain_root()?;
     let bin_dir = root.join("bin");
     if !bin_dir.as_std_path().is_dir() {
@@ -127,7 +128,7 @@ pub fn preflight() -> Result<Toolchain, Diagnostic> {
             crate::LEAN_TOOLCHAIN
         )));
     }
-    let lean = load_tool(&bin_dir, "lean", Some(&["--version"]))?;
+    let lean = load_tool(&bin_dir, "lean", Some(&["--version"]), limits)?;
     if !lean.version_output.contains(crate::LEAN_VERSION) {
         return Err(environment(format!(
             "lean reports `{}`, not version {}",
@@ -135,7 +136,7 @@ pub fn preflight() -> Result<Toolchain, Diagnostic> {
             crate::LEAN_VERSION
         )));
     }
-    let lake = load_tool(&bin_dir, "lake", Some(&["--version"]))?;
+    let lake = load_tool(&bin_dir, "lake", Some(&["--version"]), limits)?;
     if !lake.version_output.contains(crate::LEAN_VERSION) {
         return Err(environment(format!(
             "lake reports `{}`, not Lean version {}",
@@ -148,7 +149,7 @@ pub fn preflight() -> Result<Toolchain, Diagnostic> {
     // the toolchain root and its digest; `load_tool` already required the
     // file to exist and hashed it. The replay runs themselves (§22.4) are
     // the functional check.
-    let mut leanchecker = load_tool(&bin_dir, "leanchecker", None)?;
+    let mut leanchecker = load_tool(&bin_dir, "leanchecker", None, limits)?;
     leanchecker.version_output = format!(
         "leanchecker bin/leanchecker sha256:{}",
         leanchecker.sha256.to_hex()

@@ -236,6 +236,14 @@ pub fn lex(text: &str) -> Result<Vec<LeanToken>, LexError> {
 /// The identifier words §18.2 forbids in generated source. Spelled in
 /// halves so the repository forbidden-token audits can scan this gate's
 /// own source without matching these mentions.
+///
+/// This list is chosen by §18.2, not derived from Lean's grammar, so it is
+/// not the reserved-token list of
+/// [`crate::backend::lean_tokens::LEAN_RESERVED_TOKENS`]: four of these
+/// words (`sorry`, `axiom`, `opaque`, `unsafe`) are pinned reserved tokens
+/// and two (`admit`, `native_decide`) are ordinary tactic identifiers. The
+/// overlap is asserted against the pinned list by the module test below, so
+/// a spelling that drifts from the toolchain is caught in one place.
 fn forbidden_words() -> [String; 6] {
     [
         format!("sor{}", "ry"),
@@ -312,4 +320,42 @@ pub fn audit(text: &str, allow_print_axioms: bool) -> Result<(), String> {
         index += 1;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::forbidden_words;
+    use crate::backend::lean_tokens::is_reserved;
+
+    /// §18.2 and §17.8 name overlapping sets of Lean words. Where they
+    /// coincide the spelling must be the toolchain's own: the four
+    /// forbidden words that are pinned reserved tokens are checked against
+    /// the derived list, and the two that are tactic identifiers are
+    /// checked to be absent from it, so neither list can drift silently.
+    #[test]
+    fn forbidden_words_agree_with_the_pinned_token_table() {
+        let words = forbidden_words();
+        let reserved: Vec<&str> = words
+            .iter()
+            .map(String::as_str)
+            .filter(|word| is_reserved(word))
+            .collect();
+        let expected = [
+            format!("sor{}", "ry"),
+            format!("axi{}", "om"),
+            format!("opa{}", "que"),
+            format!("un{}", "safe"),
+        ];
+        assert_eq!(
+            reserved,
+            expected.iter().map(String::as_str).collect::<Vec<&str>>(),
+            "exactly the §18.2 words that are pinned reserved tokens"
+        );
+        for tactic in [format!("ad{}", "mit"), format!("native_{}", "decide")] {
+            assert!(
+                !is_reserved(&tactic),
+                "`{tactic}` is a tactic identifier, not a reserved token"
+            );
+        }
+    }
 }

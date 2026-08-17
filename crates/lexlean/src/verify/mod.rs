@@ -35,14 +35,16 @@ use camino::{Utf8Path, Utf8PathBuf};
 use crate::api::{RenderedBuild, RenderedModule};
 use crate::artifact::canonical_json::Json;
 use crate::artifact::content_id::{attestation_id, Sha256Digest};
-use crate::artifact::source_map::MapRole;
+use crate::artifact::source_map::{MapRole, Mapping};
 use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
 use crate::error::LexLeanError;
+use crate::ir::term::LocalId;
 use crate::link::CheckedProject;
 use crate::lock::Lock;
 use crate::project::Project;
-use crate::verify::child::{run as run_child, ChildRecord, ChildSpec, Normalizer};
+use crate::source::coverage::Origin;
+use crate::verify::child::{run as run_child, ChildHome, ChildRecord, ChildSpec, Normalizer};
 use crate::verify::toolchain::Toolchain;
 
 /// The outcome of a successful verification.
@@ -97,7 +99,11 @@ fn write_staged(root: &std::path::Path, relative: &str, bytes: &[u8]) -> Result<
 }
 
 /// One parsed Lean message location: `path:line:col: severity: message`
-/// with its indented continuation lines.
+/// with its indented continuation lines. Lean 4.32.1 prints
+/// `path:line:col[-line:col]: severity[(name)]: message`
+/// (`Lean.mkErrorStringWithPos`): the end position appears only under
+/// `printMessageEndPos`, and named errors carry their error name in
+/// parentheses, as in `error(lean.unknownIdentifier)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeanMessage {
     /// The reported path as printed.
@@ -108,8 +114,78 @@ pub struct LeanMessage {
     pub column: usize,
     /// `error`, `warning`, or `info`.
     pub severity: String,
+    /// The error name Lean printed in parentheses after the severity, when
+    /// any (`lean.unknownIdentifier`).
+    pub name: Option<String>,
     /// The message text with continuation lines joined by LF.
     pub message: String,
+}
+
+/// Parse `severity` or `severity(name)` into its two parts; only Lean's
+/// severities open a message.
+fn parse_severity(label: &str) -> Option<(String, Option<String>)> {
+    let label = label.trim();
+    let (severity, name) = match label.split_once('(') {
+        Some((severity, rest)) => {
+            let name = rest.strip_suffix(')')?;
+            if name.is_empty() || name.chars().any(char::is_whitespace) {
+                return None;
+            }
+            (severity, Some(name.to_owned()))
+        }
+        None => (label, None),
+    };
+    if !matches!(severity, "error" | "warning" | "info" | "information") {
+        return None;
+    }
+    Some((severity.to_owned(), name))
+}
+
+/// Parse a Lean line/column pair.
+fn parse_position(line: &str, column: &str) -> Option<(usize, usize)> {
+    let line_number = line.trim().parse::<usize>().ok()?;
+    let column = column.trim().parse::<usize>().ok()?;
+    Some((line_number, column))
+}
+
+/// Parse one line as a message opener.
+fn parse_message_opener(line: &str) -> Option<LeanMessage> {
+    // The path may contain `:` on no supported host, so the split takes
+    // the first three fields.
+    let mut parts = line.splitn(4, ':');
+    let path = parts.next()?;
+    let line_field = parts.next()?;
+    let column_field = parts.next()?;
+    let rest = parts.next()?;
+    match column_field.split_once('-') {
+        // `line:col-endline:endcol: severity: message`: the column field
+        // holds `col-endline` and the fourth field starts with `endcol:`.
+        Some((column, end_line)) => {
+            let (line_number, column) = parse_position(line_field, column)?;
+            end_line.trim().parse::<usize>().ok()?;
+            let (end_column, remainder) = rest.split_once(':')?;
+            end_column.trim().parse::<usize>().ok()?;
+            finish_opener(path, line_number, column, remainder)
+        }
+        None => {
+            let (line_number, column) = parse_position(line_field, column_field)?;
+            finish_opener(path, line_number, column, rest)
+        }
+    }
+}
+
+fn finish_opener(path: &str, line: usize, column: usize, rest: &str) -> Option<LeanMessage> {
+    let rest = rest.trim_start();
+    let (label, message) = rest.split_once(':')?;
+    let (severity, name) = parse_severity(label)?;
+    Some(LeanMessage {
+        path: path.to_owned(),
+        line,
+        column,
+        severity,
+        name,
+        message: message.trim().to_owned(),
+    })
 }
 
 /// Parse every Lean message from combined process output (§20.4). Lines
@@ -118,28 +194,7 @@ pub struct LeanMessage {
 pub fn parse_lean_messages(output: &str) -> Vec<LeanMessage> {
     let mut messages: Vec<LeanMessage> = Vec::new();
     for line in output.lines() {
-        let opened = (|| {
-            // The path may contain `:` on no supported host, so the split
-            // takes the first three fields.
-            let mut parts = line.splitn(4, ':');
-            let path = parts.next()?;
-            let line_number = parts.next()?.trim().parse::<usize>().ok()?;
-            let column = parts.next()?.trim().parse::<usize>().ok()?;
-            let rest = parts.next()?.trim_start();
-            let (severity, message) = rest.split_once(':')?;
-            let severity = severity.trim();
-            if !matches!(severity, "error" | "warning" | "info") {
-                return None;
-            }
-            Some(LeanMessage {
-                path: path.to_owned(),
-                line: line_number,
-                column,
-                severity: severity.to_owned(),
-                message: message.trim().to_owned(),
-            })
-        })();
-        match opened {
+        match parse_message_opener(line) {
             Some(message) => messages.push(message),
             None => {
                 if let Some(last) = messages.last_mut() {
@@ -152,6 +207,19 @@ pub fn parse_lean_messages(output: &str) -> Vec<LeanMessage> {
         }
     }
     messages
+}
+
+/// The non-blank output lines preceding the first located message: text
+/// no message accounts for (a wrapper's stray line, an unlocated warning).
+#[must_use]
+pub fn lean_output_preamble(output: &str) -> String {
+    output
+        .lines()
+        .take_while(|line| parse_message_opener(line).is_none())
+        .filter(|line| !line.trim().is_empty())
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The byte offset of a Lean location in generated text: Lean columns count
@@ -206,9 +274,9 @@ fn source_span(checked: &CheckedProject, module: &RenderedModule, range: (usize,
     }
 }
 
-/// The source range of the declaration component enclosing a generated
-/// byte position: the nearest preceding `declaration`-role mapping.
-fn enclosing_declaration_range(module: &RenderedModule, offset: usize) -> Option<(usize, usize)> {
+/// The declaration mapping enclosing a generated byte position: the
+/// nearest preceding `declaration`-role mapping.
+fn enclosing_declaration(module: &RenderedModule, offset: usize) -> Option<&Mapping> {
     module
         .map
         .mappings
@@ -219,37 +287,170 @@ fn enclosing_declaration_range(module: &RenderedModule, offset: usize) -> Option
                 && mapping.gen_start <= offset
         })
         .max_by_key(|mapping| mapping.gen_start)
-        .and_then(|mapping| mapping.src_range)
 }
 
-/// Remap every Lean error location against the generated module maps
+/// Is `c` a character of a generated Lean identifier?
+fn is_lean_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// The generated local names (`llv<n>`, `llh<n>`, §17.8) a Lean message
+/// mentions, in first-mention order.
+fn generated_names_in(message: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    let mut previous: Option<char> = None;
+    let mut rest = message;
+    while !rest.is_empty() {
+        let word: String = rest
+            .chars()
+            .take_while(|c| is_lean_ident_char(*c))
+            .collect();
+        if word.is_empty() {
+            let mut chars = rest.chars();
+            previous = chars.next();
+            rest = chars.as_str();
+            continue;
+        }
+        let starts_word = previous.is_none_or(|c| !is_lean_ident_char(c));
+        let generated = word.len() > 3
+            && (word.starts_with("llv") || word.starts_with("llh"))
+            && word[3..].chars().all(|c| c.is_ascii_digit());
+        if starts_word && generated && !names.contains(&word) {
+            names.push(word.clone());
+        }
+        previous = word.chars().next_back();
+        rest = &rest[word.len()..];
+    }
+    names
+}
+
+/// Notes mapping generated local names a Lean message mentions back to
+/// their source spellings (§17.8: spellings are retained for diagnostics).
+/// A generated name is resolved within the declaration enclosing the
+/// reported position: its Lean coverage row carries the local's identity,
+/// and the source coverage rows (or the proof-introduced spellings) carry
+/// the spelling.
+fn generated_name_notes(
+    checked: &CheckedProject,
+    module: &RenderedModule,
+    offset: usize,
+    message: &str,
+) -> Vec<String> {
+    let names = generated_names_in(message);
+    if names.is_empty() {
+        return Vec::new();
+    }
+    let Some(checked_module) = checked.modules.get(&module.module) else {
+        return Vec::new();
+    };
+    let declaration_start =
+        enclosing_declaration(module, offset).map_or(0, |mapping| mapping.gen_start);
+    let declaration_end = module
+        .map
+        .mappings
+        .iter()
+        .filter(|mapping| {
+            mapping.artifact == 0
+                && mapping.role == MapRole::Declaration
+                && mapping.gen_start > declaration_start
+        })
+        .map(|mapping| mapping.gen_start)
+        .min()
+        .unwrap_or(module.lean_text.len());
+    let mut notes = Vec::new();
+    for name in names {
+        let local = module.coverage.lean.iter().find_map(|row| {
+            let within = row.byte_start >= declaration_start && row.byte_end <= declaration_end;
+            let text = module.lean_text.get(row.byte_start..row.byte_end);
+            match (&row.origin, within, text) {
+                (Origin::Local(id), true, Some(text)) if text == name => Some(*id),
+                _ => None,
+            }
+        });
+        let Some(id) = local else {
+            continue;
+        };
+        let spelling = checked_module
+            .coverage_source
+            .iter()
+            .find(|row| matches!(row.binding, Origin::Local(local) if local == id))
+            .and_then(|row| checked_module.normalized.get(row.byte_start..row.byte_end))
+            .map(str::to_owned)
+            .or_else(|| {
+                let id = u64::try_from(id).ok()?;
+                checked_module.proof_spellings.get(&LocalId(id)).cloned()
+            });
+        if let Some(spelling) = spelling {
+            if spelling != name {
+                notes.push(format!(
+                    "generated name `{name}` is the source binder `{spelling}`"
+                ));
+            }
+        }
+    }
+    notes
+}
+
+/// What a module compilation produced, for remapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeanOutcome {
+    /// A nonzero exit: every error and warning is a rejection (LLV7002).
+    Rejected,
+    /// A zero exit with output: every warning or informational message is
+    /// a verification failure (LLV7006, §20.2, §22.3).
+    Noisy,
+}
+
+/// Remap every Lean message location against the generated module maps
 /// (§20.4): the smallest enclosing mapping wins; a position no mapping
 /// encloses falls back to the enclosing declaration component with the
-/// generated range kept as a note.
-fn remap_lean_failure(
+/// generated range kept as a note. Warnings and errors remap alike; a
+/// generated local name the message mentions is explained by a note.
+fn remap_lean_output(
     checked: &CheckedProject,
     build: &RenderedBuild,
     module_lean_name: &str,
     output: &str,
+    outcome: LeanOutcome,
 ) -> Vec<Diagnostic> {
+    let (code, verb) = match outcome {
+        LeanOutcome::Rejected => (code!("LLV7002"), "rejected"),
+        LeanOutcome::Noisy => (code!("LLV7006"), "produced unexpected output for"),
+    };
+    let raw = |text: &str| {
+        Diagnostic::new(
+            code,
+            format!("Lean {verb} `{module_lean_name}`: {}", text.trim_end()),
+        )
+    };
     let Some(module) = build
         .modules
         .iter()
         .find(|module| module.lean_module == module_lean_name)
     else {
-        return vec![Diagnostic::new(
-            code!("LLV7002"),
-            format!("Lean rejected `{module_lean_name}`: {}", output.trim_end()),
-        )];
+        return vec![raw(output)];
     };
     let mut diagnostics = Vec::new();
+    if outcome == LeanOutcome::Noisy {
+        let preamble = lean_output_preamble(output);
+        if !preamble.is_empty() {
+            diagnostics.push(raw(&preamble));
+        }
+    }
     for message in parse_lean_messages(output) {
-        if message.severity == "info" {
+        if outcome == LeanOutcome::Rejected && message.severity == "info" {
             continue;
         }
+        let kind = match &message.name {
+            Some(name) => format!("{} {name}", message.severity),
+            None => message.severity.clone(),
+        };
         let mut diagnostic = Diagnostic::new(
-            code!("LLV7002"),
-            format!("Lean rejected `{module_lean_name}`: {}", message.message),
+            code,
+            format!(
+                "Lean {verb} `{module_lean_name}` ({kind}): {}",
+                message.message
+            ),
         );
         let offset = lean_position_to_byte(&module.lean_text, message.line, message.column);
         let generated_note = format!(
@@ -257,28 +458,35 @@ fn remap_lean_failure(
             message.path, message.line, message.column
         );
         match offset {
-            Some(offset) => match module
-                .map
-                .remap(0, offset)
-                .and_then(|mapping| mapping.src_range)
-            {
-                Some(range) => {
-                    diagnostic = diagnostic
-                        .with_span(source_span(checked, module, range))
-                        .with_note(generated_note);
-                }
-                None => {
-                    if let Some(range) = enclosing_declaration_range(module, offset) {
-                        diagnostic = diagnostic.with_span(source_span(checked, module, range));
+            Some(offset) => {
+                match module
+                    .map
+                    .remap(0, offset)
+                    .and_then(|mapping| mapping.src_range)
+                {
+                    Some(range) => {
+                        diagnostic = diagnostic
+                            .with_span(source_span(checked, module, range))
+                            .with_note(generated_note);
                     }
-                    let generated_end = module.lean_text[offset..]
-                        .find(char::is_whitespace)
-                        .map_or(module.lean_text.len(), |length| offset + length);
-                    diagnostic = diagnostic.with_note(format!(
-                        "{generated_note} (unmapped generated bytes {offset}..{generated_end})"
-                    ));
+                    None => {
+                        if let Some(range) = enclosing_declaration(module, offset)
+                            .and_then(|mapping| mapping.src_range)
+                        {
+                            diagnostic = diagnostic.with_span(source_span(checked, module, range));
+                        }
+                        let generated_end = module.lean_text[offset..]
+                            .find(char::is_whitespace)
+                            .map_or(module.lean_text.len(), |length| offset + length);
+                        diagnostic = diagnostic.with_note(format!(
+                            "{generated_note} (unmapped generated bytes {offset}..{generated_end})"
+                        ));
+                    }
                 }
-            },
+                for note in generated_name_notes(checked, module, offset, &message.message) {
+                    diagnostic = diagnostic.with_note(note);
+                }
+            }
             None => {
                 diagnostic = diagnostic.with_note(generated_note);
             }
@@ -286,10 +494,7 @@ fn remap_lean_failure(
         diagnostics.push(diagnostic);
     }
     if diagnostics.is_empty() {
-        diagnostics.push(Diagnostic::new(
-            code!("LLV7002"),
-            format!("Lean rejected `{module_lean_name}`: {}", output.trim_end()),
-        ));
+        diagnostics.push(raw(output));
     }
     diagnostics
 }
@@ -414,7 +619,7 @@ pub fn run(
     let limits = project.config.limits;
 
     // Stage 4: toolchain preflight (§22.2).
-    let mut toolchain: Toolchain = toolchain::preflight().map_err(fail)?;
+    let mut toolchain: Toolchain = toolchain::preflight(&limits).map_err(fail)?;
     let toolchain_bin = toolchain.root.join("bin");
 
     // Stage 5: Lake workspace preflight (§10.4) and module-name conflicts
@@ -590,7 +795,9 @@ pub fn run(
             ],
             cwd: &workspace_root,
             extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
-            toolchain_bin: &toolchain_bin,
+            home: ChildHome::Toolchain {
+                toolchain_bin: &toolchain_bin,
+            },
         },
         &limits,
         &normalizer,
@@ -683,7 +890,9 @@ pub fn run(
                 ],
                 cwd: &workspace_root,
                 extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
-                toolchain_bin: &toolchain_bin,
+                home: ChildHome::Toolchain {
+                    toolchain_bin: &toolchain_bin,
+                },
             },
             &limits,
             &normalizer,
@@ -693,21 +902,26 @@ pub fn run(
             // Lean reports compile errors on stdout under `lake env lean`;
             // remap over both streams (§20.4).
             let combined = format!("{}\n{}", record.stdout, record.stderr);
-            return Err(LexLeanError::from_diagnostics(remap_lean_failure(
+            return Err(LexLeanError::from_diagnostics(remap_lean_output(
                 checked,
                 build,
                 &module.lean_module,
                 &combined,
+                LeanOutcome::Rejected,
             )));
         }
         // Any warning or unknown informational message fails verification
-        // (§20.2, §22.3).
-        require_silent(
-            &record,
-            &format!("compiling `{}`", module.lean_module),
-            false,
-        )
-        .map_err(fail)?;
+        // (§20.2, §22.3), remapped to its source span exactly like an error.
+        if !record.stdout.trim().is_empty() || !record.stderr.trim().is_empty() {
+            let combined = format!("{}\n{}", record.stdout, record.stderr);
+            return Err(LexLeanError::from_diagnostics(remap_lean_output(
+                checked,
+                build,
+                &module.lean_module,
+                &combined,
+                LeanOutcome::Noisy,
+            )));
+        }
         if !olean.as_std_path().is_file() {
             return Err(fail(Diagnostic::new(
                 code!("LLV7002"),
@@ -766,7 +980,9 @@ pub fn run(
             ],
             cwd: &workspace_root,
             extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
-            toolchain_bin: &toolchain_bin,
+            home: ChildHome::Toolchain {
+                toolchain_bin: &toolchain_bin,
+            },
         },
         &limits,
         &normalizer,
@@ -856,6 +1072,7 @@ pub fn run(
                 module.tex_text.as_bytes(),
                 &module.lean_module,
                 &staging_utf8,
+                &normalizer,
             )
             .map_err(fail)?;
             write_staged(
@@ -863,12 +1080,8 @@ pub fn run(
                 &format!("pdf/{}.pdf", module.lean_module),
                 &result.pdf_bytes,
             )?;
-            let version_record = result
-                .version
-                .to_child_record(&module.lean_module, &normalizer);
-            let compile_record = result
-                .compile
-                .to_child_record(&module.lean_module, &normalizer);
+            let version_record = result.version;
+            let compile_record = result.compile;
             write_staged(
                 staging.path(),
                 &format!("pdf/{}.version.json", module.lean_module),

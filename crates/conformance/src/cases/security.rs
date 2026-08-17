@@ -342,7 +342,7 @@ pub(crate) fn run(id: &str) {
                         argv: vec!["$HOME; echo pwned".to_owned(), "a b".to_owned()],
                         cwd,
                         extra_env: vec![],
-                        toolchain_bin: cwd,
+                        home: lexlean::verify::child::ChildHome::Toolchain { toolchain_bin: cwd },
                     },
                     &limits,
                     &normalizer,
@@ -411,7 +411,9 @@ pub(crate) fn run(id: &str) {
                                 argv: vec!["one".to_owned()],
                                 cwd,
                                 extra_env: vec![("LEAN_PATH".to_owned(), "x:y".to_owned())],
-                                toolchain_bin: &toolchain_bin,
+                                home: lexlean::verify::child::ChildHome::Toolchain {
+                                    toolchain_bin: &toolchain_bin,
+                                },
                             },
                             &limits,
                             &normalizer,
@@ -510,6 +512,60 @@ pub(crate) fn run(id: &str) {
                 .expect("an overflowing limit is a checked parse failure");
             support::expect_code(&error, "LLC0101");
 
+            // A `max_scope_depth` far larger than any stack could host is
+            // sized, not trusted: the compile thread's stack is computed
+            // from the limit with checked arithmetic and the pipeline
+            // enforces the depth that stack hosts. Input nesting deeper
+            // than that is `LLS8002` naming the limit and the observed
+            // depth — never a stack overflow, which would abort this test
+            // process rather than fail it.
+            let plan = support::limits_of(&P::example()).compile_stack_plan();
+            assert_eq!(
+                plan.effective_max_scope_depth, 1024,
+                "the configured depth is hosted exactly as configured"
+            );
+            let huge = lexlean::config::Limits {
+                max_scope_depth: u64::MAX,
+                ..support::limits_of(&P::example())
+            };
+            let huge_plan = huge.compile_stack_plan();
+            assert!(
+                huge_plan.stack_bytes < usize::MAX && huge_plan.effective_max_scope_depth > 1024,
+                "an unbounded configured depth still yields a bounded stack that hosts more than the default: {huge_plan:?}"
+            );
+            let deep = P::example();
+            deep.edit(
+                "lexlean.toml",
+                "max_scope_depth = 1024",
+                "max_scope_depth = 100000000",
+            );
+            deep.relock();
+            let nesting = usize::try_from(huge_plan.effective_max_scope_depth)
+                .expect("the effective depth fits this host")
+                .saturating_add(16);
+            let mut math = String::with_capacity(nesting * 2 + 1);
+            math.push_str(&"(".repeat(nesting));
+            math.push('n');
+            math.push_str(&")".repeat(nesting));
+            deep.edit(
+                "src/Main.lex.tex",
+                "\\(n + 0 = n\\)",
+                &format!("\\({math} + 0 = n\\)"),
+            );
+            let error = deep.check_fails_with("LLS8002");
+            assert_eq!(error.class.exit_code(), 4);
+            let diagnostic = error
+                .diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic.code.as_str() == "LLS8002")
+                .expect("the depth limit");
+            assert!(
+                diagnostic.message.contains("max_scope_depth exceeded")
+                    && diagnostic.message.contains("nesting depth")
+                    && diagnostic.primary.is_some(),
+                "the depth failure names the limit, the observed depth, and a source span: {diagnostic:?}"
+            );
+
             // Child output and time caps: the extreme configured values
             // never overflow, and an exceeded cap names the tool, phase,
             // limit, configured value, and observed value.
@@ -546,7 +602,7 @@ pub(crate) fn run(id: &str) {
                         argv: vec![],
                         cwd,
                         extra_env: vec![],
-                        toolchain_bin: cwd,
+                        home: lexlean::verify::child::ChildHome::Toolchain { toolchain_bin: cwd },
                     }
                 }
                 limits.max_child_output_bytes = u64::MAX;
@@ -725,6 +781,7 @@ pub(crate) fn run(id: &str) {
                 build.modules[0].tex_text.as_bytes(),
                 &build.modules[0].lean_module,
                 &project.root.join(".lexlean"),
+                &lexlean::verify::child::Normalizer::default(),
             )
             .expect("the provider runs");
             let mut listing: Vec<String> = String::from_utf8_lossy(&result.pdf_bytes)
