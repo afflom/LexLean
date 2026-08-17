@@ -73,6 +73,56 @@ fn body_of(project: &P) -> String {
     support::tex_body(&support::tex_text(&support::rendered(project), "Main")).to_owned()
 }
 
+/// The Lean-verified fixture modules whose canonical LaTeX the suite
+/// asserts, host-gated like every Lean-backed suite (§8.3): on a host with
+/// the pinned toolchain each is verified once and its project reused; on a
+/// platform-bound host without it the same modules render from linked IR
+/// alone (rendering is platform independent) and the case says so.
+enum Held {
+    Verified(&'static P),
+    Rendered(P),
+}
+
+impl Held {
+    fn project(&self) -> &P {
+        match self {
+            Held::Verified(project) => project,
+            Held::Rendered(project) => project,
+        }
+    }
+}
+
+struct Fixtures {
+    frames: Held,
+    corpus: Held,
+    polish: Held,
+}
+
+fn fixtures(id: &str) -> Fixtures {
+    if support::lean_backed(id) {
+        let frames = support::verified_frames();
+        let corpus = support::verified_corpus();
+        let polish = support::verified_polish();
+        for fixture in [frames, corpus, polish] {
+            assert_eq!(
+                fixture.attestation["status"], "verified",
+                "the fixture attestation records success"
+            );
+        }
+        Fixtures {
+            frames: Held::Verified(&frames.project),
+            corpus: Held::Verified(&corpus.project),
+            polish: Held::Verified(&polish.project),
+        }
+    } else {
+        Fixtures {
+            frames: Held::Rendered(support::frames_project()),
+            corpus: Held::Rendered(support::corpus_project()),
+            polish: Held::Rendered(support::polish_project()),
+        }
+    }
+}
+
 pub(crate) fn run(id: &str) {
     match id {
         // §19.1: rendered solely from linked IR, deterministically.
@@ -121,8 +171,61 @@ pub(crate) fn run(id: &str) {
             // intransitive, transitive, noun-of, and binary-noun-of, with
             // math arguments as islands and noun-phrase arguments nested,
             // and a text render template honored over the fixed pattern.
-            let frames = support::verified_frames();
-            assert_eq!(body_of(&frames.project), FRAMES_TEX_BODY);
+            let fixtures = fixtures("TX-03");
+            assert_eq!(body_of(fixtures.frames.project()), FRAMES_TEX_BODY);
+            // A section parameter typed by a text-only type noun renders
+            // the noun's canonical word (`\text{kind}`), never a qualified
+            // selector; a quantified proposition in trailing position (the
+            // `have` statement, the right operand of a connective) is
+            // prose; a document reference no entry names is
+            // `\texttt{Module::component}` under its reference origin.
+            let polish_body = body_of(fixtures.polish.project());
+            assert_eq!(polish_body, support::POLISH_TEX_BODY);
+            let corpus_body = body_of(fixtures.corpus.project());
+            assert!(
+                corpus_body.contains(
+                    "\n0 + (n + 0) &= n + 0 && \\text{by } \\texttt{Main::zero-add}(n + 0) \\\\\n"
+                ),
+                "an applied reference in a calculation justification: {corpus_body}"
+            );
+            assert!(
+                polish_body.contains(
+                    "For every natural number \\(n\\), \\(n = n\\) or there exists a natural number \\(m\\) such that \\(n = m\\).\n"
+                ),
+                "a trailing existential stays prose, exactly as the source spells it: {polish_body}"
+            );
+            assert!(
+                polish_body.contains(
+                    "\nWe first establish for every natural number \\(k\\), \\(0 + k = k\\).\n"
+                ),
+                "the established proposition is prose: {polish_body}"
+            );
+            for body in [&polish_body, &corpus_body] {
+                assert!(
+                    !body.contains("\\operatorname{zero_add}") && !body.contains("_add}"),
+                    "no Lean name with `_` inside math: {body}"
+                );
+            }
+            let polish_build = support::rendered(fixtures.polish.project());
+            let reference_rows: Vec<_> = polish_build.modules[0]
+                .coverage
+                .latex
+                .iter()
+                .filter(|row| {
+                    row.origin
+                        == lexlean::source::coverage::Origin::Reference {
+                            module: "Main".to_owned(),
+                            component: "zero-add".to_owned(),
+                        }
+                })
+                .collect();
+            assert_eq!(reference_rows.len(), 1, "one reference row");
+            let row = reference_rows[0];
+            assert_eq!(
+                &polish_build.modules[0].tex_text[row.byte_start..row.byte_end],
+                "Main::zero-add",
+                "the reference row covers exactly `Module::component`"
+            );
         }
         // §19.5: proof prose from proof IR with fixed core forms: every
         // variant, branches visible, calculations aligned.
@@ -141,8 +244,8 @@ pub(crate) fn run(id: &str) {
             // constructor with surface arguments is an operator name in
             // math, an atom its plain surface; introduced locals are math
             // islands. Proof prose over the Lean-verified frames module.
-            let frames = support::verified_frames();
-            let frames_body = body_of(&frames.project);
+            let fixtures = fixtures("TX-04");
+            let frames_body = body_of(fixtures.frames.project());
             assert_eq!(frames_body, FRAMES_TEX_BODY);
             assert!(
                 frames_body.contains(
@@ -150,7 +253,7 @@ pub(crate) fn run(id: &str) {
                 ),
                 "the case label of a core constructor: {frames_body}"
             );
-            let corpus_body = body_of(&support::verified_corpus().project);
+            let corpus_body = body_of(fixtures.corpus.project());
             assert!(
                 corpus_body
                     .contains("\nCase \\(\\operatorname{cintro}\\) with \\(l\\), \\(r\\):\n"),
@@ -169,8 +272,8 @@ pub(crate) fn run(id: &str) {
             // Phrase punctuation (§15.3) is spaced as canonical source
             // spells it: no space before `:` or `)`, none after `(`, and a
             // tight hyphen; a noun-of term phrase in a heading is prose.
-            let frames = support::verified_frames();
-            let frames_body = body_of(&frames.project);
+            let fixtures = fixtures("TX-05");
+            let frames_body = body_of(fixtures.frames.project());
             assert_eq!(frames_body, FRAMES_TEX_BODY);
             assert!(
                 frames_body.contains("{\\LARGE Natural number addition: parity (order)}\n"),
@@ -220,6 +323,7 @@ pub(crate) fn run(id: &str) {
                 },
                 support::frames_project(),
                 support::corpus_project(),
+                support::polish_project(),
             ] {
                 let build = support::rendered(&project);
                 let module = &build.modules[0];

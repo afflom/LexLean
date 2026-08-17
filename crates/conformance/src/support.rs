@@ -2320,3 +2320,74 @@ pub fn verified_frames() -> &'static VerifiedFixture {
         }
     })
 }
+
+// ---- WS-F3 helpers (canonical LaTeX polish) ----
+
+/// The `test.polish` fixture package: a text-only type noun `kind` defined
+/// as the sort `Type` (a section parameter typed by it renders through
+/// its canonical word), and a proof constant `zeroadd` for a quantified
+/// `have`.
+#[must_use]
+pub fn polish_entries() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "kind.toml",
+            "spec = \"lexlean/entry/1\"\nid = \"kind\"\ncategory = \"type-noun\"\nsignature = \"(sort (type 1))\"\nsurface_arity = 0\nframe = \"atom\"\n\n[denotation]\nkind = \"defined\"\nvalue = \"(sort (type 0))\"\n\n[[form]]\nid = \"kind\"\nchannel = \"text\"\nsurface = \"kind\"\ncanonical_source = true\nfeatures = [\"article-a\", \"lower-case\", \"singular\"]\n",
+        ),
+        (
+            "zeroadd.toml",
+            "spec = \"lexlean/entry/1\"\nid = \"zeroadd\"\ncategory = \"proof-constant\"\nsignature = \"(pi ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (app (const lexlean.std.nat::add) (nat 0) (local n)) (local n)))\"\nsurface_arity = 1\nframe = \"call\"\n\n[denotation]\nkind = \"lean\"\nmodule = \"Init\"\nname = \"Nat.zero_add\"\n\n[[form]]\nid = \"zeroadd\"\nchannel = \"math\"\nsurface = \"zeroadd\"\ncanonical_source = true\nfeatures = []\n\n[render]\nmath = \"(seq (operator-name zeroadd) (paren (slot 0)))\"\n",
+        ),
+    ]
+}
+
+/// The polish module: a section parameter typed by the text-only type
+/// noun `kind`, a theorem over that parameter, and a quantified `have`
+/// (its established proposition is prose in trailing position), followed
+/// by an applied document reference no glossary entry names.
+pub const POLISH_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.polish@1.0.0}\n\\title{Natural number addition}\n\n\\begin{section}{kinds}\n\\heading{Natural number addition}\n\\parameters{kind \\(T\\)}\n\\begin{theorem}{self-equal}\n\\noaxioms\nFor every \\(T\\) \\(x\\), \\(x = x\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{section}\n\n\\begin{theorem}{zero-add}\n\\noaxioms\nFor every natural number \\(n\\), \\(0 + n = n\\).\n\\begin{proof}\nClose the goal with \\(zeroadd(n)\\).\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{have-quantified}\n\\noaxioms\nFor every natural number \\(n\\), \\(0 + n = n\\).\n\\begin{proof}\n\\begin{have}{h}\nFor every natural number \\(k\\), \\(0 + k = k\\).\n\\begin{proof}\nAssume \\(k\\).\nClose the goal with \\(\\reference{Main::zero-add}(k)\\).\n\\end{proof}\n\\end{have}\n\\begin{rewrite}{goal}\n\\forward{h}\n\\end{rewrite}\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{trailing-existential}\n\\noaxioms\nFor every natural number \\(n\\), \\(n = n\\) or there exists a natural number \\(m\\) such that \\(n = m\\).\n\\begin{proof}\nSelect the left alternative.\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+
+/// The exact canonical LaTeX body of [`POLISH_MODULE`].
+pub const POLISH_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\section{Natural number addition}\n\\label{ll:main:kinds}\n\\[\\mathrm{Parameters}: \\forall T \\in \\text{kind}\\]\n\\begin{theorem}\n\\label{ll:main:self-equal}\nFor every \\(T\\) \\(x\\), \\(x = x\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:zero-add}\nFor every natural number \\(n\\), \\(0 + n = n\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows from \\(\\operatorname{zeroadd}(n)\\).\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:have-quantified}\nFor every natural number \\(n\\), \\(0 + n = n\\).\n\\end{theorem}\n\\begin{proof}\nWe first establish for every natural number \\(k\\), \\(0 + k = k\\).\nAssume \\(k\\).\nThe goal follows from \\(\\texttt{Main::zero-add}(k)\\).\nRewrite the goal using \\(\\rightarrow h\\).\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:trailing-existential}\nFor every natural number \\(n\\), \\(n = n\\) or there exists a natural number \\(m\\) such that \\(n = m\\).\n\\end{theorem}\n\\begin{proof}\nSelect the left alternative.\nThe goal follows by reflexivity.\n\\end{proof}\n\\end{document}\n";
+
+/// A project holding the polish module and its fixture package (relocked).
+#[must_use]
+pub fn polish_project() -> P {
+    let project = P::example();
+    project.add_package(
+        "lexicons/test-polish",
+        "test.polish",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &polish_entries(),
+    );
+    project.write("src/Main.lex.tex", POLISH_MODULE);
+    project.relock();
+    project
+}
+
+/// The one shared Lean-verified run of the polish module.
+pub fn verified_polish() -> &'static VerifiedFixture {
+    static FIXTURE: OnceLock<VerifiedFixture> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let _guard = env_lock();
+        let project = polish_project();
+        let outcome = project
+            .engine()
+            .verify(VerifyRequest {
+                selection: Selection::Entrypoints,
+            })
+            .unwrap_or_else(|error| {
+                panic!("the polish module verifies under pinned Lean 4.32.1: {error:#?}")
+            });
+        let attestation: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(outcome.root.join("attestation.json").as_std_path())
+                .expect("attestation exists"),
+        )
+        .expect("attestation parses");
+        VerifiedFixture {
+            project,
+            outcome,
+            attestation,
+        }
+    })
+}

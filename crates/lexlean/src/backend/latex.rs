@@ -24,7 +24,9 @@
 //!   `apply` premise with `Premise \(i\):`, each on its own line before
 //!   the branch's own sentences; the words are core glossary entries.
 //! - **Sorts** render as `\mathrm{Prop}` / `\mathrm{Type}` through the
-//!   registered `sort-prop` / `sort-type` tokens.
+//!   registered `sort-prop` / `sort-type` tokens, a numeric level above
+//!   `Type` as the subscript `\mathrm{Type}_{n}`; a symbolic level has no
+//!   rendering, exactly as it has no Lean lowering.
 //! - **Text frames** (§13.4, §19.4) render as canonical prose wherever a
 //!   proposition or term is prose: `ARG_0 is SELF`, `ARG_0 SELF`,
 //!   `ARG_0 SELF ARG_1`, `the SELF of ARG_0`, and `the SELF of ARG_0 and
@@ -38,9 +40,25 @@
 //! - **Phrase punctuation** (§15.3) is spaced as canonical source spells
 //!   it: no space before `:` or `)`, none after `(`, and a tight hyphen.
 //! - **Case labels** name the constructor by its canonical text form when
-//!   it has one; otherwise its canonical math surface as an island, as
-//!   `\operatorname{...}` when the constructor takes surface arguments (its
-//!   LRE head is an operator name) and plain when it is an atom.
+//!   it has one; otherwise its math head as an island, exactly as it
+//!   renders in a term: an atom's math render, else its canonical math
+//!   surface as `\operatorname{...}` when the constructor takes surface
+//!   arguments (its LRE head is an operator name) and plain when it is an
+//!   atom.
+//! - **Quantified operands** (§15.6, §23.5) follow the source formatter's
+//!   trailing rule: a quantified proposition reads to the end of its
+//!   sentence, so it is prose only in trailing position (the right operand
+//!   of a connective, a body, an antecedent, a `have` statement) and a
+//!   math island elsewhere; the island states every binder's type
+//!   (`\forall x \in T, ...`, `\exists x \in T, ...`).
+//! - **Document references** no visible entry names render as
+//!   `\texttt{Module::component}` under the reference coverage origin, the
+//!   escape form of qualified selectors, unapplied and applied alike; the
+//!   Lean name never appears (its `_` would be a subscript in math).
+//! - **Heads without a saturated render** (an entry with only a text word,
+//!   such as a type noun defined as a sort) render that word as
+//!   `\text{...}`, so a section parameter typed by it reads `\forall T \in
+//!   \text{type}`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -349,6 +367,22 @@ impl Sink<'_, '_> {
         );
     }
 
+    /// Emit a document reference `Module::component` (§17.2) under its own
+    /// coverage origin, distinct from structural metadata.
+    fn reference(&mut self, module: &str, component: &str) {
+        self.emitter.piece(
+            &format!("{module}::{component}"),
+            "word",
+            Origin::Reference {
+                module: module.to_owned(),
+                component: component.to_owned(),
+            },
+            self.source.clone(),
+            self.role,
+            self.node,
+        );
+    }
+
     fn ws(&mut self, text: &str) {
         self.emitter.ws(text);
     }
@@ -386,23 +420,174 @@ fn entry_for_global<'c>(ctx: &Ctx<'c>, global: &GlobalRef) -> Option<(QualifiedI
 
 /// The top-level operator precedence of a term for parenthesization, 255
 /// for atoms.
-fn term_prec(ctx: &Ctx<'_>, term: &Term) -> u8 {
-    match term {
-        Term::App { function, .. } => match &**function {
+fn term_prec(ctx: &Ctx<'_>, term: &Term) -> Result<u8, Diagnostic> {
+    Ok(match term {
+        // A form printed through its operator render binds at its declared
+        // precedence; a head printed as a call or qualified selector (an
+        // arity mismatch) is atomic, so it takes no parentheses.
+        Term::App {
+            function,
+            explicit_args,
+            ..
+        } => match &**function {
             Term::Global(global, _) => entry_for_global(ctx, global)
+                .filter(|(_, entry)| entry.surface_arity as usize == explicit_args.len())
                 .and_then(|(_, entry)| entry.precedence)
                 .unwrap_or(255),
             _ => 255,
         },
+        // An implication binds at the core arrow's precedence; a quantifier
+        // or lambda body extends to the end of its island.
+        Term::Pi { binders, .. } if binders.iter().all(|binder| binder.spelling.is_empty()) => {
+            arrow_precedence(ctx)?
+        }
         Term::Pi { .. } | Term::Lambda { .. } => 10,
         _ => 255,
+    })
+}
+
+/// The registered precedence of the core arrow `lexlean.core::arrow`
+/// (§13.10), which the implication island honors: right associative, its
+/// antecedent one level tighter. Read from the closure so the language
+/// data stays the single source.
+fn arrow_precedence(ctx: &Ctx<'_>) -> Result<u8, Diagnostic> {
+    let arrow = QualifiedId {
+        package: "lexlean.core".to_owned(),
+        entry: "arrow".to_owned(),
+    };
+    ctx.closure
+        .entry(&arrow)
+        .and_then(|entry| entry.precedence)
+        .ok_or_else(|| {
+            Diagnostic::new(
+                code!("LLB6002"),
+                "core entry `lexlean.core::arrow` declares no precedence for the implication island",
+            )
+        })
+}
+
+/// The canonical math form ID of an entry, when it has one.
+fn math_form_id(entry: &Entry) -> Option<String> {
+    entry
+        .forms
+        .iter()
+        .find(|form| form.canonical_source && form.channel.covers(Channel::Math))
+        .map(|form| form.id.clone())
+}
+
+/// An entry's head in math without an applicable saturated LRE render
+/// (module documentation): its arity-zero math render when it stands
+/// alone; else its canonical math form, as `\operatorname{...}` when the
+/// entry takes surface arguments or is applied (its LRE head is an
+/// operator name) and plain when it is an atom; else its canonical text
+/// word as `\text{...}` (a type noun defined as a sort, a text-frame
+/// predicate forced into an island); else the qualified escape form.
+/// `applied` says the head is followed by an argument list, so an
+/// arity-zero render does not apply.
+fn math_head(
+    sink: &mut Sink<'_, '_>,
+    qualified: &QualifiedId,
+    entry: &Entry,
+    applied: bool,
+) -> Result<(), Diagnostic> {
+    let atom_render = entry
+        .render_math
+        .clone()
+        .filter(|_| entry.surface_arity == 0 && !applied);
+    if let Some(render) = atom_render {
+        eval_lre(sink, &render, qualified, &[])
+    } else if let Some(form_id) = math_form_id(entry) {
+        let operator = entry.surface_arity > 0 || applied;
+        if operator {
+            sink.tok("operatorname")?;
+            sink.brace(true);
+        }
+        sink.form_surface(&qualified.package, &qualified.entry, &form_id)?;
+        if operator {
+            sink.brace(false);
+        }
+        Ok(())
+    } else if let Some(form_id) = text_form_id(entry) {
+        sink.tok("text")?;
+        sink.brace(true);
+        sink.form_surface(&qualified.package, &qualified.entry, &form_id)?;
+        sink.brace(false);
+        Ok(())
+    } else {
+        fallback_qualified(sink, qualified)
     }
+}
+
+/// A sort in math (module documentation): `\mathrm{Prop}`, `\mathrm{Type}`,
+/// and `\mathrm{Type}_{n}` for the numeric level `Type n`. A symbolic
+/// level has no canonical LaTeX rendering, exactly as it has no Lean
+/// lowering in a document term (LLB6001): language 1.0 documents state
+/// their universes numerically.
+fn sort(sink: &mut Sink<'_, '_>, universe: &crate::ir::term::Universe) -> Result<(), Diagnostic> {
+    use crate::ir::term::Universe;
+    let level = match universe {
+        Universe::Num(0) => {
+            sink.tok("mathrm")?;
+            sink.brace(true);
+            sink.tok("sort-prop")?;
+            sink.brace(false);
+            return Ok(());
+        }
+        Universe::Num(n) => n.checked_sub(1).ok_or_else(|| {
+            Diagnostic::new(code!("LLI9001"), "phase latex: universe level underflow")
+        })?,
+        Universe::Var(_) | Universe::Succ(_) | Universe::Max(_) | Universe::IMax(..) => {
+            return Err(Diagnostic::new(
+                code!("LLB6002"),
+                "a sort at a symbolic universe level has no canonical LaTeX rendering in language 1.0",
+            ));
+        }
+    };
+    sink.tok("mathrm")?;
+    sink.brace(true);
+    sink.tok("sort-type")?;
+    sink.brace(false);
+    if level > 0 {
+        sink.tok("subscript")?;
+        sink.brace(true);
+        sink.numeral(&level.to_string());
+        sink.brace(false);
+    }
+    Ok(())
+}
+
+/// A typed quantifier prefix in math: `\forall x \in T` / `\exists x \in
+/// T` per binder, binders separated by `, `, closed by `, ` before the
+/// body. The binder type is stated (module documentation): a quantified
+/// proposition that must be an island keeps the information its prose form
+/// carries in the type noun.
+fn quantifier_prefix(
+    sink: &mut Sink<'_, '_>,
+    token: &str,
+    binders: &[Binder],
+) -> Result<(), Diagnostic> {
+    for (index, binder) in binders.iter().enumerate() {
+        if index > 0 {
+            sink.tok("comma")?;
+            sink.ws(" ");
+        }
+        sink.tok(token)?;
+        sink.ws(" ");
+        sink.local(binder.id)?;
+        sink.ws(" ");
+        sink.tok("member")?;
+        sink.ws(" ");
+        math_term(sink, &binder.ty, 255)?;
+    }
+    sink.tok("comma")?;
+    sink.ws(" ");
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]
 fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), Diagnostic> {
     let ctx = sink.ctx;
-    let own_prec = term_prec(ctx, term);
+    let own_prec = term_prec(ctx, term)?;
     let needs_parens = own_prec < min_prec;
     if needs_parens {
         sink.tok("left-paren")?;
@@ -410,36 +595,18 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
     match term {
         Term::Local(id) => sink.local(*id)?,
         Term::NatLiteral { decimal, .. } => sink.numeral(decimal),
-        Term::Sort(universe) => {
-            sink.tok("mathrm")?;
-            sink.brace(true);
-            sink.tok(match universe {
-                crate::ir::term::Universe::Num(0) => "sort-prop",
-                _ => "sort-type",
-            })?;
-            sink.brace(false);
-        }
+        Term::Sort(universe) => sort(sink, universe)?,
         Term::Global(global, _) => match entry_for_global(ctx, global) {
-            Some((qualified, entry)) => {
-                if let Some(render) = entry.render_math.clone() {
-                    if entry.surface_arity == 0 {
-                        eval_lre(sink, &render, &qualified, &[])?;
-                    } else {
-                        fallback_qualified(sink, &qualified)?;
-                    }
-                } else if let Some(form) = entry
-                    .forms
-                    .iter()
-                    .find(|form| form.canonical_source && form.channel.covers(Channel::Math))
-                {
-                    let form_id = form.id.clone();
-                    sink.form_surface(&qualified.package, &qualified.entry, &form_id)?;
-                } else {
-                    fallback_qualified(sink, &qualified)?;
-                }
-            }
+            Some((qualified, entry)) => math_head(sink, &qualified, entry, false)?,
             None => fallback_global(sink, global)?,
         },
+        // An application with no explicit arguments (an atom whose implicit
+        // parameters were instantiated) renders as the atom.
+        Term::App {
+            function,
+            explicit_args,
+            ..
+        } if explicit_args.is_empty() => math_term(sink, function, min_prec)?,
         Term::App {
             function,
             explicit_args,
@@ -450,16 +617,12 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
                     if explicit_args.len() == 1 =>
                 {
                     let unique = matches!(global, GlobalRef::Core(CoreRef::ExistsUnique));
-                    sink.tok(if unique { "exists-unique" } else { "exists" })?;
+                    let token = if unique { "exists-unique" } else { "exists" };
                     if let Term::Lambda { binders, body } = &explicit_args[0] {
-                        for binder in binders {
-                            sink.ws(" ");
-                            sink.local(binder.id)?;
-                        }
-                        sink.tok("comma")?;
-                        sink.ws(" ");
+                        quantifier_prefix(sink, token, binders)?;
                         math_term(sink, body, 0)?;
                     } else {
+                        sink.tok(token)?;
                         sink.ws(" ");
                         math_term(sink, &explicit_args[0], 255)?;
                     }
@@ -502,25 +665,16 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
                         eval_lre(sink, &render, &qualified, &arg_specs)?;
                     }
                     _ => {
-                        // Fallback: qualified head with a parenthesized
+                        // Fallback: the head's own rendering (an entry by
+                        // its canonical form, a document reference no entry
+                        // names as `\texttt{Module::component}`, exactly as
+                        // it renders unapplied) with a parenthesized
                         // argument list.
-                        match global {
-                            GlobalRef::Document(document) => {
-                                sink.tok("operatorname")?;
-                                sink.brace(true);
-                                let short = document
-                                    .lean_name
-                                    .rsplit('.')
-                                    .next()
-                                    .unwrap_or(&document.lean_name)
-                                    .to_owned();
-                                sink.metadata(
-                                    &short,
-                                    &format!("{}::{}", document.module, document.component),
-                                );
-                                sink.brace(false);
+                        match entry_for_global(ctx, global) {
+                            Some((qualified, entry)) => {
+                                math_head(sink, &qualified, entry, true)?;
                             }
-                            other => fallback_global(sink, other)?,
+                            None => fallback_global(sink, global)?,
                         }
                         sink.tok("left-paren")?;
                         for (index, argument) in explicit_args.iter().enumerate() {
@@ -548,30 +702,34 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
             }
         },
         Term::Pi { binders, body } => {
-            if binders.iter().all(|binder| binder.spelling.is_empty()) {
-                // Implication: the core arrow with `\to` (§13.10).
-                math_term(sink, &binders[0].ty, 26)?;
-                sink.ws(" ");
-                sink.tok("implies")?;
-                sink.ws(" ");
-                let rest = if binders.len() == 1 {
+            let named = binders
+                .iter()
+                .take_while(|binder| !binder.spelling.is_empty())
+                .count();
+            let rest = |from: usize| {
+                if from == binders.len() {
                     (**body).clone()
                 } else {
                     Term::Pi {
-                        binders: binders[1..].to_vec(),
+                        binders: binders[from..].to_vec(),
                         body: body.clone(),
                     }
-                };
-                math_term(sink, &rest, 25)?;
-            } else {
-                sink.tok("forall")?;
-                for binder in binders {
-                    sink.ws(" ");
-                    sink.local(binder.id)?;
                 }
-                sink.tok("comma")?;
+            };
+            if named == 0 {
+                // Implication: the core arrow, right associative at its
+                // registered precedence (§13.10).
+                let arrow = arrow_precedence(ctx)?;
+                math_term(sink, &binders[0].ty, arrow.saturating_add(1))?;
                 sink.ws(" ");
-                math_term(sink, body, 0)?;
+                sink.tok("implies")?;
+                sink.ws(" ");
+                math_term(sink, &rest(1), arrow)?;
+            } else {
+                // Universal quantification with typed binders; an anonymous
+                // remainder is the implication that follows.
+                quantifier_prefix(sink, "forall", &binders[..named])?;
+                math_term(sink, &rest(named), 0)?;
             }
         }
         Term::Lambda { binders, body } => {
@@ -623,12 +781,14 @@ fn fallback_global(sink: &mut Sink<'_, '_>, global: &GlobalRef) -> Result<(), Di
             fallback_qualified(sink, &qualified)
         }
         GlobalRef::Document(document) => {
+            // A declaration no visible entry names renders by its
+            // reference `Module::component`, the escape form of qualified
+            // selectors: module names and component IDs (§15.2) contain no
+            // byte TeX must escape, where the Lean name's `_` would be a
+            // subscript in math.
             sink.tok("texttt")?;
             sink.brace(true);
-            sink.metadata(
-                &format!("{}::{}", document.module, document.component),
-                &format!("{}::{}", document.module, document.component),
-            );
+            sink.reference(&document.module, &document.component);
             sink.brace(false);
             Ok(())
         }
@@ -975,12 +1135,41 @@ fn atomic_prose(sink: &mut Sink<'_, '_>, term: &Term, initial: bool) -> Result<(
     }
 }
 
+/// Is `term` a quantified proposition (`For every`, `there exists`), whose
+/// prose reads to the end of its sentence (§15.6)?
+fn is_quantified(term: &Term) -> bool {
+    match term {
+        Term::Pi { .. } => true,
+        Term::App { function, .. } => matches!(
+            &**function,
+            Term::Global(GlobalRef::Core(CoreRef::Exists | CoreRef::ExistsUnique), _)
+        ),
+        _ => false,
+    }
+}
+
 /// Render a proposition as canonical controlled prose (§19.4). `initial`
 /// selects sentence-initial capitalization; `level` is the required prose
-/// level, children below it render as math islands.
+/// level, children below it render as math islands. `trailing` says
+/// whether this operand extends to the end of its enclosing proposition:
+/// a quantified proposition reads to the end of the sentence (§15.6), so
+/// it stands as prose only in trailing position (the right operand of a
+/// connective, a body, an antecedent closed by its comma) and is a typed
+/// math island elsewhere --- the same rule the source formatter applies.
 #[allow(clippy::too_many_lines)]
-fn prose(sink: &mut Sink<'_, '_>, term: &Term, initial: bool, level: u8) -> Result<(), Diagnostic> {
-    if prose_level(term) < level {
+fn prose(
+    sink: &mut Sink<'_, '_>,
+    term: &Term,
+    initial: bool,
+    level: u8,
+    trailing: bool,
+) -> Result<(), Diagnostic> {
+    let as_prose = if is_quantified(term) {
+        trailing
+    } else {
+        prose_level(term) >= level
+    };
+    if !as_prose {
         return island(sink, term, false);
     }
     match term {
@@ -998,13 +1187,13 @@ fn prose(sink: &mut Sink<'_, '_>, term: &Term, initial: bool, level: u8) -> Resu
             }
             sink.structural(",", "comma", "punctuation");
             sink.ws(" ");
-            prose(sink, body, false, 0)?;
+            prose(sink, body, false, 0, true)?;
         }
         Term::Pi { binders, body } => {
             // Conditional: `if P, then Q` (§15.6).
             sink.word("if", initial)?;
             sink.ws(" ");
-            prose(sink, &binders[0].ty, false, 1)?;
+            prose(sink, &binders[0].ty, false, 1, true)?;
             sink.structural(",", "comma", "punctuation");
             sink.ws(" ");
             sink.word("then", false)?;
@@ -1017,7 +1206,7 @@ fn prose(sink: &mut Sink<'_, '_>, term: &Term, initial: bool, level: u8) -> Resu
                     body: body.clone(),
                 }
             };
-            prose(sink, &rest, false, 0)?;
+            prose(sink, &rest, false, 0, true)?;
         }
         Term::App {
             function,
@@ -1049,29 +1238,29 @@ fn prose(sink: &mut Sink<'_, '_>, term: &Term, initial: bool, level: u8) -> Resu
                     sink.ws(" ");
                     sink.word("that", false)?;
                     sink.ws(" ");
-                    prose(sink, body, false, 0)?;
+                    prose(sink, body, false, 0, true)?;
                 }
                 (CoreRef::And, [left, right]) => {
-                    prose(sink, left, initial, 4)?;
+                    prose(sink, left, initial, 4, false)?;
                     sink.ws(" ");
                     sink.word("and", false)?;
                     sink.ws(" ");
-                    prose(sink, right, false, 5)?;
+                    prose(sink, right, false, 5, trailing)?;
                 }
                 (CoreRef::Or, [left, right]) => {
-                    prose(sink, left, initial, 3)?;
+                    prose(sink, left, initial, 3, false)?;
                     sink.ws(" ");
                     sink.word("or", false)?;
                     sink.ws(" ");
-                    prose(sink, right, false, 4)?;
+                    prose(sink, right, false, 4, trailing)?;
                 }
                 (CoreRef::Not, [inner]) => {
                     sink.word("not", initial)?;
                     sink.ws(" ");
-                    prose(sink, inner, false, 5)?;
+                    prose(sink, inner, false, 5, trailing)?;
                 }
                 (CoreRef::Iff, [left, right]) => {
-                    prose(sink, left, initial, 2)?;
+                    prose(sink, left, initial, 2, false)?;
                     sink.ws(" ");
                     sink.word("if", false)?;
                     sink.ws(" ");
@@ -1081,7 +1270,7 @@ fn prose(sink: &mut Sink<'_, '_>, term: &Term, initial: bool, level: u8) -> Resu
                     sink.ws(" ");
                     sink.word("if", false)?;
                     sink.ws(" ");
-                    prose(sink, right, false, 2)?;
+                    prose(sink, right, false, 2, trailing)?;
                 }
                 _ => island(sink, term, false)?,
             },
@@ -1162,43 +1351,15 @@ fn case_label(
         )
     })?;
     // The constructor's canonical text form when it has one, else its
-    // canonical math surface (or arity-zero render) as an island, else the
-    // qualified-ID fallback.
-    let text_form = entry
-        .forms
-        .iter()
-        .find(|form| form.canonical_source && form.channel.covers(Channel::Text))
-        .map(|form| form.id.clone());
-    let math_form = entry
-        .forms
-        .iter()
-        .find(|form| form.canonical_source && form.channel.covers(Channel::Math))
-        .map(|form| form.id.clone());
-    if let Some(form_id) = text_form {
+    // math head as an island: an atom's math render, else its canonical
+    // math surface (an operator name when it takes arguments), else the
+    // qualified-ID fallback --- exactly as the constructor renders in a
+    // term.
+    if let Some(form_id) = text_form_id(entry) {
         sink.form_surface(&case.constructor.package, &case.constructor.entry, &form_id)?;
     } else {
         sink.structural("\\(", "math-open", "control");
-        if let Some(form_id) = math_form {
-            // A constructor with surface arguments is an operator name in
-            // math (its LRE head); an atom is its plain surface.
-            let operator = entry.surface_arity > 0;
-            if operator {
-                sink.tok("operatorname")?;
-                sink.brace(true);
-            }
-            sink.form_surface(&case.constructor.package, &case.constructor.entry, &form_id)?;
-            if operator {
-                sink.brace(false);
-            }
-        } else if let Some(render) = entry
-            .render_math
-            .clone()
-            .filter(|_| entry.surface_arity == 0)
-        {
-            eval_lre(sink, &render, &case.constructor, &[])?;
-        } else {
-            fallback_qualified(sink, &case.constructor)?;
-        }
+        math_head(sink, &case.constructor, entry, false)?;
         sink.structural("\\)", "math-close", "control");
     }
     if !case.binders.is_empty() {
@@ -1343,7 +1504,9 @@ fn proof_prose(
             sink.ws(" ");
             sink.word("establish", false)?;
             sink.ws(" ");
-            island(sink, proposition, false)?;
+            // The established proposition is prose in trailing position,
+            // exactly as the source formatter spells it (§19.5, §23.5).
+            prose(sink, proposition, false, 0, true)?;
             period(sink);
             sink.ws("\n");
             proof_prose(sink, proof, steps)?;
@@ -1823,7 +1986,7 @@ fn render_declaration(
         sink.role = MapRole::Term;
         match &declaration.body {
             DeclBody::TheoremLike { statement, .. } => {
-                prose(&mut sink, statement, true, 0)?;
+                prose(&mut sink, statement, true, 0, true)?;
                 period(&mut sink);
                 sink.ws("\n");
             }
@@ -1948,7 +2111,7 @@ fn definition_prose(
                 sink.word(word, false)?;
                 sink.ws(" ");
             }
-            prose(sink, &rhs, false, 0)?;
+            prose(sink, &rhs, false, 0, true)?;
             period(sink);
         }
         _ => {
@@ -2135,4 +2298,276 @@ fn collect_spellings_document(document: &DocumentModule, out: &mut BTreeMap<Loca
         .blocks
         .iter()
         .for_each(|block| block_spellings(block, out));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::artifact::content_id::Sha256Digest;
+    use crate::ir::term::{DocumentDeclRef, ExternalConstRef, Universe};
+    use crate::lexicon::lse::BinderMode;
+    use crate::lexicon::package::LoadContext;
+    use crate::lexicon::{load_bootstrap, load_builtin_package, load_token_registry};
+
+    /// The built-in closure (`lexlean.core`, `lexlean.std.nat`).
+    fn closure() -> Closure {
+        let bootstrap = load_bootstrap().expect("bootstrap loads");
+        let ctx = LoadContext {
+            forbidden_controls: &bootstrap.structural.forbidden_controls,
+            max_scope_depth: 1024,
+        };
+        let packages = bootstrap
+            .builtin_packages
+            .iter()
+            .map(|row| load_builtin_package(row, &ctx).expect("builtin package loads"))
+            .collect();
+        let registry = load_token_registry().expect("registry loads");
+        Closure::build(packages, registry, bootstrap, 128).expect("closure")
+    }
+
+    fn external(entry: &str, lean_name: &str) -> Term {
+        Term::Global(
+            GlobalRef::External(ExternalConstRef {
+                package: "lexlean.std.nat@1.0.0".to_owned(),
+                entry: format!("lexlean.std.nat::{entry}"),
+                lean_module: "Init".to_owned(),
+                lean_name: lean_name.to_owned(),
+                signature_hash: Sha256Digest::of(entry.as_bytes()),
+            }),
+            Vec::new(),
+        )
+    }
+
+    fn nat() -> Term {
+        external("nat", "Nat")
+    }
+
+    fn binder(id: u64, spelling: &str, ty: Term) -> Binder {
+        Binder {
+            id: LocalId(id),
+            mode: BinderMode::Explicit,
+            ty,
+            spelling: spelling.to_owned(),
+        }
+    }
+
+    fn app(function: Term, args: Vec<Term>) -> Term {
+        Term::App {
+            function: Box::new(function),
+            explicit_args: args,
+            omitted_implicit_binders: Vec::new(),
+        }
+    }
+
+    fn core(core: CoreRef) -> Term {
+        Term::Global(GlobalRef::Core(core), Vec::new())
+    }
+
+    fn eq(left: Term, right: Term) -> Term {
+        app(core(CoreRef::Eq), vec![left, right])
+    }
+
+    fn exists(binder: Binder, body: Term) -> Term {
+        app(
+            core(CoreRef::Exists),
+            vec![Term::Lambda {
+                binders: vec![binder],
+                body: Box::new(body),
+            }],
+        )
+    }
+
+    fn reference(component: &str) -> Term {
+        Term::Global(
+            GlobalRef::Document(DocumentDeclRef {
+                module: "Main".to_owned(),
+                component: component.to_owned(),
+                lean_name: format!("LexLeanExample.Main.{}", component.replace('-', "_")),
+            }),
+            Vec::new(),
+        )
+    }
+
+    /// Render through `render` (math or prose) with the given local
+    /// spellings; returns the bytes and their coverage origins.
+    fn render(
+        spellings: &[(u64, &str)],
+        render: impl FnOnce(&mut Sink<'_, '_>) -> Result<(), Diagnostic>,
+    ) -> Result<(String, Vec<Origin>), Diagnostic> {
+        let closure = closure();
+        let visible = closure.visible_set(&["lexlean.std.nat".to_owned()]);
+        let ctx = Ctx::new(
+            &closure,
+            &visible,
+            spellings
+                .iter()
+                .map(|(id, spelling)| (LocalId(*id), (*spelling).to_owned()))
+                .collect(),
+        );
+        let mut emitter = Emitter::new();
+        let node = emitter.node("test");
+        let mut sink = Sink {
+            emitter: &mut emitter,
+            ctx: &ctx,
+            source: EmitSource::Synthetic("test".to_owned()),
+            role: MapRole::Structure,
+            node,
+        };
+        render(&mut sink)?;
+        let origins = emitter
+            .coverage_rows()
+            .into_iter()
+            .map(|row| row.origin)
+            .collect();
+        Ok((emitter.text().to_owned(), origins))
+    }
+
+    #[test]
+    fn document_references_render_by_reference_origin() {
+        // Unapplied and applied alike: `\texttt{Module::component}` under
+        // `Origin::Reference`, never the Lean name's `_` in math.
+        let expected_origin = Origin::Reference {
+            module: "Main".to_owned(),
+            component: "zero-add".to_owned(),
+        };
+        let (text, origins) = render(&[(0, "n")], |sink| {
+            math_term(sink, &reference("zero-add"), 0)
+        })
+        .expect("renders");
+        assert_eq!(text, "\\texttt{Main::zero-add}");
+        assert!(origins.contains(&expected_origin));
+        assert!(!origins
+            .iter()
+            .any(|origin| matches!(origin, Origin::Metadata { .. })));
+        let applied = app(reference("zero-add"), vec![Term::Local(LocalId(0))]);
+        let (text, origins) =
+            render(&[(0, "n")], |sink| math_term(sink, &applied, 0)).expect("renders");
+        assert_eq!(text, "\\texttt{Main::zero-add}(n)");
+        assert!(origins.contains(&expected_origin));
+    }
+
+    #[test]
+    fn quantifier_islands_state_binder_types() {
+        let m = Term::Local(LocalId(1));
+        let n = Term::Local(LocalId(0));
+        let existential = exists(binder(1, "m", nat()), eq(n.clone(), m.clone()));
+        let (text, _) = render(&[(0, "n"), (1, "m")], |sink| {
+            math_term(sink, &existential, 0)
+        })
+        .expect("renders");
+        assert_eq!(text, "\\exists m \\in \\mathbb{N}, n = m");
+        let universal = Term::Pi {
+            binders: vec![binder(0, "n", nat()), binder(1, "m", nat())],
+            body: Box::new(eq(n.clone(), m.clone())),
+        };
+        let (text, _) =
+            render(&[(0, "n"), (1, "m")], |sink| math_term(sink, &universal, 0)).expect("renders");
+        assert_eq!(
+            text,
+            "\\forall n \\in \\mathbb{N}, \\forall m \\in \\mathbb{N}, n = m"
+        );
+        // A quantifier followed by anonymous binders is the quantified
+        // implication; a right-nested implication takes no parentheses.
+        let mixed = Term::Pi {
+            binders: vec![
+                binder(0, "n", nat()),
+                binder(2, "", eq(n.clone(), n.clone())),
+                binder(3, "", eq(m.clone(), m.clone())),
+            ],
+            body: Box::new(eq(n.clone(), m.clone())),
+        };
+        let (text, _) =
+            render(&[(0, "n"), (1, "m")], |sink| math_term(sink, &mixed, 0)).expect("renders");
+        assert_eq!(
+            text,
+            "\\forall n \\in \\mathbb{N}, n = n \\to m = m \\to n = m"
+        );
+        // An implication as the antecedent of an implication is
+        // parenthesized (right associativity, §13.10).
+        let nested = Term::Pi {
+            binders: vec![binder(
+                2,
+                "",
+                Term::Pi {
+                    binders: vec![binder(3, "", eq(n.clone(), n.clone()))],
+                    body: Box::new(eq(m.clone(), m.clone())),
+                },
+            )],
+            body: Box::new(eq(n, m)),
+        };
+        let (text, _) =
+            render(&[(0, "n"), (1, "m")], |sink| math_term(sink, &nested, 0)).expect("renders");
+        assert_eq!(text, "(n = n \\to m = m) \\to n = m");
+    }
+
+    #[test]
+    fn quantified_operands_are_prose_only_in_trailing_position() {
+        let n = Term::Local(LocalId(0));
+        let m = Term::Local(LocalId(1));
+        let existential = exists(binder(1, "m", nat()), eq(n.clone(), m.clone()));
+        let zero = Term::NatLiteral {
+            decimal: "0".to_owned(),
+            expected_type: Box::new(nat()),
+        };
+        // Right operand: trailing, so prose (the source spelling).
+        let right = app(
+            core(CoreRef::Or),
+            vec![eq(n.clone(), zero.clone()), existential.clone()],
+        );
+        let (text, _) = render(&[(0, "n"), (1, "m")], |sink| {
+            prose(sink, &right, true, 0, true)
+        })
+        .expect("renders");
+        assert_eq!(
+            text,
+            "\\(n = 0\\) or there exists a natural number \\(m\\) such that \\(n = m\\)"
+        );
+        // Left operand: not trailing, so a typed island.
+        let left = app(core(CoreRef::Or), vec![existential, eq(n, zero)]);
+        let (text, _) = render(&[(0, "n"), (1, "m")], |sink| {
+            prose(sink, &left, true, 0, true)
+        })
+        .expect("renders");
+        assert_eq!(
+            text,
+            "\\(\\exists m \\in \\mathbb{N}, n = m\\) or \\(n = 0\\)"
+        );
+    }
+
+    #[test]
+    fn sorts_state_numeric_levels_and_refuse_symbolic_ones() {
+        for (universe, expected) in [
+            (Universe::Num(0), "\\mathrm{Prop}"),
+            (Universe::Num(1), "\\mathrm{Type}"),
+            (Universe::Num(2), "\\mathrm{Type}_{1}"),
+            (Universe::Num(4), "\\mathrm{Type}_{3}"),
+        ] {
+            let (text, _) =
+                render(&[], |sink| math_term(sink, &Term::Sort(universe), 0)).expect("renders");
+            assert_eq!(text, expected);
+        }
+        let error = render(&[], |sink| {
+            math_term(sink, &Term::Sort(Universe::Var("u".to_owned())), 0)
+        })
+        .expect_err("a symbolic level has no canonical rendering");
+        assert_eq!(error.code.as_str(), "LLB6002");
+        assert!(error.message.contains("symbolic universe level"));
+    }
+
+    #[test]
+    fn saturated_atoms_and_operator_heads() {
+        // An application with no explicit arguments renders as its atom;
+        // an unapplied or arity-mismatched operator head is an operator
+        // name and atomic (no parentheses at any minimum precedence).
+        let (text, _) =
+            render(&[], |sink| math_term(sink, &app(nat(), Vec::new()), 0)).expect("renders");
+        assert_eq!(text, "\\mathbb{N}");
+        let succ = external("succ", "Nat.succ");
+        let (text, _) = render(&[], |sink| math_term(sink, &succ, 0)).expect("renders");
+        assert_eq!(text, "\\operatorname{succ}");
+        let over_applied = app(succ, vec![Term::Local(LocalId(0)), Term::Local(LocalId(0))]);
+        let (text, _) =
+            render(&[(0, "n")], |sink| math_term(sink, &over_applied, 255)).expect("renders");
+        assert_eq!(text, "\\operatorname{succ}(n, n)");
+    }
 }
