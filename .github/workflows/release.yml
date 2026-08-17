@@ -273,9 +273,13 @@ jobs:
       - name: Generate the software bill of materials
         run: |
           set -euo pipefail
+          # `-a` writes one document per workspace member, next to each
+          # manifest; the shipped crate's is the release artifact and the
+          # rest are removed so nothing generated is left in the checkout
+          # (`cargo package` reads the shipped crate's directory).
           cargo cyclonedx --format json --spec-version 1.5 -a
           cp crates/lexlean/lexlean.cdx.json release/sbom.json
-          rm -f crates/lexlean/lexlean.cdx.json crates/*/*.cdx.json ./*.cdx.json
+          find . -name '*.cdx.json' -not -path './target/*' -delete
       - name: Derive the rest of the §30.3 artifact set
         run: cargo xtask release-artifacts
       - name: Read the release criterion over the assembled set
