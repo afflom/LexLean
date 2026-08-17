@@ -20,6 +20,12 @@
 //! Tokens brought in by third-party imports (a Lake dependency's own
 //! `syntax` declarations) are outside the toolchain and outside this list;
 //! Lean itself reports such a collision at verification (§22.3).
+//!
+//! A generated Lean name comes from a component ID, which is
+//! `[a-z][a-z0-9-]*` with `-` mapped to `_` (§17.8), so only the
+//! lowercase-ASCII members of this list are reachable from a document. The
+//! rest are kept because the check reads as the closed set of what the
+//! pinned toolchain reserves, not as a list pruned to today's grammar.
 
 /// Every identifier-like token of the pinned toolchain's `Init`, `Std`,
 /// and `Lean` token tables, bytewise sorted and deduplicated.
@@ -244,6 +250,12 @@ pub const LEAN_RESERVED_TOKENS: &[&str] = &[
     "with",
     "with_weak_namespace",
     "without_expected_type",
+    // `λ` is a token the identifier-like filter cannot see: Lean's
+    // `isLetterLike` deliberately excludes U+03BB so that `λ` stays the
+    // lambda token rather than becoming an identifier character. It is
+    // reserved (`def λ` is `unexpected token 'λ'`), and a reader would take
+    // it for a letter, so it belongs in the list.
+    "λ",
 ];
 
 /// The members of [`LEAN_RESERVED_TOKENS`] that only the `Std` and `Lean`
