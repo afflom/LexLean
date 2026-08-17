@@ -27,6 +27,10 @@ docker pull ghcr.io/afflom/lexlean:0.1.0
 docker run --rm -v "$PWD:/work" ghcr.io/afflom/lexlean:0.1.0 verify
 ```
 
+The image is around 4 GB, nearly all of it the pinned toolchain's compiled
+library — the part `verify` needs and the part a smaller image would have to
+leave out.
+
 Each [release](https://github.com/afflom/lexlean/releases) also attaches one
 binary per supported host (SPEC.md §8.3), the packaged crate, a CycloneDX bill
 of materials, `checksums.txt` over every other asset, and the `just vv`
