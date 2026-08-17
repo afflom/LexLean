@@ -3,15 +3,15 @@
 # compiler executable (presence only). SPEC.md §28.2, §28.4.
 
 [platform_independent]
-".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.A15373aaf736045a0cbb1fc79167d911e.lean" = "ce72b0930147248dfa799553ba634a7da3d05df24977acc9873052cdc47d91a2"
+".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.A80ee488ff96648e71ee90fe16734f348.lean" = "ce72b0930147248dfa799553ba634a7da3d05df24977acc9873052cdc47d91a2"
 ".lexlean/verified/$ATTESTATION/audit/output.txt" = "e0a31c670eac06f52782d864e0a948c11d06d4901077474ddcc6afb86817ac0a"
-".lexlean/verified/$ATTESTATION/build-manifest.json" = "9c28f1c14302e21df6ff1bf1a5095a42d1d8e94db319235d501fbe8f505c5728"
-".lexlean/verified/$ATTESTATION/coverage/LexLeanExample/Main.coverage.json" = "685cfa23267ba4bb46a9019662cc18d340596c78c30d3577d62bde0ecc93f08f"
-".lexlean/verified/$ATTESTATION/lexicons/Main.closure.json" = "14ff06e182b8e3b09bf02010bbd3d7c92ee9477928ef2c5c1a0e374da80f95f5"
-".lexlean/verified/$ATTESTATION/maps/LexLeanExample/Main.map.json" = "667b8f820c2751d5aa8f7b3509278a939624cbff81463d0f81ffd8da2a1d3319"
-".lexlean/verified/$ATTESTATION/modules/LexLeanExample/Main.lean" = "bf7410e2b99d305d23a46ca3506da73e561b26c7c880da4796f6ec2aa25d8b9b"
+".lexlean/verified/$ATTESTATION/build-manifest.json" = "d871926e831d980292dc94e4a440d768f84d13f424445960e8655a8378969598"
+".lexlean/verified/$ATTESTATION/coverage/LexLeanExample/Main.coverage.json" = "72ad0cecf108a6d1418608241feef48911979624998aed0f00219441f6376fc0"
+".lexlean/verified/$ATTESTATION/lexicons/Main.closure.json" = "c0ce1283dec0aa9cfaf50362a90c24a4a4ad0ebaa54bc3c949e5578d0326a3be"
+".lexlean/verified/$ATTESTATION/maps/LexLeanExample/Main.map.json" = "19b583cdea47177bd99a318b748faa72ebeee8a0a598d84ba4ba2fc4a0641cae"
+".lexlean/verified/$ATTESTATION/modules/LexLeanExample/Main.lean" = "792d7e4ee5a217e84aa1de344819b604708295330fe60d72142e4377b1fade13"
 ".lexlean/verified/$ATTESTATION/modules/LexLeanExample/Main.tex" = "8de0caeff94f772f520b5acfa68458761dd2bdf96f78488ec3872ff3d07864e8"
-".lexlean/verified/$ATTESTATION/probe/LexLeanProbe.P15373aaf736045a0cbb1fc79167d911e.lean" = "9b60841472826e74bb77f24f90d6dc56dcfe4ab727fa000a8ae6f164b7edb8d5"
+".lexlean/verified/$ATTESTATION/probe/LexLeanProbe.P80ee488ff96648e71ee90fe16734f348.lean" = "9b60841472826e74bb77f24f90d6dc56dcfe4ab727fa000a8ae6f164b7edb8d5"
 
 [process_bound]
 files = [

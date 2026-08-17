@@ -1,5 +1,5 @@
 module
-import Init
+public import Init
 set_option autoImplicit false
 namespace LexLeanExample.Main
 

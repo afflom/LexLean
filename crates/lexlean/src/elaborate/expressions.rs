@@ -480,7 +480,17 @@ fn unify(a: &Term, b: &Term, metas: &mut Metas) -> bool {
         (Term::Local(x), Term::Local(y)) => x == y,
         (Term::Sort(x), Term::Sort(y)) => unify_universe(x, y, metas),
         (Term::Global(gx, ux), Term::Global(gy, uy)) => {
-            if gx != gy {
+            // Two external references denote the same Lean constant when
+            // their module and name agree, whatever glossary entries
+            // introduced them (`the successor of n` and `succ(n)` are both
+            // `Nat.succ`).
+            let same_constant = match (gx, gy) {
+                (GlobalRef::External(x), GlobalRef::External(y)) => {
+                    x.lean_module == y.lean_module && x.lean_name == y.lean_name
+                }
+                _ => gx == gy,
+            };
+            if !same_constant {
                 return false;
             }
             // A stripped side (empty universe list) matches any pending
@@ -1063,8 +1073,76 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         Ok((Term::Global(global, universe_args), ty))
     }
 
+    /// For an entry with no surface arguments, instantiate the leading
+    /// implicit and instance binders of its type by fresh metas, recording
+    /// them as omitted (§17.3). Entries with surface arguments keep their
+    /// telescope for [`Self::apply`].
+    fn instantiate_leading_implicits(
+        &mut self,
+        reference: &FormRef,
+        term: Term,
+        ty: Term,
+        metas: &mut Metas,
+    ) -> (Term, Term) {
+        let qualified = QualifiedId {
+            package: reference.package.clone(),
+            entry: reference.entry.clone(),
+        };
+        let arity_zero = self
+            .shared
+            .closure
+            .entry(&qualified)
+            .is_some_and(|entry| entry.surface_arity == 0);
+        if !arity_zero {
+            return (term, ty);
+        }
+        let mut current_ty = ty;
+        let mut omitted: Vec<ImplicitBinderId> = Vec::new();
+        let mut ordinal: u32 = 0;
+        while let Term::Pi { binders, body } = &current_ty {
+            if binders
+                .iter()
+                .any(|binder| binder.mode == BinderMode::Explicit)
+            {
+                break;
+            }
+            let mut map: BTreeMap<LocalId, Term> = BTreeMap::new();
+            for binder in binders {
+                let meta = metas.fresh_term(self.alloc);
+                map.insert(binder.id, Term::Local(meta));
+                omitted.push(ImplicitBinderId(ordinal));
+                ordinal = ordinal.saturating_add(1);
+            }
+            current_ty = substitute(body, &map);
+        }
+        if omitted.is_empty() {
+            return (term, current_ty);
+        }
+        (
+            Term::App {
+                function: Box::new(term),
+                explicit_args: Vec::new(),
+                omitted_implicit_binders: omitted,
+            },
+            current_ty,
+        )
+    }
+
     fn alloc_universe(&mut self, metas: &mut Metas) -> Universe {
         Universe::Var(metas.fresh_universe())
+    }
+
+    /// Conservative unification that sees through defined lexicon values
+    /// (§13.6): the terms are compared as written first, then with every
+    /// defined head unfolded on both sides.
+    fn unify_delta(&mut self, a: &Term, b: &Term, metas: &mut Metas) -> bool {
+        if unify(a, b, metas) {
+            return true;
+        }
+        let limit = self.budget.max_depth();
+        let ua = unfold_defined(a, self.shared, self.alloc, limit);
+        let ub = unfold_defined(b, self.shared, self.alloc, limit);
+        (ua != *a || ub != *b) && unify(&ua, &ub, metas)
     }
 
     /// Apply a function candidate to arguments through its telescope,
@@ -1106,10 +1184,10 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                     BinderMode::Explicit => match pending {
                         Some(argument) => {
                             if let Some(arg_ty) = argument.ty_known(metas) {
-                                if !unify(&arg_ty, &binder_ty, metas) {
+                                if !self.unify_delta(&arg_ty, &binder_ty, metas) {
                                     return None;
                                 }
-                            } else if !unify(&argument.ty.clone(), &binder_ty, metas) {
+                            } else if !self.unify_delta(&argument.ty.clone(), &binder_ty, metas) {
                                 return None;
                             }
                             subst_map.insert(binder.id, argument.term.clone());
@@ -1221,6 +1299,16 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                                     );
                                 }
                                 Ok((term, ty)) => {
+                                    // An atom-frame entry (surface arity 0)
+                                    // whose signature still binds implicit or
+                                    // instance parameters (`nil : {a} → List
+                                    // a`, `rfl`) is used at those parameters
+                                    // instantiated by metas, exactly as an
+                                    // applied entry's leading implicits are
+                                    // (§17.3, §17.6).
+                                    let (term, ty) = self.instantiate_leading_implicits(
+                                        reference, term, ty, &mut metas,
+                                    );
                                     out.push(Cand {
                                         term,
                                         ty,
@@ -1648,7 +1736,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             .with_span(self.span_of(surface_atoms)));
         };
         if let Some(expected_ty) = expected {
-            if !unify(&ty, expected_ty, &mut metas) {
+            if !self.unify_delta(&ty, expected_ty, &mut metas) {
                 return Err(Diagnostic::new(
                     code!("LLT4001"),
                     "the applied entry does not produce the expected type",
@@ -1695,7 +1783,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         let mut untyped_numeral: Option<String> = None;
         for mut candidate in candidates {
             if let Some(expected_ty) = expected {
-                if !unify(&candidate.ty, expected_ty, &mut candidate.metas) {
+                if !self.unify_delta(&candidate.ty, expected_ty, &mut candidate.metas) {
                     continue;
                 }
             }
@@ -1900,6 +1988,111 @@ pub fn entry_signature_term(
         .map_err(|failure| failure.to_string())?;
     let global = global_for(shared, entry_id, entry)?;
     Ok((global, ty))
+}
+
+/// Unfold every application headed by a defined lexicon value (§13.6) into
+/// its instantiated value, recursively, so conservative unification sees
+/// through transparent glossary definitions (a `proposition` type noun
+/// defined as `(sort prop)` is the sort `Prop`; a defined predicate is its
+/// body). Definitions are acyclic and each unfolding consumes one defined
+/// head; the nesting bound is the configured depth limit as a guard.
+pub fn unfold_defined(
+    term: &Term,
+    shared: &Shared<'_>,
+    alloc: &mut LocalAlloc,
+    depth_limit: u64,
+) -> Term {
+    fn go(
+        term: &Term,
+        shared: &Shared<'_>,
+        alloc: &mut LocalAlloc,
+        depth: u64,
+        limit: u64,
+    ) -> Term {
+        if depth > limit {
+            return term.clone();
+        }
+        let (function, args): (&Term, Vec<Term>) = match term {
+            Term::App {
+                function,
+                explicit_args,
+                ..
+            } => (function, explicit_args.clone()),
+            other => (other, Vec::new()),
+        };
+        if let Term::Global(GlobalRef::DefinedLexicon(defined), _) = function {
+            if let Some(entry) = QualifiedId::parse(&defined.entry)
+                .ok()
+                .and_then(|id| shared.closure.entry(&id))
+            {
+                if let Denotation::Defined { value: lse, .. } = &entry.denotation {
+                    let universes: BTreeMap<String, Universe> = entry
+                        .universes
+                        .iter()
+                        .map(|name| (name.clone(), Universe::Var(name.clone())))
+                        .collect();
+                    if let Ok(value) = lse_to_term(lse, shared, alloc, &universes, None) {
+                        let unfolded = match value {
+                            Term::Lambda { binders, body } if binders.len() == args.len() => {
+                                let map: BTreeMap<LocalId, Term> = binders
+                                    .iter()
+                                    .zip(&args)
+                                    .map(|(binder, argument)| (binder.id, argument.clone()))
+                                    .collect();
+                                Some(subst(&body, &map))
+                            }
+                            Term::Lambda { .. } => None,
+                            other if args.is_empty() => Some(other),
+                            _ => None,
+                        };
+                        if let Some(unfolded) = unfolded {
+                            return go(&unfolded, shared, alloc, depth.saturating_add(1), limit);
+                        }
+                    }
+                }
+            }
+        }
+        match term {
+            Term::App {
+                function,
+                explicit_args,
+                omitted_implicit_binders,
+            } => Term::App {
+                function: Box::new(go(function, shared, alloc, depth, limit)),
+                explicit_args: explicit_args
+                    .iter()
+                    .map(|argument| go(argument, shared, alloc, depth, limit))
+                    .collect(),
+                omitted_implicit_binders: omitted_implicit_binders.clone(),
+            },
+            Term::Pi { binders, body } => Term::Pi {
+                binders: binders
+                    .iter()
+                    .map(|binder| Binder {
+                        id: binder.id,
+                        mode: binder.mode,
+                        ty: go(&binder.ty, shared, alloc, depth, limit),
+                        spelling: binder.spelling.clone(),
+                    })
+                    .collect(),
+                body: Box::new(go(body, shared, alloc, depth, limit)),
+            },
+            Term::Lambda { binders, body } => Term::Lambda {
+                binders: binders
+                    .iter()
+                    .map(|binder| Binder {
+                        id: binder.id,
+                        mode: binder.mode,
+                        ty: go(&binder.ty, shared, alloc, depth, limit),
+                        spelling: binder.spelling.clone(),
+                    })
+                    .collect(),
+                body: Box::new(go(body, shared, alloc, depth, limit)),
+            },
+            other => other.clone(),
+        }
+    }
+    go(term, shared, alloc, 0, depth_limit)
 }
 
 /// Beta-reduce one application of a lambda to one argument, for witness

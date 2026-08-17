@@ -198,6 +198,13 @@ impl Fmt<'_> {
                     _ => return Err(fmt_error("no canonical source selector for this global")),
                 },
             },
+            // An application with no explicit arguments (an atom whose
+            // implicit parameters were instantiated) spells as the atom.
+            Term::App {
+                function,
+                explicit_args,
+                ..
+            } if explicit_args.is_empty() => self.math(function, min_prec)?,
             Term::App {
                 function,
                 explicit_args,

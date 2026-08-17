@@ -222,14 +222,10 @@ math = "(token write18)"
 "#,
                 )],
             );
-            let error = project
-                .engine()
-                .lock(lexlean::LockRequest {
-                    check_only: false,
-                    allow_network: false,
-                })
-                .err()
-                .expect("an unregistered output token is rejected");
+            // The package locks (its bytes are inputs); building the
+            // glossary closure rejects the unregistered token (§13.9).
+            project.relock();
+            let error = project.check_err();
             support::expect_code(&error, "LLR3004");
         }
         // §19.1: deterministic LF-terminated bytes.

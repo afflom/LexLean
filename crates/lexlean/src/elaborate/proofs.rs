@@ -350,8 +350,26 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 return Ok(term);
             }
         }
+        // Without an expected type, the term must still have exactly one
+        // interpretation, and the mismatch must be one LexLean cannot judge
+        // (§17.6): a numeral against a constructor, two entries for one Lean
+        // constant, an external definition, ... are all Lean's to decide. A
+        // mismatch is certain only between shapes no definitional unfolding
+        // can reconcile — two different core connectives, a function type
+        // against a core proposition, a sort against either — and stays
+        // rejected.
         match self.term_island(token, None) {
-            Ok(term) => Ok(term),
+            Ok(term) => {
+                let certain = term
+                    .ty
+                    .as_ref()
+                    .is_some_and(|ty| certainly_distinct(&unfolded, &self.unfold_definitions(ty)));
+                if certain {
+                    Err(first)
+                } else {
+                    Ok(term)
+                }
+            }
             Err(_) => Err(first),
         }
     }
@@ -1626,4 +1644,39 @@ fn beta_head(term: &Term) -> Term {
 #[must_use]
 pub fn substitute_map(term: &Term, map: &BTreeMap<LocalId, Term>) -> Term {
     subst(term, map)
+}
+
+/// The coarse shape of a type for certain-mismatch detection: only shapes
+/// that no definitional unfolding can turn into one another are compared.
+#[derive(Debug, PartialEq, Eq)]
+enum TypeShape {
+    /// A function type.
+    Pi,
+    /// A sort.
+    Sort,
+    /// An application of a core connective or `Eq`.
+    Core(CoreRef),
+    /// Anything else (a local, an external, a definition, a numeral, ...).
+    Open,
+}
+
+fn type_shape(term: &Term) -> TypeShape {
+    match term {
+        Term::Pi { .. } => TypeShape::Pi,
+        Term::Sort(_) => TypeShape::Sort,
+        Term::App { function, .. } => match &**function {
+            Term::Global(GlobalRef::Core(core), _) => TypeShape::Core(*core),
+            _ => TypeShape::Open,
+        },
+        Term::Global(GlobalRef::Core(core), _) => TypeShape::Core(*core),
+        _ => TypeShape::Open,
+    }
+}
+
+/// Are two types certainly distinct: both of a closed shape (function type,
+/// sort, core connective) and different? Anything involving an open shape
+/// may still be definitionally equal in Lean.
+fn certainly_distinct(a: &Term, b: &Term) -> bool {
+    let (sa, sb) = (type_shape(a), type_shape(b));
+    sa != TypeShape::Open && sb != TypeShape::Open && sa != sb
 }

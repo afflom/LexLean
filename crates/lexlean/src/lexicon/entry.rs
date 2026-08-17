@@ -127,15 +127,16 @@ impl Category {
     /// adjective, ...) and prose atoms (type-noun, term-constant,
     /// label-word) need a text canonical form, mathematical frames (call,
     /// prefix, postfix, infix) and mathematical atoms (predicate-constant,
-    /// proof-constant) need a math canonical form, and structural/grammar
-    /// entries are core structure with no required channel.
+    /// proof-constant) need a math canonical form, structural/grammar
+    /// entries are core structure with no required channel, and atoms that
+    /// may live in either channel (type-noun, term-constant: `natural
+    /// number`/`ℕ`, `zero`/`∅`) require a canonical form in at least one
+    /// channel (checked separately by [`Category::needs_some_canonical`]).
     #[must_use]
     pub fn required_channels(self) -> &'static [Channel] {
         match self {
-            Self::Structural | Self::Grammar => &[],
+            Self::Structural | Self::Grammar | Self::TypeNoun | Self::TermConstant => &[],
             Self::LabelWord
-            | Self::TypeNoun
-            | Self::TermConstant
             | Self::NounFunction
             | Self::BinaryNounFunction
             | Self::AdjectivePredicate
@@ -149,6 +150,15 @@ impl Category {
             | Self::PredicateConstant
             | Self::ProofConstant => &[Channel::Math],
         }
+    }
+}
+
+impl Category {
+    /// Categories whose entries may be spelled in either channel and must
+    /// therefore carry a canonical source form in at least one of them.
+    #[must_use]
+    pub const fn needs_some_canonical(self) -> bool {
+        matches!(self, Self::TypeNoun | Self::TermConstant)
     }
 }
 
@@ -1026,6 +1036,15 @@ pub fn parse_entry(
     }
 
     // Exactly one canonical source form per channel (§13.5 rules 7).
+    if category.needs_some_canonical() && !forms.iter().any(|form| form.canonical_source) {
+        diagnostics.push(error(
+            path,
+            format!(
+                "category `{}` requires a canonical source form in the text or the math channel",
+                category.as_str()
+            ),
+        ));
+    }
     for channel in [Channel::Text, Channel::Math] {
         let canonical_count = forms
             .iter()
@@ -1066,7 +1085,13 @@ pub fn parse_entry(
                 "structural and grammar entries do not carry render templates",
             ));
         }
-        if raw_render.text.is_some() && !category.required_channels().contains(&Channel::Text) {
+        if raw_render.text.is_some()
+            && !category.required_channels().contains(&Channel::Text)
+            && !(category.needs_some_canonical()
+                && forms
+                    .iter()
+                    .any(|form| form.canonical_source && form.channel.covers(Channel::Text)))
+        {
             diagnostics.push(error(
                 path,
                 format!(

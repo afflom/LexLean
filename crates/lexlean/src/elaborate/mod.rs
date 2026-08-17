@@ -386,7 +386,12 @@ pub fn elab_binder(
         }
         TypePhraseAst::Math(island) => {
             let result = elab_island(shared, scopes, alloc, budget, island, None)?;
-            match &result.ty {
+            // The island's type must be a sort; a defined type noun (`type`
+            // defined as `(sort (type 0))`) is read through its definition.
+            let island_ty = result.ty.as_ref().map(|ty| {
+                crate::elaborate::expressions::unfold_defined(ty, shared, alloc, budget.max_depth())
+            });
+            match &island_ty {
                 Some(Term::Sort(_)) => {}
                 _ => {
                     let a = &shared.atoms[island.first_atom()];

@@ -1432,7 +1432,11 @@ pub fn corpus_declaration_lean(lean_name: &str) -> String {
         .unwrap_or_else(|| panic!("`{lean_name}` in the corpus Lean:\n{lean}"));
     let end = lines[start + 1..]
         .iter()
-        .position(|line| line.starts_with("public ") || line.starts_with("end "))
+        .position(|line| {
+            line.starts_with("public ")
+                || line.starts_with("@[expose] ")
+                || line.starts_with("end ")
+        })
         .map_or(lines.len(), |offset| start + 1 + offset);
     let mut block = lines[start..end].join("\n");
     while block.ends_with('\n') {

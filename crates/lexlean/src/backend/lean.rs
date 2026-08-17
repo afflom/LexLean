@@ -649,10 +649,16 @@ pub fn print_lse_type(
 // ---------------------------------------------------------------------------
 
 fn is_atomic(term: &Term) -> bool {
-    matches!(
-        term,
-        Term::Local(_) | Term::Global(..) | Term::Sort(_) | Term::NatLiteral { .. }
-    )
+    match term {
+        Term::Local(_) | Term::Global(..) | Term::Sort(_) | Term::NatLiteral { .. } => true,
+        // An application without explicit arguments prints as its head.
+        Term::App {
+            function,
+            explicit_args,
+            ..
+        } => explicit_args.is_empty() && is_atomic(function),
+        _ => false,
+    }
 }
 
 /// Which explicit arguments of an application may carry a bare numeral
@@ -859,6 +865,11 @@ fn print_term(
                 if let [binder] = binders.as_slice() {
                     return print_exists_unique(sink, binder, body, namer, closure, parens);
                 }
+            }
+            // An application with no explicit arguments (an atom whose
+            // implicit parameters Lean infers) prints as its head.
+            if explicit_args.is_empty() {
+                return print_term(sink, function, namer, closure, parens, false);
             }
             if parens {
                 sink.sym("(");
