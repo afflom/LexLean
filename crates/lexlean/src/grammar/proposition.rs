@@ -1008,10 +1008,26 @@ pub enum PhraseItemAst {
 /// nothing covers what follows is simply not a cover, and the caller
 /// decides between the covers that remain by linking them (§14.4). Every
 /// path step is charged against `max_parse_states` (§25.5).
-pub fn parse_phrase(
+/// What a cover consumer wants next (§14.4: the decision needs at most two
+/// distinct linked interpretations, so enumeration stops as soon as the
+/// consumer has them).
+pub enum CoverFlow {
+    /// Enumerate the next cover.
+    Continue,
+    /// Stop: the consumer has decided.
+    Stop,
+}
+
+/// Enumerate the complete covers of a phrase, depth first, handing each to
+/// `on_cover` as it is found (§14.1). The walk is lazy so a phrase with
+/// exponentially many covers — overlapping multiword forms — costs only the
+/// covers the consumer actually reads before it decides; every step is
+/// charged against `max_parse_states`.
+pub fn phrase_covers(
     parser: &TextParser<'_>,
     budget: &mut Budget,
-) -> Result<Vec<Vec<PhraseItemAst>>, Diagnostic> {
+    mut on_cover: impl FnMut(Vec<PhraseItemAst>, &mut Budget) -> Result<CoverFlow, Diagnostic>,
+) -> Result<(), Diagnostic> {
     if parser.tokens.is_empty() {
         return Err(Diagnostic::new(
             code!("LLP2001"),
@@ -1019,46 +1035,45 @@ pub fn parse_phrase(
         )
         .with_span(crate::diagnostic::Span::whole_file(parser.path)));
     }
-    let mut covers: Vec<Vec<PhraseItemAst>> = Vec::new();
     let mut failure: Option<Diagnostic> = None;
-    let mut frontier: Vec<(usize, Vec<PhraseItemAst>)> = vec![(0, Vec::new())];
-    while !frontier.is_empty() {
-        let mut next_frontier: Vec<(usize, Vec<PhraseItemAst>)> = Vec::new();
-        for (pos, items) in frontier {
-            budget.state()?;
-            if pos >= parser.tokens.len() {
-                if !covers.contains(&items) {
-                    covers.push(items);
+    let mut any = false;
+    // A depth-first stack of partial covers: the deepest partial extends
+    // first, so a complete cover reaches the consumer as early as possible.
+    let mut stack: Vec<(usize, Vec<PhraseItemAst>)> = vec![(0, Vec::new())];
+    while let Some((pos, items)) = stack.pop() {
+        budget.state()?;
+        if pos >= parser.tokens.len() {
+            any = true;
+            match on_cover(items, budget)? {
+                CoverFlow::Continue => continue,
+                CoverFlow::Stop => return Ok(()),
+            }
+        }
+        let steps = match phrase_steps(parser, budget, pos)? {
+            Ok(steps) => steps,
+            Err(dead_end) => {
+                if failure.is_none() {
+                    failure = Some(dead_end);
                 }
                 continue;
             }
-            let steps = match phrase_steps(parser, budget, pos)? {
-                Ok(steps) => steps,
-                Err(dead_end) => {
-                    if failure.is_none() {
-                        failure = Some(dead_end);
-                    }
-                    continue;
-                }
-            };
-            for (item, end) in steps {
-                let mut extended = items.clone();
-                extended.push(item);
-                next_frontier.push((end, extended));
-            }
+        };
+        for (item, end) in steps.into_iter().rev() {
+            let mut extended = items.clone();
+            extended.push(item);
+            stack.push((end, extended));
         }
-        frontier = next_frontier;
     }
-    if covers.is_empty() {
-        return Err(failure.unwrap_or_else(|| {
-            Diagnostic::new(
-                code!("LLP2001"),
-                "a phrase is a nonempty sequence of concepts",
-            )
-            .with_span(crate::diagnostic::Span::whole_file(parser.path))
-        }));
+    if any {
+        return Ok(());
     }
-    Ok(covers)
+    Err(failure.unwrap_or_else(|| {
+        Diagnostic::new(
+            code!("LLP2001"),
+            "a phrase is a nonempty sequence of concepts",
+        )
+        .with_span(crate::diagnostic::Span::whole_file(parser.path))
+    }))
 }
 
 /// The lattice steps out of one phrase position: each is one item and the

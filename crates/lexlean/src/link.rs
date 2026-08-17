@@ -17,7 +17,9 @@ use crate::elaborate::{
 };
 use crate::error::LexLeanError;
 use crate::grammar::chart::{text_tokens, Budget, TextToken};
-use crate::grammar::proposition::{parse_phrase, ArticleRule, PhraseItemAst, TextParser};
+use crate::grammar::proposition::{
+    phrase_covers, ArticleRule, CoverFlow, PhraseItemAst, TextParser,
+};
 use crate::grammar::structural::{self, AtomRange, BlockAst, DeclAst, ModuleAst, PolicyKind};
 use crate::ir::declaration::{AxiomPolicy, DeclBody, Declaration};
 use crate::ir::document::{Block, DocumentModule, LinkedProject, Phrase, PhraseItem, Section};
@@ -679,14 +681,15 @@ fn elab_phrase(
         visible: shared.visible,
         sentence_initial: true,
     };
-    let covers = parse_phrase(&parser, budget)?;
     // Every complete cover of the phrase is linked; covers that denote one
     // phrase collapse, a cover that does not link is a dead lattice path,
     // and `LLP2002` is reported only when more than one distinct linked
-    // phrase survives (§14.1, §14.4).
+    // phrase survives (§14.1, §14.4). Two distinct survivors already decide
+    // that, so the enumeration stops there: a phrase with exponentially
+    // many covers costs only the covers the decision needs.
     let mut survivors: Vec<(Phrase, Vec<SourceRow>)> = Vec::new();
     let mut failure: Option<Diagnostic> = None;
-    for items in covers {
+    phrase_covers(&parser, budget, |items, budget| {
         match elab_phrase_cover(shared, scopes, alloc, budget, items) {
             Ok(linked) => {
                 if !survivors.iter().any(|(phrase, _)| *phrase == linked.0) {
@@ -699,7 +702,12 @@ fn elab_phrase(
                 }
             }
         }
-    }
+        Ok(if survivors.len() > 1 {
+            CoverFlow::Stop
+        } else {
+            CoverFlow::Continue
+        })
+    })?;
     match survivors.len() {
         1 => Ok(survivors.into_iter().next().expect("one survivor")),
         0 => Err(failure.unwrap_or_else(|| {

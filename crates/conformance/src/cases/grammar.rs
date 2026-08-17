@@ -525,6 +525,40 @@ pub(crate) fn run(id: &str) {
         // §14.4: distinct parses are ambiguity naming the differentiating
         // candidates; identical IR collapses.
         "GR-12" => {
+            // §14.1, §14.4: a phrase whose covers are exponentially many
+            // (overlapping one- and two-word forms) decides on the first
+            // two distinct linked interpretations, so the decision costs
+            // covers, not the whole cover space.
+            let overlapping = P::example();
+            overlapping.add_package(
+                "lexicons/test-overlap",
+                "test.overlap",
+                &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+                &[
+                    ("one.toml", &support::label_word_entry("one", "wa")),
+                    ("two.toml", &support::label_word_entry("two", "wa wa")),
+                ],
+            );
+            overlapping.edit(
+                "src/Main.lex.tex",
+                "\\useglossary{lexlean.std.nat@1.0.0}",
+                "\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.overlap@1.0.0}",
+            );
+            let title: String = std::iter::repeat_n("wa", 24).collect::<Vec<_>>().join(" ");
+            overlapping.edit(
+                "src/Main.lex.tex",
+                "\\title{Natural number addition}",
+                &format!("\\title{{{title}}}"),
+            );
+            overlapping.relock();
+            let start = std::time::Instant::now();
+            overlapping.check_fails_with("LLP2002");
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(10),
+                "the ambiguity decision reads covers, not the cover space: {:?}",
+                start.elapsed()
+            );
+
             let distinct = P::example();
             distinct.add_package(
                 "lexicons/test-dupa",
