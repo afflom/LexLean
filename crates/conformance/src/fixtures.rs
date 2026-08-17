@@ -187,6 +187,15 @@ pub fn load_case(dir: &Utf8Path) -> Result<Case, String> {
     if !dir.join("project").as_std_path().is_dir() {
         return Err(format!("{dir}: `project/` is missing (§28.2)"));
     }
+    // Every invocation runs from a temporary copy; the committed project
+    // is an input and never a live build root. A `.lexlean` left in it (a
+    // CLI run in place) would be copied into every run and shadow the
+    // fixture's own inputs, so it is refused rather than tolerated.
+    if dir.join("project/.lexlean").as_std_path().exists() {
+        return Err(format!(
+            "{dir}: `project/.lexlean` exists; the committed fixture project must not carry a build root (fixtures run from a temporary copy; remove it)"
+        ));
+    }
     let mut invocations = Vec::new();
     if let Some(rows) = table.get("invocation") {
         let rows = rows
@@ -648,6 +657,28 @@ mod tests {
         assert_eq!(
             normalize_attestation(&text),
             ".lexlean/verified/$ATTESTATION/attestation.json and /verified/abc/x"
+        );
+    }
+
+    #[test]
+    fn a_fixture_project_with_a_build_root_is_refused() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let dir = Utf8Path::from_path(temp.path()).expect("utf8");
+        std::fs::create_dir_all(dir.join("project").as_std_path()).expect("project");
+        std::fs::write(
+            dir.join("case.toml").as_std_path(),
+            format!(
+                "spec = \"{CASE_SPEC}\"\ncommand = \"check\"\nargs = []\nexpected_exit = 0\nexpect_artifacts = false\n"
+            ),
+        )
+        .expect("case.toml");
+        assert!(load_case(dir).is_ok(), "a pristine fixture loads");
+        std::fs::create_dir_all(dir.join("project/.lexlean").as_std_path()).expect("litter");
+        std::fs::write(dir.join("project/.lexlean/.lock").as_std_path(), b"").expect("lock");
+        let error = load_case(dir).expect_err("a build root inside the fixture is refused");
+        assert!(
+            error.contains("project/.lexlean") && error.contains("temporary copy"),
+            "{error}"
         );
     }
 
