@@ -5,7 +5,7 @@ use lexlean::verify::source_audit::{audit, lex, LeanToken};
 use crate::support::{self, P};
 
 /// The §29.3 generated Lean of the literal example, byte for byte.
-const EXAMPLE_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem add_zero (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl\n\nend LexLeanExample.Main\n";
+const EXAMPLE_LEAN: &str = "module\npublic import Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem add_zero (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl\n\nend LexLeanExample.Main\n";
 
 fn example_lean() -> String {
     support::lean_text(&support::rendered(&P::example()), "Main")
@@ -56,13 +56,13 @@ pub(crate) fn run(id: &str) {
             let lean = example_lean();
             let imports: Vec<&str> = lean
                 .lines()
-                .filter(|line| line.starts_with("import "))
+                .filter(|line| line.starts_with("public import "))
                 .collect();
             let mut sorted = imports.clone();
             sorted.sort_unstable();
             sorted.dedup();
             assert_eq!(imports, sorted, "imports are sorted and deduplicated");
-            assert_eq!(imports, vec!["import Init"]);
+            assert_eq!(imports, vec!["public import Init"]);
             assert!(
                 lean.contains("Nat.add"),
                 "external globals are fully qualified: {lean}"

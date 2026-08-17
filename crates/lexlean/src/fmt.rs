@@ -433,9 +433,36 @@ impl Fmt<'_> {
     }
 
     /// Canonical proposition prose in source spelling (§15.6, §23.5).
+    ///
+    /// `trailing` says whether this operand extends to the end of its
+    /// enclosing proposition: a quantified proposition (`For every`, `there
+    /// exists`) reads to the end of the sentence (§15.6 `negation =
+    /// quantified`), so it may stand as prose only in trailing position
+    /// (the right operand of a connective, a body, an antecedent closed by
+    /// its comma) and needs the mathematical channel elsewhere.
     #[allow(clippy::too_many_lines)]
-    fn prose(&self, term: &Term, initial: bool, level: u8) -> Result<String, Diagnostic> {
-        if Self::prose_level(term) < level {
+    fn prose(
+        &self,
+        term: &Term,
+        initial: bool,
+        level: u8,
+        trailing: bool,
+    ) -> Result<String, Diagnostic> {
+        let quantified = matches!(term, Term::Pi { .. })
+            || matches!(
+                term,
+                Term::App { function, .. }
+                    if matches!(
+                        &**function,
+                        Term::Global(GlobalRef::Core(CoreRef::Exists | CoreRef::ExistsUnique), _)
+                    )
+            );
+        let as_prose = if quantified {
+            trailing
+        } else {
+            Self::prose_level(term) >= level
+        };
+        if !as_prose {
             return Ok(format!("\\({}\\)", self.math(term, 0)?));
         }
         Ok(match term {
@@ -450,7 +477,7 @@ impl Fmt<'_> {
                     text.push_str(&self.binder(binder)?);
                 }
                 text.push_str(", ");
-                text.push_str(&self.prose(body, false, 0)?);
+                text.push_str(&self.prose(body, false, 0, true)?);
                 text
             }
             Term::Pi { binders, body } => {
@@ -465,8 +492,8 @@ impl Fmt<'_> {
                 format!(
                     "{} {}, then {}",
                     "if",
-                    self.prose(&binders[0].ty, false, 1)?,
-                    self.prose(&rest, false, 0)?
+                    self.prose(&binders[0].ty, false, 1, true)?,
+                    self.prose(&rest, false, 0, true)?
                 )
             }
             Term::App {
@@ -518,30 +545,30 @@ impl Fmt<'_> {
                         },
                         "",
                         self.binder(&binders[0])?,
-                        self.prose(body, false, 0)?
+                        self.prose(body, false, 0, true)?
                     )
                 }
                 (Term::Global(GlobalRef::Core(CoreRef::And), _), [left, right]) => format!(
                     "{} and {}",
-                    self.prose(left, initial, 4)?,
-                    self.prose(right, false, 5)?
+                    self.prose(left, initial, 4, false)?,
+                    self.prose(right, false, 5, trailing)?
                 ),
                 (Term::Global(GlobalRef::Core(CoreRef::Or), _), [left, right]) => format!(
                     "{} or {}",
-                    self.prose(left, initial, 3)?,
-                    self.prose(right, false, 4)?
+                    self.prose(left, initial, 3, false)?,
+                    self.prose(right, false, 4, trailing)?
                 ),
                 (Term::Global(GlobalRef::Core(CoreRef::Not), _), [inner]) => {
                     format!(
                         "{} {}",
                         if initial { "Not" } else { "not" },
-                        self.prose(inner, false, 5)?
+                        self.prose(inner, false, 5, trailing)?
                     )
                 }
                 (Term::Global(GlobalRef::Core(CoreRef::Iff), _), [left, right]) => format!(
                     "{} if and only if {}",
-                    self.prose(left, initial, 2)?,
-                    self.prose(right, false, 2)?
+                    self.prose(left, initial, 2, false)?,
+                    self.prose(right, false, 2, trailing)?
                 ),
                 _ => match self.predicate_frame(term)? {
                     Some(frame) => frame,
@@ -609,7 +636,7 @@ impl Fmt<'_> {
             } => {
                 let name = self.spelling(*local);
                 self.line(depth, &format!("\\begin{{have}}{{{name}}}"));
-                let text = self.prose(proposition, true, 0)?;
+                let text = self.prose(proposition, true, 0, true)?;
                 self.line(depth, &format!("{text}."));
                 self.line(depth, "\\begin{proof}");
                 self.proof_lines(proof, depth)?;
@@ -713,7 +740,7 @@ impl Fmt<'_> {
                     &format!("\\begin{{{env}}}{{{}}}", declaration.component),
                 );
                 self.policy_line(depth, &declaration.policy);
-                let text = self.prose(statement, true, 0)?;
+                let text = self.prose(statement, true, 0, true)?;
                 self.line(depth, &format!("{text}."));
                 self.line(depth, "\\begin{proof}");
                 self.proof_lines(proof, depth)?;
@@ -870,7 +897,7 @@ impl Fmt<'_> {
             )),
             DeclKind::PredicateDefinition => Ok(format!(
                 "{text}{self_head} holds exactly when {}.",
-                self.prose(&rhs, false, 0)?
+                self.prose(&rhs, false, 0, true)?
             )),
             _ => Err(fmt_error("theorem-like kind in a definition sentence")),
         }

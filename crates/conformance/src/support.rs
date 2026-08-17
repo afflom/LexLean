@@ -1427,7 +1427,7 @@ pub fn corpus_declaration_lean(lean_name: &str) -> String {
         .iter()
         .position(|line| {
             line.starts_with(&format!("public theorem {lean_name} "))
-                || line.starts_with(&format!("public def {lean_name} "))
+                || line.starts_with(&format!("@[expose] public def {lean_name} "))
         })
         .unwrap_or_else(|| panic!("`{lean_name}` in the corpus Lean:\n{lean}"));
     let end = lines[start + 1..]
@@ -1447,7 +1447,7 @@ pub fn corpus_declaration_lean(lean_name: &str) -> String {
 pub const PROOF_FORMS_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{cases-goal}\n\\noaxioms\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\begin{proof}\n\\begin{cases}{n}\n\\begin{case}{lexlean.std.nat::zero}\n\\bind{}\nClose the goal by reflexivity.\n\\end{case}\n\\begin{case}{lexlean.std.nat::succ}\n\\bind{m}\nClose the goal by reflexivity.\n\\end{case}\n\\end{cases}\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{right-goal}\n\\noaxioms\nFor every natural number \\(n\\), \\(n = 1\\) or \\(n + 0 = n\\).\n\\begin{proof}\nSelect the right alternative.\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{induction-goal}\n\\noaxioms\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\begin{proof}\n\\begin{induction}{n}\n\\begin{case}{lexlean.std.nat::zero}\n\\bind{}\nClose the goal by reflexivity.\n\\end{case}\n\\begin{case}{lexlean.std.nat::succ}\n\\bind{m;ih}\nClose the goal by reflexivity.\n\\end{case}\n\\end{induction}\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{first}\n\\noaxioms\nIf \\(0 + 0 = 0\\), then \\(0 * 0 = 0\\).\n\\begin{proof}\nAssume \\(h\\).\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{apply-goal}\n\\noaxioms\n\\(0 * 0 = 0\\).\n\\begin{proof}\n\\begin{apply}{\\reference{Main::first}}\n\\begin{premise}{1}\nClose the goal by reflexivity.\n\\end{premise}\n\\end{apply}\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{zz}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\n\\begin{theorem}{calc-goal}\n\\noaxioms\n\\(0 + 0 = 0\\).\n\\begin{proof}\n\\begin{calculate}\n\\start{0 + 0}\n\\step{lexlean.core::eq}{0}{\\reference{Main::zz}}\n\\end{calculate}\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
 
 /// The exact generated Lean of [`PROOF_FORMS_MODULE`].
-pub const PROOF_FORMS_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem cases_goal (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  cases llv0 with\n    | zero =>\n      rfl\n    | succ llh0 =>\n      rfl\n\npublic theorem right_goal (llv0 : Nat) : Or (Eq llv0 (1 : Nat)) (Eq (Nat.add llv0 0) llv0) := by\n  right\n  rfl\n\npublic theorem induction_goal (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  induction llv0 with\n    | zero =>\n      rfl\n    | succ llh0 llh1 =>\n      rfl\n\npublic theorem first : (Eq (Nat.add 0 0) (0 : Nat)) → Eq (Nat.mul 0 0) (0 : Nat) := by\n  intro llh0\n  rfl\n\npublic theorem apply_goal : Eq (Nat.mul 0 0) (0 : Nat) := by\n  apply LexLeanExample.Main.first\n  rfl\n\npublic theorem zz : Eq (Nat.add 0 0) (0 : Nat) := by\n  rfl\n\npublic theorem calc_goal : Eq (Nat.add 0 0) (0 : Nat) := by\n  calc (Nat.add 0 0) = (0 : Nat) := LexLeanExample.Main.zz\n\nend LexLeanExample.Main\n";
+pub const PROOF_FORMS_LEAN: &str = "module\npublic import Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem cases_goal (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  cases llv0 with\n    | zero =>\n      rfl\n    | succ llh0 =>\n      rfl\n\npublic theorem right_goal (llv0 : Nat) : Or (Eq llv0 (1 : Nat)) (Eq (Nat.add llv0 0) llv0) := by\n  right\n  rfl\n\npublic theorem induction_goal (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  induction llv0 with\n    | zero =>\n      rfl\n    | succ llh0 llh1 =>\n      rfl\n\npublic theorem first : (Eq (Nat.add 0 0) (0 : Nat)) → Eq (Nat.mul 0 0) (0 : Nat) := by\n  intro llh0\n  rfl\n\npublic theorem apply_goal : Eq (Nat.mul 0 0) (0 : Nat) := by\n  apply LexLeanExample.Main.first\n  rfl\n\npublic theorem zz : Eq (Nat.add 0 0) (0 : Nat) := by\n  rfl\n\npublic theorem calc_goal : Eq (Nat.add 0 0) (0 : Nat) := by\n  calc (Nat.add 0 0) = (0 : Nat) := LexLeanExample.Main.zz\n\nend LexLeanExample.Main\n";
 
 /// The exact canonical LaTeX body (after `\\begin{document}`) of
 /// [`PROOF_FORMS_MODULE`].
@@ -1457,13 +1457,13 @@ pub const PROOF_FORMS_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number
 pub const SECTIONS_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{section}{outer}\n\\heading{Natural number addition}\n\\parameters{natural number \\(p\\); natural number \\(q\\)}\n\\begin{section}{middle}\n\\heading{Natural number addition}\n\\begin{section}{inner}\n\\heading{Natural number addition}\n\\begin{theorem}{deep}\n\\noaxioms\n\\(q + 0 = q\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{section}\n\\end{section}\n\\end{section}\n\\end{lexlean}\n";
 
 /// The exact generated Lean of [`SECTIONS_MODULE`].
-pub const SECTIONS_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem deep (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl\n\nend LexLeanExample.Main\n";
+pub const SECTIONS_LEAN: &str = "module\npublic import Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem deep (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl\n\nend LexLeanExample.Main\n";
 
 /// The exact canonical LaTeX body of [`SECTIONS_MODULE`].
 pub const SECTIONS_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\section{Natural number addition}\n\\label{ll:main:outer}\n\\[\\mathrm{Parameters}: \\forall p \\in \\mathbb{N}; \\forall q \\in \\mathbb{N}\\]\n\\subsection{Natural number addition}\n\\label{ll:main:middle}\n\\textbf{Natural number addition}\n\\label{ll:main:inner}\n\\begin{theorem}\n\\label{ll:main:deep}\n\\(q + 0 = q\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\end{document}\n";
 
 /// The definitions fixture rendered exactly.
-pub const DEFS_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic def count : Type :=\n  Nat\n\npublic def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0\n\npublic def good : Prop :=\n  Exists (fun (llv0 : Nat) => Eq llv0 llv0)\n\npublic theorem add_zero (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl\n\nend LexLeanExample.Main\n";
+pub const DEFS_LEAN: &str = "module\npublic import Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\n@[expose] public def count : Type :=\n  Nat\n\n@[expose] public def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0\n\n@[expose] public def good : Prop :=\n  Exists (fun (llv0 : Nat) => Eq llv0 llv0)\n\npublic theorem add_zero (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl\n\nend LexLeanExample.Main\n";
 
 /// The exact canonical LaTeX body of [`DEFS_MODULE`].
 pub const DEFS_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{definition}\n\\label{ll:main:count}\nA count is defined as \\(\\mathbb{N}\\).\n\\end{definition}\n\\begin{definition}\n\\label{ll:main:double}\nFor every natural number \\(n\\), \\(\\operatorname{double}(n)\\) is defined as \\(n + n\\).\n\\end{definition}\n\\begin{definition}\n\\label{ll:main:good}\n\\(\\operatorname{good}\\) holds exactly when there exists a natural number \\(k\\) such that \\(k = k\\).\n\\end{definition}\n\\begin{theorem}\n\\label{ll:main:add-zero}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\end{document}\n";
@@ -1472,7 +1472,7 @@ pub const DEFS_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number additi
 pub const UNIQUE_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.ext@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{unique}\n\\noaxioms\nThere exists exactly one natural number \\(k\\) such that \\(k = 0\\).\n\\begin{proof}\nUse \\(0\\) as the witness.\n\\begin{constructor}\n\\begin{branch}{1}\nClose the goal by reflexivity.\n\\end{branch}\n\\begin{branch}{2}\nAssume \\(y\\).\nAssume \\(h\\).\nClose the goal with \\(h\\).\n\\end{branch}\n\\end{constructor}\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
 
 /// The exact generated Lean of [`UNIQUE_MODULE`].
-pub const UNIQUE_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem unique : Exists (fun (llv0 : Nat) => And (Eq llv0 (0 : Nat)) ((llv1 : Nat) → (Eq llv1 (0 : Nat)) → Eq llv1 llv0)) := by\n  refine ⟨(0 : Nat), ?_⟩\n  constructor\n  rfl\n  intro llh0\n  intro llh1\n  exact llh1\n\nend LexLeanExample.Main\n";
+pub const UNIQUE_LEAN: &str = "module\npublic import Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem unique : Exists (fun (llv0 : Nat) => And (Eq llv0 (0 : Nat)) ((llv1 : Nat) → (Eq llv1 (0 : Nat)) → Eq llv1 llv0)) := by\n  refine ⟨(0 : Nat), ?_⟩\n  constructor\n  rfl\n  intro llh0\n  intro llh1\n  exact llh1\n\nend LexLeanExample.Main\n";
 
 /// The exact canonical LaTeX body of [`UNIQUE_MODULE`].
 pub const UNIQUE_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{theorem}\n\\label{ll:main:unique}\nThere exists exactly one natural number \\(k\\) such that \\(k = 0\\).\n\\end{theorem}\n\\begin{proof}\nUse \\(0\\) as the witness.\nBranch \\(1\\):\nThe goal follows by reflexivity.\nBranch \\(2\\):\nAssume \\(y\\).\nAssume \\(h\\).\nThe goal follows from \\(h\\).\n\\end{proof}\n\\end{document}\n";
@@ -1481,7 +1481,7 @@ pub const UNIQUE_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addi
 pub const DEFINED_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.ext@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{twoeq}\n\\noaxioms\n\\(two = two\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
 
 /// The exact generated Lean of [`DEFINED_MODULE`].
-pub const DEFINED_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem twoeq : Eq (Nat.succ (Nat.succ Nat.zero)) (Nat.succ (Nat.succ Nat.zero)) := by\n  rfl\n\nend LexLeanExample.Main\n";
+pub const DEFINED_LEAN: &str = "module\npublic import Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem twoeq : Eq (Nat.succ (Nat.succ Nat.zero)) (Nat.succ (Nat.succ Nat.zero)) := by\n  rfl\n\nend LexLeanExample.Main\n";
 
 /// LRE `sup`, `sub`, and `frac` renders.
 pub const LRE_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.ext@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{sqhalf}\n\\noaxioms\nFor every natural number \\(n\\), \\(sq(n) = sq(n)\\) and \\(half(n) = half(n)\\).\n\\begin{proof}\n\\begin{constructor}\n\\begin{branch}{1}\nClose the goal by reflexivity.\n\\end{branch}\n\\begin{branch}{2}\nClose the goal by reflexivity.\n\\end{branch}\n\\end{constructor}\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
@@ -1493,7 +1493,7 @@ pub const LRE_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number additio
 pub const DEPENDENT_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.ext@1.0.0}\n\\title{Natural number addition}\n\n\\begin{section}{outer}\n\\heading{Natural number addition}\n\\parameters{natural number \\(n\\); \\(fin(n)\\) \\(i\\)}\n\\begin{theorem}{dep}\n\\noaxioms\n\\(i = i\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{section}\n\\end{lexlean}\n";
 
 /// The exact generated Lean of [`DEPENDENT_MODULE`].
-pub const DEPENDENT_LEAN: &str = "module\nimport Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem dep (llv0 : Nat) (llv1 : Fin llv0) : Eq llv1 llv1 := by\n  rfl\n\nend LexLeanExample.Main\n";
+pub const DEPENDENT_LEAN: &str = "module\npublic import Init\nset_option autoImplicit false\nnamespace LexLeanExample.Main\n\npublic theorem dep (llv0 : Nat) (llv1 : Fin llv0) : Eq llv1 llv1 := by\n  rfl\n\nend LexLeanExample.Main\n";
 
 /// The `test.ext` fixture entries: a universe-polymorphic proof constant
 /// (`Eq.symm`), a numeral-bearing signature (`Nat.zero_add`), a defined
@@ -1926,7 +1926,7 @@ pub fn print_axioms_output() -> (String, String) {
         .prefix("lexlean-axioms-")
         .tempdir()
         .expect("tempdir");
-    let body = "module\nimport Init\nnamespace Demo.M\npublic theorem no_ax (n : Nat) : n = n := rfl\npublic theorem uses_choice (p : Prop) : p ∨ ¬ p := Classical.em p\npublic theorem uses_funext (f g : Nat → Nat) (h : ∀ x, f x = g x) : f = g := funext h\nend Demo.M\n#print axioms Demo.M.no_ax\n#print axioms Demo.M.uses_choice\n#print axioms Demo.M.uses_funext\n";
+    let body = "module\npublic import Init\nnamespace Demo.M\npublic theorem no_ax (n : Nat) : n = n := rfl\npublic theorem uses_choice (p : Prop) : p ∨ ¬ p := Classical.em p\npublic theorem uses_funext (f g : Nat → Nat) (h : ∀ x, f x = g x) : f = g := funext h\nend Demo.M\n#print axioms Demo.M.no_ax\n#print axioms Demo.M.uses_choice\n#print axioms Demo.M.uses_funext\n";
     let run = |name: &str, text: &str| {
         let path = dir.path().join(name);
         std::fs::write(&path, text).expect("write module");

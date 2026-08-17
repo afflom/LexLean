@@ -57,6 +57,21 @@ impl CoreRef {
         })
     }
 
+    /// The core constructor name in glossary data, the inverse of
+    /// [`Self::from_constructor`].
+    #[must_use]
+    pub const fn constructor_name(self) -> &'static str {
+        match self {
+            Self::Eq => "logic.eq",
+            Self::And => "logic.and",
+            Self::Or => "logic.or",
+            Self::Not => "logic.not",
+            Self::Iff => "logic.iff",
+            Self::Exists => "logic.exists",
+            Self::ExistsUnique => "logic.exists-unique",
+        }
+    }
+
     /// The fully qualified Lean lowering (§18.4).
     #[must_use]
     pub const fn lean_name(self) -> &'static str {

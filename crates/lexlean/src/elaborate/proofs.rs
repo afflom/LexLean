@@ -136,7 +136,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
     /// arguments, beta-reduced. Repeated until the head is not such a
     /// definition; the result is what the shape checks see, exactly as
     /// pinned Lean unfolds the definition when the tactic needs it.
-    fn unfold_definitions(&self, goal: &Term) -> Term {
+    fn unfold_definitions(&mut self, goal: &Term) -> Term {
         let mut current = goal.clone();
         let mut steps: u64 = 0;
         loop {
@@ -148,18 +148,56 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 } => (&**function, explicit_args.clone()),
                 other => (other, Vec::new()),
             };
-            let Term::Global(GlobalRef::Document(reference), _) = function else {
-                return current;
-            };
-            let Some(info) = self
-                .shared
-                .decls
-                .get(&reference.module, &reference.component)
-            else {
-                return current;
-            };
-            let Some(value) = &info.value else {
-                return current;
+            // A document definition unfolds through the declaration table; a
+            // defined lexicon value (§13.6) unfolds through its LSE value,
+            // instantiated with fresh binder identities.
+            let owned_value: Term;
+            let value: &Term = match function {
+                Term::Global(GlobalRef::Document(reference), _) => {
+                    let Some(info) = self
+                        .shared
+                        .decls
+                        .get(&reference.module, &reference.component)
+                    else {
+                        return current;
+                    };
+                    match &info.value {
+                        Some(value) => value,
+                        None => return current,
+                    }
+                }
+                Term::Global(GlobalRef::DefinedLexicon(defined), _) => {
+                    let Some(entry) = QualifiedId::parse(&defined.entry)
+                        .ok()
+                        .and_then(|id| self.shared.closure.entry(&id))
+                    else {
+                        return current;
+                    };
+                    let crate::lexicon::entry::Denotation::Defined { value: lse, .. } =
+                        &entry.denotation
+                    else {
+                        return current;
+                    };
+                    let universes: BTreeMap<String, crate::ir::term::Universe> = entry
+                        .universes
+                        .iter()
+                        .map(|name| (name.clone(), crate::ir::term::Universe::Var(name.clone())))
+                        .collect();
+                    match crate::elaborate::expressions::lse_to_term(
+                        lse,
+                        self.shared,
+                        self.alloc,
+                        &universes,
+                        None,
+                    ) {
+                        Ok(term) => {
+                            owned_value = term;
+                            &owned_value
+                        }
+                        Err(_) => return current,
+                    }
+                }
+                _ => return current,
             };
             let unfolded = match value {
                 Term::Lambda { binders, body } if binders.len() == args.len() => {
@@ -283,6 +321,39 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         )?;
         self.rows.extend(result.rows.clone());
         Ok(result)
+    }
+
+    /// Elaborate a proof-term island against a known goal, conservatively:
+    /// first with the goal itself as the expected type, then with the goal
+    /// unfolded through document definitions (Lean's `exact` sees through
+    /// them by delta reduction), and finally without an expected type when
+    /// the term has one interpretation on its own — LexLean's unifier does
+    /// not claim Lean's definitional equality (§17.6), so a term that
+    /// elaborates uniquely is handed to Lean, which is final (§16.1). A term
+    /// with no interpretation at all keeps the first, expected-type-directed
+    /// diagnostic.
+    fn term_against_goal(
+        &mut self,
+        token: &TextToken,
+        goal: Option<&Term>,
+    ) -> Result<ElabTerm, Diagnostic> {
+        let Some(goal_term) = goal else {
+            return self.term_island(token, None);
+        };
+        let first = match self.term_island(token, Some(goal_term)) {
+            Ok(term) => return Ok(term),
+            Err(diagnostic) => diagnostic,
+        };
+        let unfolded = self.unfold_definitions(goal_term);
+        if unfolded != *goal_term {
+            if let Ok(term) = self.term_island(token, Some(&unfolded)) {
+                return Ok(term);
+            }
+        }
+        match self.term_island(token, None) {
+            Ok(term) => Ok(term),
+            Err(_) => Err(first),
+        }
     }
 
     /// A brace argument that holds one mathematical term (§16.4–§16.10).
@@ -708,6 +779,9 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         let Some(ty) = function.ty.as_ref() else {
             return Residuals::Unknown;
         };
+        // A conclusion headed by a definition (document or defined lexicon
+        // value) is read through its definition, as Lean's `apply` does.
+        let ty = &self.unfold_definitions(ty);
         let (binders, conclusion) = flatten_pi(ty);
         if binders.is_empty() {
             // `Not P` is `P → False`: applying a negation leaves exactly the
@@ -747,19 +821,13 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         let entry_id = match head_global(ty)? {
             GlobalRef::External(external) => QualifiedId::parse(&external.entry).ok()?,
             GlobalRef::DefinedLexicon(defined) => QualifiedId::parse(&defined.entry).ok()?,
-            GlobalRef::Core(core) => QualifiedId {
-                package: "lexlean.core".to_owned(),
-                entry: match core {
-                    CoreRef::And => "land",
-                    CoreRef::Or => "lor",
-                    CoreRef::Iff => "iff",
-                    CoreRef::Exists => "exists",
-                    CoreRef::Eq => "eq",
-                    CoreRef::Not => "lnot",
-                    CoreRef::ExistsUnique => return None,
-                }
-                .to_owned(),
-            },
+            // A core-headed type finds the core entry that carries its
+            // constructor (for example `logic.exists` → `exists-op`); the
+            // descriptor, when any, lives on that entry (§16.11).
+            GlobalRef::Core(core) => self
+                .shared
+                .closure
+                .core_entry_for_constructor(core.constructor_name())?,
             GlobalRef::Document(_) => return None,
         };
         let entry = self.shared.closure.entry(&entry_id)?;
@@ -1060,7 +1128,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 }
             }
             SentenceAstKind::CloseWith { term } => {
-                let exact = self.term_island(&term, goal.known())?;
+                let exact = self.term_against_goal(&term, goal.known())?;
                 Ok((Proof::Exact(exact.term), Goal::Unknown, true))
             }
             SentenceAstKind::CloseByReflexivity => {
@@ -1220,7 +1288,13 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         goal: &Goal,
         begin: usize,
     ) -> Result<Proof, Diagnostic> {
-        let scrutinee_term = self.term_brace(scrutinee)?;
+        let mut scrutinee_term = self.term_brace(scrutinee)?;
+        // A hypothesis whose type is a document or defined predicate is
+        // eliminated through its definition (as Lean's `cases` unfolds it):
+        // the descriptor is looked up on the unfolded head.
+        if let Some(ty) = scrutinee_term.ty.take() {
+            scrutinee_term.ty = Some(self.unfold_definitions(&ty));
+        }
         // The scrutinee type must carry a validated eliminator descriptor
         // (§16.8, GL-14).
         let Some((type_entry, eliminator)) = scrutinee_term

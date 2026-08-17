@@ -39,7 +39,7 @@ From one linked representation it generates the prose-free Lean module
 
 ```lean
 module
-import Init
+public import Init
 set_option autoImplicit false
 namespace LexLeanExample.Main
 
@@ -94,7 +94,7 @@ Range rows abbreviate consecutive registered IDs; every individual ID in each ra
 
 ## Documented deviations
 
-- Generated Lean declares `public theorem` / `public def` where SPEC.md §29.3 prints bare `theorem`: under the Lean 4.32.1 module system a non-`public` declaration is module-private, and the §18.9 axiom-audit module could not name it. The committed oracles carry `public`.
+- Generated Lean declares `public theorem` / `@[expose] public def` and `public import` where SPEC.md §18.1/§29.3 print bare `theorem` and `import`: under the Lean 4.32.1 module system a non-`public` declaration is module-private (the §18.9 axiom-audit module could not name it), and a non-`public` import may not contribute constants to a public declaration's signature, and a definition body is hidden from importing modules unless exposed (a theorem in another module could not unfold or eliminate a document definition). The committed oracles carry `public`.
 - The §21.5 `modules/<full-module-path>` artifact naming is realized as slash-separated directories (`modules/LexLeanExample/Main.lean`).
 - Unique existence (§18.4 names `ExistsUnique`) lowers to its definitional expansion `Exists (fun (x : T) => And (P) ((y : T) → P[x:=y] → Eq y x))`: Lean 4.32.1's `Init` has no `ExistsUnique` constant. The linked IR keeps `ExistsUnique`; only the printed Lean bytes expand it, and a `Witness` step leaves the `And` goal for the remaining proof.
 - The §18.8 probe module declares alpha-renamed universe variables with one `universe p0u ...` command before its `example` lines: Lean 4 has no `example.{u}` form.

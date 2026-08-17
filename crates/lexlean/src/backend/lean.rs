@@ -1612,6 +1612,13 @@ pub fn render_module(
         sink.kw("module");
         sink.ws("\n");
         for import in module_imports(document, closure, module_prefix) {
+            // Under the Lean 4.32.1 module system a plain `import` is
+            // private: constants of the imported module may not appear in
+            // the signatures of this module's `public` declarations. Every
+            // generated declaration is public API, so every import is a
+            // `public import` (README, documented deviations).
+            sink.kw("public");
+            sink.ws(" ");
             sink.kw("import");
             sink.ws(" ");
             sink.ident(
@@ -1800,6 +1807,16 @@ fn render_declaration(
                 role: MapRole::Declaration,
                 node,
             };
+            // A document definition is a transparent, nonrecursive `def`
+            // (§18.6). Under the Lean 4.32.1 module system a definition's
+            // body is hidden from importing modules unless it is exposed, so
+            // every generated definition is `@[expose] public def` (README,
+            // documented deviations): a theorem in an importing module may
+            // unfold it exactly as one in the defining module can.
+            sink.sym("@[");
+            sink.kw("expose");
+            sink.sym("]");
+            sink.ws(" ");
             sink.kw("public");
             sink.ws(" ");
             sink.kw("def");

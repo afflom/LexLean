@@ -14,7 +14,7 @@ pub(crate) fn run(id: &str) {
             project.check_ok();
             let lean = support::lean_text(&support::rendered(&project), "Main");
             assert!(
-                lean.contains("public def count : Type :=\n  Nat\n"),
+                lean.contains("@[expose] public def count : Type :=\n  Nat\n"),
                 "a type definition is a sort-valued def: {lean}"
             );
             let ambiguous = support::defs_project();
@@ -98,18 +98,20 @@ pub(crate) fn run(id: &str) {
             let project = support::defs_project();
             let lean = support::lean_text(&support::rendered(&project), "Main");
             assert!(
-                lean.contains("public def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0\n"),
+                lean.contains(
+                    "@[expose] public def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0\n"
+                ),
                 "the term definition emits an explicitly typed def: {lean}"
             );
             let fixture = support::verified_corpus();
             assert_eq!(fixture.attestation["status"], "verified");
             assert_eq!(
                 support::corpus_declaration_lean("double"),
-                "public def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0"
+                "@[expose] public def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0"
             );
             assert_eq!(
                 support::corpus_declaration_lean("combine"),
-                "public def combine (llv0 : Nat) (llv1 : Nat) : Nat :=\n  Nat.add llv0 llv1"
+                "@[expose] public def combine (llv0 : Nat) (llv1 : Nat) : Nat :=\n  Nat.add llv0 llv1"
             );
             let checked = support::checked_project(&fixture.project);
             let canonical =
@@ -161,7 +163,7 @@ pub(crate) fn run(id: &str) {
             let lean = support::lean_text(&support::rendered(&project), "Main");
             assert!(
                 lean.contains(
-                    "public def good : Prop :=\n  Exists (fun (llv0 : Nat) => Eq llv0 llv0)\n"
+                    "@[expose] public def good : Prop :=\n  Exists (fun (llv0 : Nat) => Eq llv0 llv0)\n"
                 ),
                 "a predicate def returns Prop: {lean}"
             );
@@ -169,7 +171,7 @@ pub(crate) fn run(id: &str) {
             assert_eq!(fixture.attestation["status"], "verified");
             assert_eq!(
                 support::corpus_declaration_lean("even"),
-                "public def even (llv0 : Nat) : Prop :=\n  Exists (fun (llv1 : Nat) => Eq llv0 (Nat.add llv1 llv1))"
+                "@[expose] public def even (llv0 : Nat) : Prop :=\n  Exists (fun (llv1 : Nat) => Eq llv0 (Nat.add llv1 llv1))"
             );
             assert_eq!(
                 support::corpus_declaration_lean("double_even"),
