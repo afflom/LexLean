@@ -370,6 +370,20 @@ pub(crate) fn run(id: &str) {
                 "no lambda is applied in place: {lean}"
             );
             support::verify_ok(&defined);
+
+            // A defined value whose body ignores a binder drops that
+            // argument from the printed Lean, so a declaration binder the
+            // dropped argument was the only reference to is unreferenced in
+            // the generated text and must carry the `_` prefix: pinned
+            // Lean's linter warns otherwise and §20.2 makes the warning a
+            // verification failure.
+            let dropped = support::dropped_argument_project();
+            let lean = support::lean_text(&support::rendered(&dropped), "Main");
+            assert!(
+                lean.contains("public theorem add_zero (llv0 : Nat) (_llv1 : Nat) : Eq llv0 llv0"),
+                "the dropped argument's binder is unreferenced: {lean}"
+            );
+            support::verify_ok(&dropped);
         }
         // §18.7: proof lowering uses only the fixed pinned forms.
         "LN-08" => {

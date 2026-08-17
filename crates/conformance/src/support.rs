@@ -3039,3 +3039,56 @@ pub fn unicode_surface_project() -> P {
     project.relock();
     project
 }
+
+// ---- WS-integration helpers (printed-form binder analysis) ----
+
+/// A project whose glossary carries a defined value that ignores its second
+/// binder, so the beta-reduct the Lean backend prints drops that argument
+/// (§13.6, §18.4).
+#[must_use]
+pub fn dropped_argument_project() -> P {
+    let project = P::example();
+    project.add_package(
+        "lexicons/test-dropped",
+        "test.dropped",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &[(
+            "ignores.toml",
+            r#"spec = "lexlean/entry/1"
+id = "ignores"
+category = "infix-predicate"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (sort prop))"
+surface_arity = 2
+frame = "infix"
+precedence = 50
+associativity = "none"
+
+[denotation]
+kind = "defined"
+value = "(lam ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (local a) (local a)))"
+
+[[form]]
+id = "ignores"
+channel = "math"
+surface = "≗"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token equals) (space) (slot 1))"
+"#,
+        )],
+    );
+    project.edit(
+        "src/Main.lex.tex",
+        "\\useglossary{lexlean.std.nat@1.0.0}",
+        "\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.dropped@1.0.0}",
+    );
+    project.edit(
+        "src/Main.lex.tex",
+        "For every natural number \\(n\\), \\(n + 0 = n\\).",
+        "For every natural number \\(n\\) and natural number \\(m\\), \\(n ≗ m\\).",
+    );
+    project.relock();
+    project
+}

@@ -56,16 +56,20 @@ struct Namer {
 }
 
 impl Namer {
-    fn for_declaration(declaration: &Declaration) -> Self {
+    fn for_declaration(declaration: &Declaration, ctx: TermCtx<'_>) -> Self {
         let mut used = BTreeSet::new();
+        // The analysis reads the declaration exactly as it will be printed,
+        // so it needs the same synthetic identities the printer allocates;
+        // this scratch namer supplies them and is then discarded.
+        let mut scratch = Self::default();
         // An inherited section parameter may be named only by a later
         // parameter's type (`(llv0 : Nat) (llv1 : Fin llv0)`, §18.3), which
         // the statement no longer holds: the parameter types are part of
         // what the declaration references.
         for param in &declaration.params {
-            collect_locals(&param.ty, &mut used);
+            collect_uses(&param.ty, ctx, &mut scratch, &mut used);
         }
-        declaration_uses(&declaration.body, &mut used);
+        declaration_uses(&declaration.body, ctx, &mut scratch, &mut used);
         Self {
             used,
             ..Self::default()
@@ -1341,21 +1345,79 @@ fn body_uses(term: &Term, id: LocalId) -> bool {
 /// introduction (a `Pi`/`Lambda`/`Let` binder, an `intro`, a `have`, a case
 /// binder) is not a reference, so a binder whose identity is absent here is
 /// bound and unused.
-fn declaration_uses(body: &DeclBody, out: &mut BTreeSet<LocalId>) {
+fn declaration_uses(
+    body: &DeclBody,
+    ctx: TermCtx<'_>,
+    scratch: &mut Namer,
+    out: &mut BTreeSet<LocalId>,
+) {
     match body {
         DeclBody::TheoremLike { statement, proof } => {
-            collect_locals(statement, out);
-            proof_uses(proof, out);
+            collect_uses(statement, ctx, scratch, out);
+            proof_uses(proof, ctx, scratch, out);
         }
         DeclBody::Definition { ty, value, .. } => {
-            collect_locals(ty, out);
-            collect_locals(value, out);
+            collect_uses(ty, ctx, scratch, out);
+            collect_uses(value, ctx, scratch, out);
         }
     }
 }
 
+/// The locals a term references *as printed*: a saturated application of a
+/// defined lexicon value prints as its beta-reduct, and a reduct may drop
+/// an argument (a value whose body ignores a binder), so the locals of the
+/// dropped argument are not referenced by the generated Lean and their
+/// binders must carry the `_` prefix (§17.8 deviation, README).
+fn collect_uses(term: &Term, ctx: TermCtx<'_>, scratch: &mut Namer, out: &mut BTreeSet<LocalId>) {
+    if let Term::App {
+        function,
+        explicit_args,
+        ..
+    } = term
+    {
+        if let Term::Global(global, _) = &**function {
+            if let Some(reduced) = beta_reduce_defined(global, explicit_args, ctx, scratch) {
+                collect_uses(&reduced, ctx, scratch, out);
+                return;
+            }
+        }
+    }
+    match term {
+        Term::Local(id) => {
+            out.insert(*id);
+        }
+        Term::Sort(_) | Term::Global(..) => {}
+        Term::App {
+            function,
+            explicit_args,
+            ..
+        } => {
+            collect_uses(function, ctx, scratch, out);
+            for argument in explicit_args {
+                collect_uses(argument, ctx, scratch, out);
+            }
+        }
+        Term::Pi { binders, body } | Term::Lambda { binders, body } => {
+            for binder in binders {
+                collect_uses(&binder.ty, ctx, scratch, out);
+            }
+            collect_uses(body, ctx, scratch, out);
+        }
+        Term::Let {
+            binder,
+            value,
+            body,
+        } => {
+            collect_uses(&binder.ty, ctx, scratch, out);
+            collect_uses(value, ctx, scratch, out);
+            collect_uses(body, ctx, scratch, out);
+        }
+        Term::NatLiteral { expected_type, .. } => collect_uses(expected_type, ctx, scratch, out),
+    }
+}
+
 /// The locals a proof references (see [`declaration_uses`]).
-fn proof_uses(proof: &Proof, out: &mut BTreeSet<LocalId>) {
+fn proof_uses(proof: &Proof, ctx: TermCtx<'_>, scratch: &mut Namer, out: &mut BTreeSet<LocalId>) {
     let target_use = |target: &RewriteTarget, out: &mut BTreeSet<LocalId>| {
         if let RewriteTarget::Hypothesis(id) = target {
             out.insert(*id);
@@ -1364,54 +1426,54 @@ fn proof_uses(proof: &Proof, out: &mut BTreeSet<LocalId>) {
     match proof {
         Proof::Sequence(steps) => {
             for step in steps {
-                proof_uses(step, out);
+                proof_uses(step, ctx, scratch, out);
             }
         }
         // `intro` binds; it does not reference.
         Proof::Intro(_) | Proof::Reflexivity | Proof::SelectLeft | Proof::SelectRight => {}
         Proof::Exact(term) | Proof::ApplyOne(term) | Proof::Witness(term) => {
-            collect_locals(term, out);
+            collect_uses(term, ctx, scratch, out);
         }
         Proof::Apply { function, premises } => {
-            collect_locals(function, out);
+            collect_uses(function, ctx, scratch, out);
             for premise in premises {
-                proof_uses(premise, out);
+                proof_uses(premise, ctx, scratch, out);
             }
         }
         Proof::Have {
             proposition, proof, ..
         } => {
-            collect_locals(proposition, out);
-            proof_uses(proof, out);
+            collect_uses(proposition, ctx, scratch, out);
+            proof_uses(proof, ctx, scratch, out);
         }
         Proof::Rewrite { target, rules } => {
             target_use(target, out);
             for rule in rules {
-                collect_locals(&rule.term, out);
+                collect_uses(&rule.term, ctx, scratch, out);
             }
         }
         Proof::SimplifyOnly { target, rules } => {
             target_use(target, out);
             for rule in rules {
-                collect_locals(rule, out);
+                collect_uses(rule, ctx, scratch, out);
             }
         }
         Proof::Constructor(branches) => {
             for branch in branches {
-                proof_uses(branch, out);
+                proof_uses(branch, ctx, scratch, out);
             }
         }
         Proof::Cases { scrutinee, cases } | Proof::Induction { scrutinee, cases } => {
-            collect_locals(scrutinee, out);
+            collect_uses(scrutinee, ctx, scratch, out);
             for case in cases {
-                proof_uses(&case.proof, out);
+                proof_uses(&case.proof, ctx, scratch, out);
             }
         }
         Proof::Calculate { start, steps, .. } => {
-            collect_locals(start, out);
+            collect_uses(start, ctx, scratch, out);
             for step in steps {
-                collect_locals(&step.term, out);
-                collect_locals(&step.proof, out);
+                collect_uses(&step.term, ctx, scratch, out);
+                collect_uses(&step.proof, ctx, scratch, out);
             }
         }
     }
@@ -2136,7 +2198,7 @@ fn render_declaration(
 ) -> Result<(), Diagnostic> {
     let node = emitter.node("declaration");
     let ctx = TermCtx { closure };
-    let mut namer = Namer::for_declaration(declaration);
+    let mut namer = Namer::for_declaration(declaration, ctx);
     match &declaration.body {
         DeclBody::TheoremLike { statement, proof } => {
             let mut sink = Sink {
