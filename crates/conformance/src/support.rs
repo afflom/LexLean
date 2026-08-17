@@ -2866,3 +2866,176 @@ pub fn f1_exact(lean_name: &str, expected: &str) {
         "exact generated Lean for `{lean_name}`"
     );
 }
+
+// ---- WS-G2 helpers (Lean backend, canonical LaTeX, verification) ----
+
+/// Run the pinned `lean` on a module whose `#print axioms` record is wider
+/// than the pretty-printer's default 120-column format width, and return
+/// its stdout normalized to LF. §22.5's fixtures are taken from the pinned
+/// toolchain's behavior, and that behavior includes breaking a long axiom
+/// list across continuation lines. Requires the pinned toolchain (callers
+/// gate on [`lean_backed`]).
+#[must_use]
+pub fn print_axioms_wrapped_output() -> String {
+    let lean = real_elan_home()
+        .join("toolchains")
+        .join(mangled_toolchain_name())
+        .join("bin")
+        .join("lean");
+    let dir = tempfile::Builder::new()
+        .prefix("lexlean-wrapped-axioms-")
+        .tempdir()
+        .expect("tempdir");
+    let body = "module\npublic import Init\nnamespace AVeryLongModulePrefixIndeedYesReallyLong.Main\npublic theorem even_or_not_and_more_words (n : Nat) : (∃ k, n = k + k) ∨ ¬ (∃ k, n = k + k) := Classical.em _\nend AVeryLongModulePrefixIndeedYesReallyLong.Main\n#print axioms AVeryLongModulePrefixIndeedYesReallyLong.Main.even_or_not_and_more_words\n";
+    let path = dir.path().join("Wrapped.lean");
+    std::fs::write(&path, body).expect("write module");
+    let output = std::process::Command::new(&lean)
+        .arg(&path)
+        .current_dir(dir.path())
+        .env("LEAN_PATH", "")
+        .output()
+        .expect("the pinned lean runs");
+    String::from_utf8_lossy(&output.stdout)
+        .replace("\r\n", "\n")
+        .replace(dir.path().to_string_lossy().as_ref(), "$STAGING")
+}
+
+/// The component ID of [`long_named_em_project`]'s theorem: long enough
+/// that `'<lean module>.<lean name>' depends on axioms: [propext,
+/// Classical.choice, Quot.sound]` exceeds 120 columns and the pinned
+/// toolchain wraps the record.
+pub const LONG_AXIOM_COMPONENT: &str = "excluded-middle-with-a-very-long-descriptive-name";
+
+/// The `em` fixture (a theorem depending on `Classical.em`) under a
+/// sufficient allow-list and a declaration name long enough to wrap.
+#[must_use]
+pub fn long_named_em_project() -> P {
+    let project = em_project("\\allowaxioms{Classical.choice;Quot.sound;propext}");
+    project.edit(
+        "src/Main.lex.tex",
+        "{theorem}{excluded}",
+        &format!("{{theorem}}{{{LONG_AXIOM_COMPONENT}}}"),
+    );
+    project
+}
+
+/// The `count` type noun of the `test.alias` fixture package, denoting a
+/// document type definition declared in module `Alias`.
+const ALIAS_COUNT_ENTRY: &str = r#"spec = "lexlean/entry/1"
+id = "count"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "document"
+module = "Alias"
+component = "count"
+
+[[form]]
+id = "count"
+channel = "text"
+surface = "count"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+"#;
+
+/// A two-module project: `Alias` defines the type `count`, and `Main`
+/// imports it and states a theorem whose numeral's expected type is that
+/// imported definition (§17.7).
+#[must_use]
+pub fn imported_alias_project() -> P {
+    let project = P::example();
+    project.add_package(
+        "lexicons/test-alias",
+        "test.alias",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &[("count.toml", ALIAS_COUNT_ENTRY)],
+    );
+    project.write(
+        "src/Alias.lex.tex",
+        "\\begin{lexlean}{Alias}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.alias@1.0.0}\n\\title{Natural number addition}\n\n\\begin{typedefinition}{count}{test.alias::count}\n\\noaxioms\nA count is defined as natural number.\n\\end{typedefinition}\n\\end{lexlean}\n",
+    );
+    project.write(
+        "src/Main.lex.tex",
+        "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.alias@1.0.0}\n\\importmodule{Alias}\n\\title{Natural number addition}\n\n\\begin{theorem}{alias-numeral}\n\\noaxioms\nFor every count \\(c\\), if \\(c = 0\\), then \\(c = 0\\).\n\\begin{proof}\nAssume \\(h\\).\nClose the goal with \\(h\\).\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n",
+    );
+    project.relock();
+    project
+}
+
+/// The module name [`underscore_module_project`] uses: §15.1 admits `_` in
+/// a Lean-name segment, and `\texttt{Main_x::zero-add}` would be a TeX
+/// error in math mode.
+pub const UNDERSCORE_MODULE: &str = "Main_x";
+
+/// [`polish_project`] under a module name containing `_`, so its
+/// `\texttt{Module::component}` document reference carries one.
+#[must_use]
+pub fn underscore_module_project() -> P {
+    let project = polish_project();
+    let renamed = POLISH_MODULE
+        .replace(
+            "\\begin{lexlean}{Main}",
+            &format!("\\begin{{lexlean}}{{{UNDERSCORE_MODULE}}}"),
+        )
+        .replace(
+            "\\reference{Main::",
+            &format!("\\reference{{{UNDERSCORE_MODULE}::"),
+        );
+    std::fs::remove_file(project.root.join("src/Main.lex.tex").as_std_path()).expect("remove");
+    project.write(&format!("src/{UNDERSCORE_MODULE}.lex.tex"), &renamed);
+    project.edit(
+        "lexlean.toml",
+        "entrypoints = [\"src/Main.lex.tex\"]",
+        &format!("entrypoints = [\"src/{UNDERSCORE_MODULE}.lex.tex\"]"),
+    );
+    project.relock();
+    project
+}
+
+/// A fixture entry whose canonical math form is a non-ASCII glyph and
+/// whose LRE renders that surface directly, instead of naming a renderer
+/// token. §13.5 rule 5 admits the surface in source; §19.1 and §13.10 do
+/// not admit its bytes in the document.
+const UNICODE_SURFACE_ENTRY: &str = r#"spec = "lexlean/entry/1"
+id = "voidset"
+category = "term-constant"
+signature = "(const lexlean.std.nat::nat)"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.zero"
+
+[[form]]
+id = "voidset"
+channel = "math"
+surface = "∅"
+canonical_source = true
+features = []
+
+[render]
+math = "(self-form voidset)"
+"#;
+
+/// A project whose theorem mentions the [`UNICODE_SURFACE_ENTRY`] constant.
+#[must_use]
+pub fn unicode_surface_project() -> P {
+    let project = P::example();
+    project.add_package(
+        "lexicons/test-unicode",
+        "test.unicode",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &[("voidset.toml", UNICODE_SURFACE_ENTRY)],
+    );
+    project.write(
+        "src/Main.lex.tex",
+        "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.unicode@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{void-self}\n\\noaxioms\n\\(∅ = ∅\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n",
+    );
+    project.relock();
+    project
+}

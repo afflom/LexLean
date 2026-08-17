@@ -648,6 +648,14 @@ grouping = false
 authority = "lexlean.core"
 
 [[token]]
+id = "underscore"
+bytes = "\\_"
+channel = "both"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
 id = "union"
 bytes = "\\cup"
 channel = "math"

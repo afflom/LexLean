@@ -630,6 +630,21 @@ pub(crate) fn run(id: &str) {
                 error.to_string().contains("extra.txt"),
                 "the extra file is named: {error}"
             );
+            // §23.7: both branches of the reuse check print the build
+            // directory project-relative, so the message reads the same on
+            // every host and stays byte-comparable.
+            let rendered = error.to_string();
+            assert!(
+                rendered.contains(&format!(
+                    ".lexlean/build/{}",
+                    fresh_build.build_id.expect("built").to_hex()
+                )),
+                "the build directory is project-relative: {rendered}"
+            );
+            assert!(
+                !rendered.contains(fresh.root.as_str()),
+                "no absolute path leaks into the diagnostic: {rendered}"
+            );
 
             // No staging residue anywhere.
             for entry in walkdir::WalkDir::new(project.root.join(".lexlean").as_std_path())

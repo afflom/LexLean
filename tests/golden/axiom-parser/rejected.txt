@@ -2,6 +2,7 @@
 'Demo.M.empty' depends on axioms: []
 "Demo.M.wrongquote" does not depend on any axioms
 'Demo.M.trailing' does not depend on any axioms extra
+'Demo.M.unterminated' depends on axioms: [propext,
 some unrelated informational text
 $STAGING/audit/A.lean:3:0: warning: 'Demo.M.warned' does not depend on any axioms
 $STAGING/audit/A.lean:3:0: error: 'Demo.M.errored' does not depend on any axioms

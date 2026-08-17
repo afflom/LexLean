@@ -154,6 +154,78 @@ fn axiom_parser_matches_the_golden_vectors() {
     }
 }
 
+/// §6 I14, §25.5: a left-associative infix chain is a limit failure with a
+/// span, never an abort. The math parser counts only right-nested infix
+/// operands, so `0 + 0 + 0 + ...` parses at depth 1 while the expression
+/// elaborator recurses once per operand; before the elaborator bounded its
+/// own recursion this input overflowed the compile thread's 256 MiB stack
+/// and the process died with SIGABRT and no diagnostic.
+#[test]
+fn a_long_infix_chain_is_a_limit_failure() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("repo root")
+        .to_path_buf();
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("project");
+    copy_tree(&root.join("examples/nat-add-zero"), &project);
+    let source = project.join("src/Main.lex.tex");
+    let statement = std::fs::read_to_string(&source).expect("read");
+    // 10000 operands: far inside `max_file_bytes` and `max_primitive_atoms`
+    // and a hundredfold under the observed abort threshold's headroom, so
+    // the case is an ordinary program by every configured measure.
+    let chain = vec!["0"; 10_000].join(" + ");
+    std::fs::write(
+        &source,
+        statement.replace("\\(n + 0 = n\\)", &format!("\\({chain} + n = n\\)")),
+    )
+    .expect("write");
+    let binary = env!("CARGO_BIN_EXE_lexlean");
+    let lock = std::process::Command::new(binary)
+        .arg("lock")
+        .current_dir(&project)
+        .output()
+        .expect("runs");
+    assert!(lock.status.success(), "lock: {lock:?}");
+    let output = std::process::Command::new(binary)
+        .args(["--color", "never", "check"])
+        .current_dir(&project)
+        .output()
+        .expect("runs");
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "a limit failure exits 4, never aborting: {output:?}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.starts_with("error[LLS8002]"), "{stderr}");
+    assert!(
+        stderr.contains("max_scope_depth")
+            && stderr.contains("1024")
+            && stderr.contains("nesting depth 1025"),
+        "the diagnostic names the limit, its value, and the observed depth: {stderr}"
+    );
+    assert!(
+        stderr.contains("src/Main.lex.tex:"),
+        "the diagnostic carries a source span: {stderr}"
+    );
+}
+
+/// Copy a directory tree, for a temporary working copy of an example.
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).expect("mkdir");
+    for entry in std::fs::read_dir(from).expect("read_dir") {
+        let entry = entry.expect("entry");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("file type").is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).expect("copy");
+        }
+    }
+}
+
 /// §22.7: process normalization replaces every pinned prefix and
 /// normalizes line endings and blank tails.
 #[test]

@@ -121,12 +121,66 @@ impl Namer {
     }
 }
 
+/// Every document definition of the linked project by `(module,
+/// component)`, so a declaration rendered in one module can read a type
+/// definition declared in another (§17.7: an import exposes all exported
+/// declarations of the imported module).
+pub struct DocumentAliases<'a> {
+    values: BTreeMap<(&'a str, &'a str), &'a Term>,
+}
+
+impl<'a> DocumentAliases<'a> {
+    /// Collect the definitions of every module the build renders.
+    pub fn of_documents(documents: impl IntoIterator<Item = &'a DocumentModule>) -> Self {
+        let mut values = BTreeMap::new();
+        for document in documents {
+            for declaration in document.declarations() {
+                if let DeclBody::Definition { value, .. } = &declaration.body {
+                    values.insert(
+                        (document.name.as_str(), declaration.component.as_str()),
+                        value,
+                    );
+                }
+            }
+        }
+        Self { values }
+    }
+
+    /// The type a numeral's expected type is ascribed at: a document type
+    /// definition is replaced by what it is defined as, in any module of
+    /// the project (README, documented deviations: a numeral is ascribed
+    /// `(0 : Nat)`, never `(0 : count)`). Lean's `OfNat` instances live on
+    /// the underlying type and a generated `def count : Type := Nat` is
+    /// not unfolded during instance synthesis, so an alias ascription
+    /// cannot elaborate --- in the defining module exactly as in an
+    /// importing one. Each step consumes one distinct declaration, whose
+    /// identity bounds the walk; document definitions are acyclic (§15.7
+    /// rule 8) and the `seen` set makes that independent of the check.
+    fn ascription(&self, expected: &'a Term) -> &'a Term {
+        let mut current = expected;
+        let mut seen: BTreeSet<(&str, &str)> = BTreeSet::new();
+        while let Term::Global(GlobalRef::Document(reference), _) = current {
+            let key = (reference.module.as_str(), reference.component.as_str());
+            if !seen.insert(key) {
+                return current;
+            }
+            let Some(value) = self.values.get(&key) else {
+                return current;
+            };
+            current = value;
+        }
+        current
+    }
+}
+
 /// A token sink bound to one origin context.
 struct Sink<'a> {
     emitter: &'a mut Emitter,
     source: EmitSource,
     role: MapRole,
     node: usize,
+    /// The project's document definitions, for numeral ascription.
+    aliases: &'a DocumentAliases<'a>,
 }
 
 impl Sink<'_> {
@@ -998,50 +1052,6 @@ fn bare_numeral_positions(function: &Term, closure: &Closure, arity: usize) -> V
 #[derive(Clone, Copy)]
 struct TermCtx<'a> {
     closure: &'a Closure,
-    document: &'a DocumentModule,
-}
-
-/// Unfold a type that is a document type definition of this module into
-/// the type it defines, repeatedly, and `None` when it is not one.
-///
-/// A document type definition emits `def <name> : Type := <value>`, which
-/// Lean unfolds for definitional equality but not for instance synthesis:
-/// a numeral ascribed to the alias has no `OfNat` instance and fails to
-/// elaborate. Every other use of the alias is left exactly as the IR spells
-/// it — only the numeral ascription needs the unfolded spelling (§18.4).
-/// A type definition is nonrecursive (§18.6), so the walk terminates; the
-/// visited set makes that independent of the IR's own guarantees.
-fn unfold_alias_type(ty: &Term, ctx: TermCtx<'_>) -> Option<Term> {
-    let mut current = ty.clone();
-    let mut unfolded = None;
-    let mut seen: BTreeSet<String> = BTreeSet::new();
-    loop {
-        let Term::Global(GlobalRef::Document(reference), _) = &current else {
-            return unfolded;
-        };
-        if reference.module != ctx.document.name || !seen.insert(reference.component.clone()) {
-            return unfolded;
-        }
-        let declaration = ctx
-            .document
-            .declarations()
-            .into_iter()
-            .find(|declaration| declaration.component == reference.component)?;
-        if declaration.kind != crate::ir::declaration::DeclKind::TypeDefinition {
-            return unfolded;
-        }
-        // A type definition with parameters is a family, not an alias: its
-        // value is only a type once applied, and a numeral's expected type
-        // is never the unapplied family.
-        if !declaration.params.is_empty() {
-            return unfolded;
-        }
-        let DeclBody::Definition { value, .. } = &declaration.body else {
-            return unfolded;
-        };
-        current = value.clone();
-        unfolded = Some(current.clone());
-    }
 }
 
 fn print_binder_open(sink: &mut Sink<'_>, mode: BinderMode) {
@@ -1174,15 +1184,15 @@ fn print_term(
                 // Lean resolves the numeral's `OfNat` instance against the
                 // ascribed type as written, so a document type alias must
                 // be ascribed unfolded (§18.4): `(2 : Nat)`, never
-                // `(2 : count)` for `def count : Type := Nat`.
-                let unfolded = unfold_alias_type(expected_type, ctx);
-                let ascribed = unfolded.as_ref().unwrap_or(expected_type);
+                // `(2 : count)` for `def count : Type := Nat`, in whichever
+                // module of the linked project defines the alias.
+                let ascription = sink.aliases.ascription(expected_type);
                 sink.sym("(");
                 sink.numeral(decimal);
                 sink.ws(" ");
                 sink.sym(":");
                 sink.ws(" ");
-                print_term(sink, ascribed, namer, ctx, false, false)?;
+                print_term(sink, ascription, namer, ctx, false, false)?;
                 sink.sym(")");
             }
         }
@@ -2012,6 +2022,7 @@ pub fn render_module(
     checked: &CheckedModule,
     closure: &Closure,
     module_prefix: &str,
+    aliases: &DocumentAliases<'_>,
 ) -> Result<Emitter, Diagnostic> {
     let document = &checked.document;
     let mut emitter = Emitter::new();
@@ -2022,6 +2033,7 @@ pub fn render_module(
             source: EmitSource::Synthetic("core:lean-preamble/1".to_owned()),
             role: MapRole::Synthetic,
             node: preamble_node,
+            aliases,
         };
         sink.kw("module");
         sink.ws("\n");
@@ -2070,6 +2082,7 @@ pub fn render_module(
             &binders,
             document,
             closure,
+            aliases,
         )?;
     }
 
@@ -2081,6 +2094,7 @@ pub fn render_module(
             source: EmitSource::Synthetic("core:lean-preamble/1".to_owned()),
             role: MapRole::Synthetic,
             node: end_node,
+            aliases,
         };
         sink.kw("end");
         sink.ws(" ");
@@ -2118,9 +2132,10 @@ fn render_declaration(
     binders: &BTreeMap<LocalId, (usize, usize)>,
     document: &DocumentModule,
     closure: &Closure,
+    aliases: &DocumentAliases<'_>,
 ) -> Result<(), Diagnostic> {
     let node = emitter.node("declaration");
-    let ctx = TermCtx { closure, document };
+    let ctx = TermCtx { closure };
     let mut namer = Namer::for_declaration(declaration);
     match &declaration.body {
         DeclBody::TheoremLike { statement, proof } => {
@@ -2129,6 +2144,7 @@ fn render_declaration(
                 source: EmitSource::File(origin.whole.0, origin.whole.1),
                 role: MapRole::Declaration,
                 node,
+                aliases,
             };
             // Lean 4.32.1's module system keeps declarations private to
             // their module unless marked `public`; the audit module and
@@ -2214,6 +2230,7 @@ fn render_declaration(
                 source: EmitSource::File(origin.whole.0, origin.whole.1),
                 role: MapRole::Declaration,
                 node,
+                aliases,
             };
             // A document definition is a transparent, nonrecursive `def`
             // (§18.6). Under the Lean 4.32.1 module system a definition's

@@ -1,0 +1,8 @@
+'AVeryLongModulePrefixIndeedYesReallyLong.Main.even_or_not_and_more_words' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+
+'AVeryLongModulePrefixIndeedYesReallyLong.Main.no_axioms_at_all_but_a_really_long_name' does not depend on any axioms
+
+'LexLeanWrapProbe.Main.uses_many_axioms_with_a_long_descriptive_name' depends on axioms: [LexLeanWrapProbe.aVeryLongAxiomNameThatIsQuiteLongIndeedForWrapping,
+ LexLeanWrapProbe.anotherVeryLongAxiomNameThatIsAlsoQuiteLongIndeed]

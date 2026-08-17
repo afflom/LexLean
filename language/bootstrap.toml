@@ -104,8 +104,10 @@ forbidden_controls = [
 # construct, the core-constructor math map, lambda and rewrite-direction
 # markers, the aligned calculation display and its `by` justification text
 # (§19.5), LRE sub/sup/frac lowering, sort names, grouping delimiters, and
-# the qualified-id fallback. Everything else is referenced through entry
-# LRE.
+# the qualified-id fallback, and the `\_` escape every identifier-shaped
+# name is emitted through (module segments, display spellings, LRE
+# operator names, and glossary surfaces admit `_`, which TeX would read as
+# a subscript). Everything else is referenced through entry LRE.
 tokens = [
     "documentclass",
     "opt-11pt",
@@ -172,4 +174,5 @@ tokens = [
     "frac",
     "sort-prop",
     "sort-type",
+    "underscore",
 ]
