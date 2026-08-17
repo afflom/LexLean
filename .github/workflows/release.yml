@@ -41,6 +41,10 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       image: ${{ steps.version.outputs.image }}
+      # The image tag a rehearsal may publish, and the switch that keeps it
+      # from publishing anything else.
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      tagged: ${{ steps.version.outputs.tagged }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: version
@@ -57,7 +61,20 @@ jobs:
           fi
           echo "version=$workspace" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER@L}/lexlean" >> "$GITHUB_OUTPUT"
-          echo "lexlean $workspace"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            # A tag is a release: the image carries the version, and the
+            # GitHub Release is published below.
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+            echo "image_tag=$workspace" >> "$GITHUB_OUTPUT"
+            echo "lexlean $workspace (${GITHUB_REF_NAME})"
+          else
+            # A manual run is a rehearsal: it proves the gate, the five host
+            # binaries, and the image on both architectures without naming a
+            # version no tag stands behind.
+            echo "tagged=false" >> "$GITHUB_OUTPUT"
+            echo "image_tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+            echo "lexlean $workspace (rehearsal at ${GITHUB_SHA:0:7}; nothing is published)"
+          fi
 
   # §30.3 CI evidence: the normative acceptance gate on the normative host,
   # from a clean checkout, naming the tagged commit.
@@ -174,10 +191,11 @@ jobs:
       - name: Build and push the per-architecture image
         env:
           IMAGE: ${{ needs.identity.outputs.image }}
+          IMAGE_TAG: ${{ needs.identity.outputs.image_tag }}
           VERSION: ${{ needs.identity.outputs.version }}
         run: |
           set -euo pipefail
-          tag="${IMAGE}:${VERSION}-${{ matrix.platform }}"
+          tag="${IMAGE}:${IMAGE_TAG}-${{ matrix.platform }}"
           docker build \
             --label "org.opencontainers.image.version=${VERSION}" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
@@ -204,22 +222,29 @@ jobs:
       - id: push
         env:
           IMAGE: ${{ needs.identity.outputs.image }}
-          VERSION: ${{ needs.identity.outputs.version }}
+          IMAGE_TAG: ${{ needs.identity.outputs.image_tag }}
+          TAGGED: ${{ needs.identity.outputs.tagged }}
         run: |
           set -euo pipefail
+          # `latest` follows released versions only: a rehearsal must not
+          # move the tag every other pull of the image resolves to.
+          extra=()
+          if [ "$TAGGED" = "true" ]; then extra=(--tag "${IMAGE}:latest"); fi
           docker buildx imagetools create \
-            --tag "${IMAGE}:${VERSION}" \
-            --tag "${IMAGE}:latest" \
-            "${IMAGE}:${VERSION}-amd64" "${IMAGE}:${VERSION}-arm64"
-          digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{.Manifest.Digest}}')"
+            --tag "${IMAGE}:${IMAGE_TAG}" "${extra[@]}" \
+            "${IMAGE}:${IMAGE_TAG}-amd64" "${IMAGE}:${IMAGE_TAG}-arm64"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${IMAGE_TAG}" --format '{{.Manifest.Digest}}')"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          echo "${IMAGE}:${VERSION}@${digest}"
+          echo "${IMAGE}:${IMAGE_TAG}@${digest}"
 
   # Assemble the §30.3 artifact set, read the release criterion over it, and
   # publish. This is the only job that writes to the repository.
   publish:
     name: publish the release
     needs: [identity, gate, binaries, manifest]
+    # Only a tag is a release. A manual run has already proved the gate, the
+    # binaries, and the image by reaching here.
+    if: needs.identity.outputs.tagged == 'true' 
     permissions:
       contents: write
     runs-on: ubuntu-24.04
