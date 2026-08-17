@@ -123,15 +123,36 @@ fn path_rules_are_strict() {
     assert!(!is_project_relative(""));
 }
 
+/// The repository root, when the crate is being tested inside it.
+///
+/// `examples/` is repository data, not crate data: `cargo package` cannot
+/// reach outside the package, so a test that reads an example has nothing to
+/// read in the packaged crate extracted on its own. Saying so beats failing
+/// there, and inside the repository the directory is always found, so nothing
+/// is skipped where the gate runs.
+fn repository_root() -> Option<std::path::PathBuf> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)?
+        .to_path_buf();
+    if root.join("examples/nat-add-zero/lexlean.toml").is_file() {
+        return Some(root);
+    }
+    eprintln!(
+        "the crate is being tested outside its repository; the assertions that read examples/ did not run"
+    );
+    None
+}
+
 /// §22.5: the axiom-output parser accepts and rejects the committed golden
 /// vectors, line by line.
 #[test]
 fn axiom_parser_matches_the_golden_vectors() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .expect("repo root")
-        .to_path_buf();
+    // The golden vectors are reached through the crate's own `tests/golden`
+    // link, not by climbing to the repository root: `cargo package`
+    // dereferences that link into the archive (§21.2), so the vectors are
+    // there in both layouts and the packaged crate tests itself.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
     let name_of = |line: &str| {
         line.split('\'')
             .nth(1)
@@ -162,11 +183,9 @@ fn axiom_parser_matches_the_golden_vectors() {
 /// and the process died with SIGABRT and no diagnostic.
 #[test]
 fn a_long_infix_chain_is_a_limit_failure() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .expect("repo root")
-        .to_path_buf();
+    let Some(root) = repository_root() else {
+        return;
+    };
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("project");
     copy_tree(&root.join("examples/nat-add-zero"), &project);
@@ -336,9 +355,19 @@ fn non_utf8_argv_and_cwd_are_environment_diagnostics() {
         assert_eq!(value["exit_code"], 3);
         assert_eq!(value["diagnostics"][0]["code"], "LLV7008");
 
+        // A non-UTF-8 *working directory* needs a filesystem that admits the
+        // name. Linux passes the bytes through; Apple's filesystems enforce
+        // UTF-8 and refuse the `mkdir` outright. Detecting that at run time
+        // rather than by `target_os` keeps the assertion wherever the host can
+        // actually represent the path, and says so where it cannot (§8.3).
         let temp = tempfile::tempdir().expect("tempdir");
         let bad_dir = temp.path().join(std::ffi::OsStr::from_bytes(b"cwd\xff"));
-        std::fs::create_dir(&bad_dir).expect("mkdir");
+        if let Err(error) = std::fs::create_dir(&bad_dir) {
+            eprintln!(
+                "the host filesystem refuses a non-UTF-8 directory name ({error}); the non-UTF-8 argv assertions ran and the cwd assertion did not (§8.3)"
+            );
+            return;
+        }
         let output = std::process::Command::new(binary)
             .args(["--color", "never", "check"])
             .current_dir(&bad_dir)

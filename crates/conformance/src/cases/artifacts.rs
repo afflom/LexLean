@@ -228,6 +228,12 @@ pub(crate) fn run(id: &str) {
             assert_eq!(messages[2].line, 7);
             // The remapped verification failure of the shared broken proof
             // carries a real source span and the generated location note.
+            // Producing the failure means running Lean (§8.3); every
+            // assertion above is a diagnostic-rendering property and runs on
+            // every supported host.
+            if !support::lean_backed("AR-03") {
+                return;
+            }
             let (project, error) = support::broken_proof();
             let diagnostic = error
                 .diagnostics
@@ -675,7 +681,9 @@ pub(crate) fn run(id: &str) {
         }
         // §22.8, AR-14: platform-bound evidence is separated.
         "AR-14" => {
-            let fixture = support::verified();
+            let Some(fixture) = support::example_backed("AR-14") else {
+                return;
+            };
             let verified_files = support::file_set(&fixture.outcome.root);
             assert!(
                 verified_files.iter().any(|file| file.ends_with(".olean")),

@@ -151,7 +151,7 @@ pub(crate) fn run(id: &str) {
                 support::PROOF_FORMS_LEAN,
                 "cases, right, induction, intro, apply with premises, and calc"
             );
-            support::verify_ok(&project);
+            support::verify_ok_backed("LN-05", &project);
 
             // Witness, left, have, rewrite, simp only.
             assert_eq!(
@@ -205,7 +205,7 @@ pub(crate) fn run(id: &str) {
                 support::lean_text(&support::rendered(&unique), "Main"),
                 support::UNIQUE_LEAN
             );
-            support::verify_ok(&unique);
+            support::verify_ok_backed("LN-05", &unique);
 
             // Numerals ascribe outside monomorphic parameter positions
             // (`(1 : Nat)` under `Eq`, bare under `Nat.add`).
@@ -233,7 +233,7 @@ pub(crate) fn run(id: &str) {
                 !alias_main.contains("(0 : LexLeanExample.Alias.count)"),
                 "the alias itself is never the ascription: {alias_main}"
             );
-            support::verify_ok(&alias);
+            support::verify_ok_backed("LN-05", &alias);
 
             // A defined value reaching Lean constants inlines them, and its
             // constants are imported and probed.
@@ -243,7 +243,7 @@ pub(crate) fn run(id: &str) {
                 support::lean_text(&support::rendered(&defined), "Main"),
                 support::DEFINED_LEAN
             );
-            support::verify_ok(&defined);
+            support::verify_ok_backed("LN-05", &defined);
 
             // Missing lowering is a hard error: the calculation lowering
             // exists only for the equality descriptor, and a non-equality
@@ -302,7 +302,7 @@ pub(crate) fn run(id: &str) {
                 support::DEPENDENT_LEAN,
                 "an unused parameter mentioned by a used parameter's type is included"
             );
-            support::verify_ok(&dependent);
+            support::verify_ok_backed("LN-06", &dependent);
         }
         // §18.6: definitions are always def, byte-exact, and verify.
         "LN-07" => {
@@ -321,7 +321,7 @@ pub(crate) fn run(id: &str) {
                     "no alternate declaration forms: {lean}"
                 );
             }
-            support::verify_ok(&project);
+            support::verify_ok_backed("LN-07", &project);
 
             // §18.4: a numeral whose expected type is a document type
             // definition ascribes the type that definition unfolds to.
@@ -343,7 +343,7 @@ pub(crate) fn run(id: &str) {
                 lean.contains("def count : Type :=") && lean.contains("def tally"),
                 "the alias itself is still emitted as a def naming the alias: {lean}"
             );
-            support::verify_ok(&aliased);
+            support::verify_ok_backed("LN-07", &aliased);
 
             // §13.6, §18.4: a saturated application of a defined lexicon
             // value prints as its beta-reduct — the value's meaning, the
@@ -369,7 +369,7 @@ pub(crate) fn run(id: &str) {
                 !lean.contains("fun (x"),
                 "no lambda is applied in place: {lean}"
             );
-            support::verify_ok(&defined);
+            support::verify_ok_backed("LN-07", &defined);
 
             // A defined value whose body ignores a binder drops that
             // argument from the printed Lean, so a declaration binder the
@@ -383,7 +383,7 @@ pub(crate) fn run(id: &str) {
                 lean.contains("public theorem add_zero (llv0 : Nat) (_llv1 : Nat) : Eq llv0 llv0"),
                 "the dropped argument's binder is unreferenced: {lean}"
             );
-            support::verify_ok(&dropped);
+            support::verify_ok_backed("LN-07", &dropped);
         }
         // §18.7: proof lowering uses only the fixed pinned forms.
         "LN-08" => {
@@ -580,8 +580,13 @@ pub(crate) fn run(id: &str) {
                 audit(lean, false).expect("generated modules pass");
             }
             // The verified fixture published its audited probe and audit
-            // modules; both pass the same lexer.
-            let fixture = support::verified();
+            // modules; both pass the same lexer. Publishing them is what
+            // `verify` does, so this half needs the pinned toolchain (§8.3);
+            // the generated modules above are a `build` product and are
+            // audited on every supported host.
+            let Some(fixture) = support::example_backed("LN-11") else {
+                return;
+            };
             for directory in ["probe", "audit"] {
                 let dir = fixture.outcome.root.join(directory);
                 let lean = std::fs::read_dir(dir.as_std_path())

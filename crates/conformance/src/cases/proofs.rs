@@ -55,14 +55,18 @@ fn fails_with(module: &str, code: &str) -> lexlean::diagnostic::Diagnostic {
         .expect("matched")
 }
 
-/// Assert the corpus verified and that one declaration's generated Lean is
-/// exactly `expected`.
-fn corpus_exact(lean_name: &str, expected: &str) {
-    let fixture = support::verified_corpus();
-    assert_eq!(
-        fixture.attestation["status"], "verified",
-        "the corpus attestation records success"
-    );
+/// Assert that one corpus declaration's generated Lean is exactly `expected`,
+/// and — where the pinned toolchain is installed — that the corpus verified.
+///
+/// The generated Lean is a `build` product and is asserted on every supported
+/// host; only the attestation needs Lean (§8.3).
+fn corpus_exact(id: &str, lean_name: &str, expected: &str) {
+    if let Some(fixture) = support::corpus_backed(id) {
+        assert_eq!(
+            fixture.attestation["status"], "verified",
+            "the corpus attestation records success"
+        );
+    }
     assert_eq!(
         support::corpus_declaration_lean(lean_name),
         expected,
@@ -75,11 +79,11 @@ pub(crate) fn run(id: &str) {
         // §16.2: Assume introduces scoped locals (`intro`); Close-with is
         // `exact`; both Lean-verified in the corpus.
         "PF-01" => {
-            corpus_exact(
+            corpus_exact("PF-01", 
                 "rewrite_hypothesis",
                 &format!("public theorem rewrite_hypothesis (llv0 : Nat) : (Eq (Nat.add llv0 0) (1 : Nat)) → Eq llv0 (1 : Nat) := by\n  intro llh0\n  rw [{M}.add_zero] at llh0\n  exact llh0"),
             );
-            corpus_exact(
+            corpus_exact("PF-01", 
                 "init_zero_add",
                 "public theorem init_zero_add (llv0 : Nat) : Eq (Nat.add 0 llv0) llv0 := by\n  exact Nat.zero_add llv0",
             );
@@ -114,7 +118,7 @@ pub(crate) fn run(id: &str) {
             // `Not P` is `P → False` (§16.2): a hypothesis of the function
             // type closes the negation goal; the shapes are never certainly
             // distinct, and pinned Lean accepts the exact term.
-            support::f1_exact(
+            support::f1_exact("PF-01", 
                 "not_intro",
                 "public theorem not_intro (llv0 : Prop) : (llv0 → False) → Not llv0 := by\n  intro llh0\n  exact llh0",
             );
@@ -131,7 +135,7 @@ pub(crate) fn run(id: &str) {
         // §16.2: simple Apply needs exactly one residual premise; a
         // quantified lemma's conclusion unifies with the goal (C5).
         "PF-02" => {
-            corpus_exact(
+            corpus_exact("PF-02", 
                 "apply_known",
                 &format!("public theorem apply_known (llv0 : Nat) : Eq (Nat.succ (Nat.add 0 llv0)) (Nat.succ llv0) := by\n  apply {M}.succ_congr\n  exact {M}.zero_add llv0"),
             );
@@ -152,14 +156,14 @@ pub(crate) fn run(id: &str) {
             // An external predicate (`Ne`) may reduce to a function type in
             // Lean: its residual is unknown, not zero, and Lean's `apply`
             // decides (§16.1).
-            support::f1_exact(
+            support::f1_exact("PF-02", 
                 "apply_ne",
                 "public theorem apply_ne (llv0 : Nat) : (Ne (Nat.succ llv0) 0) → (Eq (Nat.succ llv0) (0 : Nat)) → False := by\n  intro llh0\n  intro llh1\n  apply llh0\n  exact llh1",
             );
         }
         // §16.6: structured apply names every premise once, in order.
         "PF-03" => {
-            corpus_exact(
+            corpus_exact("PF-03", 
                 "structured_apply",
                 &format!("public theorem structured_apply (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  apply {M}.two_premises\n  rfl\n  exact Nat.zero_add llv0"),
             );
@@ -189,6 +193,7 @@ pub(crate) fn run(id: &str) {
         // §16.2: Reflexivity is exactly pinned rfl and closes the goal.
         "PF-04" => {
             corpus_exact(
+                "PF-04",
                 "add_zero",
                 "public theorem add_zero (llv0 : Nat) : Eq (Nat.add llv0 0) llv0 := by\n  rfl",
             );
@@ -215,11 +220,11 @@ pub(crate) fn run(id: &str) {
         // §16.2: witness supplies the next existential witness only; a
         // unique-existence witness leaves the And residual (C4).
         "PF-05" => {
-            corpus_exact(
+            corpus_exact("PF-05", 
                 "exists_witness",
                 "public theorem exists_witness : Exists (fun (llv0 : Nat) => Eq (Nat.add llv0 0) (0 : Nat)) := by\n  refine ⟨(0 : Nat), ?_⟩\n  rfl",
             );
-            corpus_exact(
+            corpus_exact("PF-05", 
                 "exists_unique",
                 "public theorem exists_unique : Exists (fun (llv0 : Nat) => And (Eq llv0 (0 : Nat)) ((llv1 : Nat) → (Eq llv1 (0 : Nat)) → Eq llv1 llv0)) := by\n  refine ⟨(0 : Nat), ?_⟩\n  constructor\n  rfl\n  intro _llh0 llh1\n  exact llh1",
             );
@@ -243,11 +248,11 @@ pub(crate) fn run(id: &str) {
         // §16.2: Left/Right select the disjunction constructor, including
         // inside case branches (S3).
         "PF-06" => {
-            corpus_exact(
+            corpus_exact("PF-06", 
                 "select_right",
                 "public theorem select_right (llv0 : Nat) : Or (Eq llv0 (1 : Nat)) (Eq (Nat.add llv0 0) llv0) := by\n  right\n  rfl",
             );
-            corpus_exact(
+            corpus_exact("PF-06", 
                 "cases_nat",
                 "public theorem cases_nat (llv0 : Nat) : Or (Eq (Nat.add llv0 0) llv0) (Eq llv0 (1 : Nat)) := by\n  cases llv0 with\n    | zero =>\n      left\n      rfl\n    | succ _llh0 =>\n      left\n      rfl",
             );
@@ -261,7 +266,7 @@ pub(crate) fn run(id: &str) {
         }
         // §16.3: have establishes, then scopes the fresh hypothesis.
         "PF-07" => {
-            corpus_exact(
+            corpus_exact("PF-07", 
                 "have_step",
                 &format!("public theorem have_step (llv0 : Nat) : Eq (Nat.add 0 llv0) (Nat.add llv0 0) := by\n  have llh0 : Eq (Nat.add 0 llv0) llv0 := by\n    exact Nat.zero_add llv0\n  rw [llh0, {M}.add_zero]"),
             );
@@ -299,15 +304,15 @@ pub(crate) fn run(id: &str) {
         // §16.4: every rule, in source order, directed, at one target; a
         // rewrite that closes the goal by rfl ends the proof (S8).
         "PF-08" => {
-            corpus_exact(
+            corpus_exact("PF-08", 
                 "succ_congr",
                 "public theorem succ_congr (llv0 : Nat) (llv1 : Nat) : (Eq llv0 llv1) → Eq (Nat.succ llv0) (Nat.succ llv1) := by\n  intro llh0\n  rw [llh0]",
             );
-            corpus_exact(
+            corpus_exact("PF-08", 
                 "rewrite_backward",
                 &format!("public theorem rewrite_backward (llv0 : Nat) (llv1 : Nat) : Eq (Nat.succ (Nat.add llv0 llv1)) (Nat.add llv0 (Nat.succ llv1)) := by\n  rw [← {M}.add_succ]"),
             );
-            corpus_exact(
+            corpus_exact("PF-08", 
                 "implies_rewrite",
                 &format!("public theorem implies_rewrite (llv0 : Nat) : (Eq llv0 (1 : Nat)) → Eq (Nat.add llv0 0) (1 : Nat) := by\n  intro llh0\n  rw [{M}.add_zero]\n  exact llh0"),
             );
@@ -333,11 +338,11 @@ pub(crate) fn run(id: &str) {
         // §16.5: simplify is simp only with exactly the listed rules; a
         // simp that closes the goal ends the proof (S8).
         "PF-09" => {
-            corpus_exact(
+            corpus_exact("PF-09", 
                 "simplify_both",
                 &format!("public theorem simplify_both (llv0 : Nat) : (Eq (Nat.add 0 llv0) (1 : Nat)) → Eq (Nat.add llv0 0) (1 : Nat) := by\n  intro llh0\n  simp only [{M}.zero_add] at llh0\n  simp only [{M}.add_zero]\n  exact llh0"),
             );
-            corpus_exact(
+            corpus_exact("PF-09", 
                 "simplify_closes",
                 &format!("public theorem simplify_closes (llv0 : Nat) : (Eq llv0 (1 : Nat)) → Eq (Nat.add llv0 0) (1 : Nat) := by\n  intro llh0\n  simp only [{M}.add_zero, llh0]"),
             );
@@ -361,15 +366,15 @@ pub(crate) fn run(id: &str) {
         // §16.7: constructor with the exact ordered branch count, over And,
         // Iff, and a glossary-declared structure (C13).
         "PF-10" => {
-            corpus_exact(
+            corpus_exact("PF-10", 
                 "constructor_and",
                 "public theorem constructor_and (llv0 : Nat) : And (Eq (Nat.add llv0 0) llv0) (Eq (Nat.add 0 llv0) llv0) := by\n  constructor\n  rfl\n  exact Nat.zero_add llv0",
             );
-            corpus_exact(
+            corpus_exact("PF-10", 
                 "constructor_iff",
                 "public theorem constructor_iff (llv0 : Nat) : Iff (Eq (Nat.add llv0 0) llv0) (Eq llv0 llv0) := by\n  constructor\n  intro _llh0\n  rfl\n  intro _llh1\n  rfl",
             );
-            corpus_exact(
+            corpus_exact("PF-10", 
                 "constructor_structure",
                 "public theorem constructor_structure (llv0 : Nat) : And (Eq (Nat.add llv0 0) llv0) (Eq (Nat.add 0 llv0) llv0) := by\n  constructor\n  rfl\n  exact Nat.zero_add llv0",
             );
@@ -398,15 +403,15 @@ pub(crate) fn run(id: &str) {
         // §16.8: cases needs the descriptor, every constructor, exact
         // binders; a hypothesis scrutinee binds typed fields.
         "PF-11" => {
-            corpus_exact(
+            corpus_exact("PF-11", 
                 "or_comm",
                 "public theorem or_comm (llv0 : Nat) : (Or (Eq llv0 (0 : Nat)) (Eq llv0 (1 : Nat))) → Or (Eq llv0 (1 : Nat)) (Eq llv0 (0 : Nat)) := by\n  intro llh0\n  cases llh0 with\n    | inl llh1 =>\n      right\n      exact llh1\n    | inr llh2 =>\n      left\n      exact llh2",
             );
-            corpus_exact(
+            corpus_exact("PF-11", 
                 "and_comm",
                 "public theorem and_comm (llv0 : Nat) : (And (Eq llv0 (0 : Nat)) (Eq (Nat.add llv0 0) llv0)) → And (Eq (Nat.add llv0 0) llv0) (Eq llv0 (0 : Nat)) := by\n  intro llh0\n  cases llh0 with\n    | intro llh1 llh2 =>\n      constructor\n      exact llh2\n      exact llh1",
             );
-            corpus_exact(
+            corpus_exact("PF-11", 
                 "not_both",
                 "public theorem not_both (llv0 : Nat) : Not (And (Eq llv0 llv0) (Not (Eq llv0 llv0))) := by\n  intro llh0\n  cases llh0 with\n    | intro llh1 llh2 =>\n      apply llh2\n      exact llh1",
             );
@@ -440,7 +445,7 @@ pub(crate) fn run(id: &str) {
         // §16.9: induction with exact field and IH binders; the hypothesis
         // is typed by the goal at the field and usable via Close-with.
         "PF-12" => {
-            corpus_exact(
+            corpus_exact("PF-12", 
                 "zero_add",
                 &format!("public theorem zero_add (llv0 : Nat) : Eq (Nat.add 0 llv0) llv0 := by\n  induction llv0 with\n    | zero =>\n      rfl\n    | succ _llh0 llh1 =>\n      rw [{M}.add_succ]\n      apply {M}.succ_congr\n      exact llh1"),
             );
@@ -454,7 +459,7 @@ pub(crate) fn run(id: &str) {
         // §16.10: one declared relation, two or more steps, exact endpoints
         // (free locals never conflate, C6).
         "PF-13" => {
-            corpus_exact(
+            corpus_exact("PF-13", 
                 "calculation",
                 &format!("public theorem calculation (llv0 : Nat) : Eq (Nat.add 0 (Nat.add llv0 0)) llv0 := by\n  calc (Nat.add 0 (Nat.add llv0 0)) = (Nat.add llv0 0) := ({M}.zero_add (Nat.add llv0 0))\n    _ = llv0 := ({M}.add_zero llv0)"),
             );
@@ -485,7 +490,7 @@ pub(crate) fn run(id: &str) {
             // Endpoints match through definition unfolding (§16.10): the goal
             // spells `double(n) + 0`, the chain starts at `n + n + 0`; Lean's
             // `calc` accepts the same relation.
-            support::f1_exact(
+            support::f1_exact("PF-13", 
                 "double_calc",
                 "public theorem double_calc (llv0 : Nat) : Eq (Nat.add (LexLeanExample.Main.double llv0) 0) (Nat.add llv0 llv0) := by\n  calc (Nat.add (Nat.add llv0 llv0) 0) = (Nat.add llv0 llv0) := (LexLeanExample.Main.add_zero (Nat.add llv0 llv0))",
             );
@@ -535,7 +540,7 @@ pub(crate) fn run(id: &str) {
                 ),
                 "LLF5002",
             );
-            corpus_exact(
+            corpus_exact("PF-15", 
                 "rewrite_backward",
                 &format!("public theorem rewrite_backward (llv0 : Nat) (llv1 : Nat) : Eq (Nat.succ (Nat.add llv0 llv1)) (Nat.add llv0 (Nat.succ llv1)) := by\n  rw [← {M}.add_succ]"),
             );
@@ -616,6 +621,9 @@ pub(crate) fn run(id: &str) {
         }
         // §20.4: Lean proof failures remap to the source proof span.
         "PF-18" => {
+            if !support::lean_backed("PF-18") {
+                return;
+            }
             let (project, error) = support::broken_proof();
             support::expect_code(error, "LLV7002");
             let diagnostic = error

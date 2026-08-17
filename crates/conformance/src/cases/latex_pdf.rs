@@ -27,10 +27,15 @@ fn stub_provider(project: &P, body: &str, exit_code: i32) -> PdfProvider {
         "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\nname=$(basename \"$3\" .tex)\n{body}exit {exit_code}\n"
     );
     project.write("tools/fakepdf", &script);
-    // The stub provider is a `#!/bin/sh` script: the executable bit exists
-    // only on unix hosts, and `PermissionsExt` does not compile elsewhere.
-    // A host without a POSIX shell cannot run these cases at all, and says
-    // so rather than passing vacuously (§8.3, R2).
+    // The stub provider is a `#!/bin/sh` script, and the executable bit it
+    // needs exists only on a unix host. Every caller reaches this through
+    // `support::posix_shell_backed`, which reports the hosts that cannot run
+    // one (§8.3, R2); the assertion names the gate for a caller that forgets
+    // it, instead of failing later with an exec error that says nothing.
+    assert!(
+        support::posix_shell_host(),
+        "the PDF-provider cases run a `#!/bin/sh` program: gate on support::posix_shell_backed"
+    );
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -41,9 +46,6 @@ fn stub_provider(project: &P, body: &str, exit_code: i32) -> PdfProvider {
         permissions.set_mode(0o755);
         std::fs::set_permissions(script_path.as_std_path(), permissions).expect("chmod");
     }
-    #[cfg(not(unix))]
-    panic!("the PDF-provider cases require a POSIX shell host (§8.3)");
-    #[cfg(unix)]
     PdfProvider {
         program: "tools/fakepdf".to_owned(),
         program_sha256: Sha256Digest::of(script.as_bytes()),
@@ -501,6 +503,9 @@ math = "(token write18)"
         // §19.7: hash-checked, shell-free, isolated execution with exact
         // resources, timeout, output cap, and exactly one output.
         "TX-09" => {
+            if !support::posix_shell_backed("TX-09") {
+                return;
+            }
             let project = P::example();
             let mut provider = fake_provider(&project, 0);
 
@@ -705,6 +710,9 @@ math = "(token write18)"
         }
         // §19.8: the recipe ID and the PDF hash are independent records.
         "TX-10" => {
+            if !support::posix_shell_backed("TX-10") {
+                return;
+            }
             let project = P::example();
             let provider = fake_provider(&project, 0);
             let result = run_fake_provider(&project, &provider).expect("runs");
@@ -757,6 +765,9 @@ math = "(token write18)"
         }
         // §19.7, §19.8: PDF never carries mathematical authority.
         "TX-11" => {
+            if !support::posix_shell_backed("TX-11") {
+                return;
+            }
             let project = P::example();
             let provider = fake_provider(&project, 1);
             let error = run_fake_provider(&project, &provider)
@@ -790,7 +801,9 @@ math = "(token write18)"
             // A configured provider records one row and two process records
             // per module in the attestation, and the PDF lands only in the
             // verified set.
-            let verified = support::verify_ok(&with_pdf);
+            let Some(verified) = support::verify_ok_backed("TX-11", &with_pdf) else {
+                return;
+            };
             let attestation: serde_json::Value = serde_json::from_slice(
                 &std::fs::read(verified.root.join("attestation.json").as_std_path()).expect("read"),
             )

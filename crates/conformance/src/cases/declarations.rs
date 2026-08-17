@@ -19,7 +19,11 @@ pub(crate) fn run(id: &str) {
             );
             // The right-hand side is a sort read through defined type nouns
             // (§13.6): a constant whose type is the defined noun `type`.
-            support::f1_exact("alias", "@[expose] public def alias : Type :=\n  Nat");
+            support::f1_exact(
+                "DF-01",
+                "alias",
+                "@[expose] public def alias : Type :=\n  Nat",
+            );
             let ambiguous = support::defs_project();
             ambiguous.add_package(
                 "lexicons/test-dupnat",
@@ -106,8 +110,9 @@ pub(crate) fn run(id: &str) {
                 ),
                 "the term definition emits an explicitly typed def: {lean}"
             );
-            let fixture = support::verified_corpus();
-            assert_eq!(fixture.attestation["status"], "verified");
+            if let Some(fixture) = support::corpus_backed("DF-02") {
+                assert_eq!(fixture.attestation["status"], "verified");
+            }
             assert_eq!(
                 support::corpus_declaration_lean("double"),
                 "@[expose] public def double (llv0 : Nat) : Nat :=\n  Nat.add llv0 llv0"
@@ -116,7 +121,7 @@ pub(crate) fn run(id: &str) {
                 support::corpus_declaration_lean("combine"),
                 "@[expose] public def combine (llv0 : Nat) (llv1 : Nat) : Nat :=\n  Nat.add llv0 llv1"
             );
-            let checked = support::checked_project(&fixture.project);
+            let checked = support::checked_project(support::shared_corpus_project());
             let canonical =
                 lexlean::fmt::canonical_source(&checked.modules["Main"], &checked.closure)
                     .expect("formats");
@@ -170,8 +175,9 @@ pub(crate) fn run(id: &str) {
                 ),
                 "a predicate def returns Prop: {lean}"
             );
-            let fixture = support::verified_corpus();
-            assert_eq!(fixture.attestation["status"], "verified");
+            if let Some(fixture) = support::corpus_backed("DF-03") {
+                assert_eq!(fixture.attestation["status"], "verified");
+            }
             assert_eq!(
                 support::corpus_declaration_lean("even"),
                 "@[expose] public def even (llv0 : Nat) : Prop :=\n  Exists (fun (llv1 : Nat) => Eq llv0 (Nat.add llv1 llv1))"
@@ -180,7 +186,7 @@ pub(crate) fn run(id: &str) {
                 support::corpus_declaration_lean("double_even"),
                 "public theorem double_even (llv0 : Nat) : LexLeanExample.Main.even (LexLeanExample.Main.double llv0) := by\n  refine ⟨llv0, ?_⟩\n  rfl"
             );
-            let checked = support::checked_project(&fixture.project);
+            let checked = support::checked_project(support::shared_corpus_project());
             let canonical =
                 lexlean::fmt::canonical_source(&checked.modules["Main"], &checked.closure)
                     .expect("formats");

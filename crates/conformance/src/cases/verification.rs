@@ -927,6 +927,13 @@ pub(crate) fn run(id: &str) {
 
             // A locked manifest naming a dependency that is not materialized
             // fails the Lake preflight with LLV7007 and publishes nothing.
+            // Reaching the Lake preflight means passing the toolchain
+            // preflight first, so this half needs the pinned toolchain; the
+            // stale-lock half above fails before Lean runs and is asserted on
+            // every supported host (§8.3).
+            if !support::lean_backed("VR-17") {
+                return;
+            }
             let unavailable = P::example();
             unavailable.write(
                 "lake-manifest.json",

@@ -20,9 +20,13 @@ fn theorem_module(statement: &str, proof: &str) -> String {
 }
 
 /// The generated Lean statement line of one corpus declaration.
-fn corpus_header(lean_name: &str) -> String {
-    let fixture = support::verified_corpus();
-    assert_eq!(fixture.attestation["status"], "verified");
+///
+/// The header is a `build` product asserted on every supported host; the
+/// corpus attestation behind it needs the pinned toolchain (§8.3).
+fn corpus_header(id: &str, lean_name: &str) -> String {
+    if let Some(fixture) = support::corpus_backed(id) {
+        assert_eq!(fixture.attestation["status"], "verified");
+    }
     support::corpus_declaration_lean(lean_name)
         .lines()
         .next()
@@ -310,7 +314,7 @@ pub(crate) fn run(id: &str) {
                 "nested calls with a grouped argument elaborate: {lean}"
             );
             assert_eq!(
-                corpus_header("nested_call"),
+                corpus_header("GR-05", "nested_call"),
                 format!("public theorem nested_call (llv0 : Nat) (llv1 : Nat) : Eq (Nat.add (Nat.succ llv0) ({M}.combine (Nat.add llv1 0) llv0)) (Nat.add ({M}.combine (Nat.add llv1 0) llv0) (Nat.succ llv0)) := by"),
                 "a two-argument call with nested and grouped arguments"
             );
@@ -385,42 +389,42 @@ pub(crate) fn run(id: &str) {
         // Lean-verified in the corpus and exact in the generated statement.
         "GR-08" => {
             assert_eq!(
-                corpus_header("constructor_and"),
+                corpus_header("GR-08", "constructor_and"),
                 "public theorem constructor_and (llv0 : Nat) : And (Eq (Nat.add llv0 0) llv0) (Eq (Nat.add 0 llv0) llv0) := by"
             );
             assert_eq!(
-                corpus_header("cases_nat"),
+                corpus_header("GR-08", "cases_nat"),
                 "public theorem cases_nat (llv0 : Nat) : Or (Eq (Nat.add llv0 0) llv0) (Eq llv0 (1 : Nat)) := by"
             );
             assert_eq!(
-                corpus_header("not_both"),
+                corpus_header("GR-08", "not_both"),
                 "public theorem not_both (llv0 : Nat) : Not (And (Eq llv0 llv0) (Not (Eq llv0 llv0))) := by"
             );
             assert_eq!(
-                corpus_header("exists_witness"),
+                corpus_header("GR-08", "exists_witness"),
                 "public theorem exists_witness : Exists (fun (llv0 : Nat) => Eq (Nat.add llv0 0) (0 : Nat)) := by"
             );
             assert_eq!(
-                corpus_header("exists_unique"),
+                corpus_header("GR-08", "exists_unique"),
                 "public theorem exists_unique : Exists (fun (llv0 : Nat) => And (Eq llv0 (0 : Nat)) ((llv1 : Nat) → (Eq llv1 (0 : Nat)) → Eq llv1 llv0)) := by",
                 "unique existence lowers to its Exists definition"
             );
             assert_eq!(
-                corpus_header("or_comm"),
+                corpus_header("GR-08", "or_comm"),
                 "public theorem or_comm (llv0 : Nat) : (Or (Eq llv0 (0 : Nat)) (Eq llv0 (1 : Nat))) → Or (Eq llv0 (1 : Nat)) (Eq llv0 (0 : Nat)) := by",
                 "`if P, then Q` is an arrow"
             );
             assert_eq!(
-                corpus_header("implies_rewrite"),
+                corpus_header("GR-08", "implies_rewrite"),
                 "public theorem implies_rewrite (llv0 : Nat) : (Eq llv0 (1 : Nat)) → Eq (Nat.add llv0 0) (1 : Nat) := by",
                 "`P implies Q` is an arrow"
             );
             assert_eq!(
-                corpus_header("constructor_iff"),
+                corpus_header("GR-08", "constructor_iff"),
                 "public theorem constructor_iff (llv0 : Nat) : Iff (Eq (Nat.add llv0 0) llv0) (Eq llv0 llv0) := by"
             );
             assert_eq!(
-                corpus_header("add_succ"),
+                corpus_header("GR-08", "add_succ"),
                 "public theorem add_succ (llv0 : Nat) (llv1 : Nat) : Eq (Nat.add llv0 (Nat.succ llv1)) (Nat.succ (Nat.add llv0 llv1)) := by",
                 "a multi-binder universal lifts every binder to a parameter"
             );

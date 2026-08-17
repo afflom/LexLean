@@ -242,6 +242,7 @@ fn acquire_through(
 /// A recording stub executable that prints its environment (sorted) and
 /// its argv to stdout, then exits with the code in `$LEXLEAN_STUB_EXIT` if
 /// set, else 0.
+#[cfg(unix)]
 fn recording_stub(dir: &std::path::Path) -> camino::Utf8PathBuf {
     let path = dir.join("stub");
     std::fs::write(
@@ -273,6 +274,8 @@ pub(crate) fn run(id: &str) {
                 .expect("an escaping build root is rejected");
             support::expect_code(&error, "LLC0101");
 
+            #[cfg(not(unix))]
+            support::unix_only("SE-01", "unix symlink");
             #[cfg(unix)]
             {
                 let linked = P::example();
@@ -311,6 +314,8 @@ pub(crate) fn run(id: &str) {
         }
         // §25.1: special files and filesystem identity conflicts.
         "SE-02" => {
+            #[cfg(not(unix))]
+            support::unix_only("SE-02", "unix symlink");
             #[cfg(unix)]
             {
                 let project = P::example();
@@ -377,7 +382,9 @@ pub(crate) fn run(id: &str) {
         }
         // §25.2: direct argv invocation, never a shell.
         "SE-03" => {
-            let fixture = support::verified();
+            let Some(fixture) = support::example_backed("SE-03") else {
+                return;
+            };
             for dir in ["process/lean", "process/leanchecker"] {
                 let record_dir = fixture.outcome.root.join(dir);
                 for name in support::file_set(&record_dir) {
@@ -402,6 +409,8 @@ pub(crate) fn run(id: &str) {
             }
             // The child runner passes argv elements through verbatim: a
             // shell metacharacter argument reaches the child unexpanded.
+            #[cfg(not(unix))]
+            support::unix_only("SE-03", "`#!/bin/sh` program");
             #[cfg(unix)]
             {
                 let dir = tempfile::tempdir().expect("tempdir");
@@ -458,6 +467,8 @@ pub(crate) fn run(id: &str) {
         // §25.4: the deterministic allow-list child environment, observed
         // from inside an actual child.
         "SE-05" => {
+            #[cfg(not(unix))]
+            support::unix_only("SE-05", "`#!/bin/sh` program");
             #[cfg(unix)]
             {
                 let dir = tempfile::tempdir().expect("tempdir");
@@ -545,8 +556,12 @@ pub(crate) fn run(id: &str) {
                 assert_eq!(record.module.as_deref(), Some("Probe"));
                 assert_eq!(record.exit_code, 0);
             }
-            // Recorded output normalizes the home prefix away.
-            let fixture = support::verified();
+            // Recorded output normalizes the home prefix away. The records
+            // exist only after a real run (§8.3); the record parsing above is
+            // platform independent.
+            let Some(fixture) = support::example_backed("SE-05") else {
+                return;
+            };
             if let Ok(home) = std::env::var("HOME") {
                 for dir in ["process/lean", "process/leanchecker", "probe", "audit"] {
                     let record_dir = fixture.outcome.root.join(dir);
@@ -682,6 +697,8 @@ pub(crate) fn run(id: &str) {
             // Child output and time caps: the extreme configured values
             // never overflow, and an exceeded cap names the tool, phase,
             // limit, configured value, and observed value.
+            #[cfg(not(unix))]
+            support::unix_only("SE-06", "`#!/bin/sh` program");
             #[cfg(unix)]
             {
                 let dir = tempfile::tempdir().expect("tempdir");
@@ -811,7 +828,10 @@ pub(crate) fn run(id: &str) {
         "SE-08" => {
             // The PDF side is checked in TX-09; here the attestation records
             // every toolchain executable hash for the verification side.
-            let attestation = &support::verified().attestation;
+            let Some(fixture) = support::example_backed("SE-08") else {
+                return;
+            };
+            let attestation = &fixture.attestation;
             for tool in ["lean", "lake", "leanchecker"] {
                 let hex = attestation["toolchain"][tool]["executable_sha256"]
                     .as_str()
@@ -839,7 +859,7 @@ pub(crate) fn run(id: &str) {
                     }),
                 "leanchecker's identity names its toolchain-relative path and digest"
             );
-            let process_dir = support::verified().outcome.root.join("process/lean");
+            let process_dir = fixture.outcome.root.join("process/lean");
             for name in support::file_set(&process_dir) {
                 let record: serde_json::Value = serde_json::from_slice(
                     &std::fs::read(process_dir.join(&name).as_std_path()).expect("read"),
@@ -857,13 +877,16 @@ pub(crate) fn run(id: &str) {
         // only, inside an isolated directory. Exercised as a unit in TX-09;
         // here with one declared resource.
         "SE-09" => {
+            if !support::posix_shell_backed("SE-09") {
+                return;
+            }
             let project = P::example();
             project.write("assets/logo.txt", "resource bytes\n");
             let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\nname=$(basename \"$3\" .tex)\n{ printf '%%PDF-fake\\n'; ls -A .; } > \"$2/$name.pdf\"\n";
             project.write("tools/fakepdf", script);
-            let script_path = project.root.join("tools/fakepdf");
             #[cfg(unix)]
             {
+                let script_path = project.root.join("tools/fakepdf");
                 let mut permissions = std::fs::metadata(script_path.as_std_path())
                     .expect("stat")
                     .permissions();

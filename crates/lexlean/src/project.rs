@@ -10,6 +10,36 @@ use crate::config::{is_module_segment, parse_project, ProjectConfig};
 use crate::diagnostic::Diagnostic;
 use crate::error::LexLeanError;
 
+/// Rewrite a path the host rendered with its own separator into the
+/// canonical `/`-separated project-relative spelling.
+///
+/// §10.1 fixes a project-relative path as `/`-separated, and those exact
+/// bytes are what the configuration, the lock, the manifests, the source
+/// maps, and every diagnostic carry. A host whose separator is the
+/// backslash renders `src\Main.lex.tex` where the project spells
+/// `src/Main.lex.tex`, and nothing downstream recognizes it: module naming
+/// would reject its own source root and a lock digest would differ from
+/// every other host's for identical bytes (§8.3, R10).
+///
+/// A backslash is an ordinary character in a unix file name, so only a host
+/// that actually separates with one rewrites it. The separator is a
+/// parameter so the rule is decidable on every host, not only where it
+/// bites.
+#[must_use]
+pub(crate) fn separated(rendered: &str, separator: char) -> String {
+    if separator == '/' {
+        rendered.to_owned()
+    } else {
+        rendered.replace(separator, "/")
+    }
+}
+
+/// [`separated`] for this host.
+#[must_use]
+pub(crate) fn project_relative(rendered: &str) -> String {
+    separated(rendered, std::path::MAIN_SEPARATOR)
+}
+
 /// A loaded project: canonicalized root plus validated configuration.
 #[derive(Debug)]
 pub struct Project {
@@ -190,7 +220,7 @@ impl Project {
     pub fn display(&self, path: &Utf8Path) -> String {
         match path.strip_prefix(&self.root) {
             Ok(inside) if inside.as_str().is_empty() => ".".to_owned(),
-            Ok(inside) => inside.to_string(),
+            Ok(inside) => project_relative(inside.as_str()),
             Err(_) => path.to_string(),
         }
     }
@@ -465,7 +495,7 @@ impl Project {
                 .and_then(|absolute| utf8_path(&absolute))?;
             return canonical
                 .strip_prefix(&self.root)
-                .map(Utf8Path::to_string)
+                .map(|inside| project_relative(inside.as_str()))
                 .map_err(|_| {
                     Diagnostic::new(
                         code!("LLC0002"),
@@ -582,5 +612,30 @@ impl Project {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{project_relative, separated};
+
+    /// §10.1, §8.3: a project-relative path is `/`-separated whatever the
+    /// host renders, and a backslash that is not a separator is an ordinary
+    /// character in a file name.
+    #[test]
+    fn a_project_relative_path_is_slash_separated_on_every_host() {
+        assert_eq!(separated("src\\Main.lex.tex", '\\'), "src/Main.lex.tex");
+        assert_eq!(
+            separated("src\\deep\\Main.lex.tex", '\\'),
+            "src/deep/Main.lex.tex"
+        );
+        assert_eq!(separated("src/Main.lex.tex", '/'), "src/Main.lex.tex");
+        assert_eq!(separated("odd\\name.lex.tex", '/'), "odd\\name.lex.tex");
+        assert_eq!(separated("", '\\'), "");
+        // The host wrapper agrees with the rule for this host's separator.
+        assert_eq!(
+            project_relative("src\\Main.lex.tex"),
+            separated("src\\Main.lex.tex", std::path::MAIN_SEPARATOR)
+        );
     }
 }

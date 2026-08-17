@@ -142,19 +142,23 @@ pub(crate) fn run(id: &str) {
             // A real verification runs `lake env`; the manifest init wrote
             // keeps Lake from touching the workspace, so the lock stays
             // current afterwards (§10.4, §22.2).
-            let manifest_before =
-                std::fs::read(target_path.join("lake-manifest.json").as_std_path()).expect("read");
-            let _guard = support::env_lock();
-            let (exit, _, stderr) = support::cli_in(target_path, &["verify"]);
-            assert_eq!(exit, 0, "the fresh skeleton verifies: {stderr}");
-            drop(_guard);
-            assert_eq!(
-                std::fs::read(target_path.join("lake-manifest.json").as_std_path()).expect("read"),
-                manifest_before,
-                "verification leaves lake-manifest.json byte-identical"
-            );
-            let (exit, _, stderr) = support::cli_in(target_path, &["lock", "--check"]);
-            assert_eq!(exit, 0, "the lock is still current after verify: {stderr}");
+            if support::lean_backed("CL-02") {
+                let manifest_before =
+                    std::fs::read(target_path.join("lake-manifest.json").as_std_path())
+                        .expect("read");
+                let _guard = support::env_lock();
+                let (exit, _, stderr) = support::cli_in(target_path, &["verify"]);
+                assert_eq!(exit, 0, "the fresh skeleton verifies: {stderr}");
+                drop(_guard);
+                assert_eq!(
+                    std::fs::read(target_path.join("lake-manifest.json").as_std_path())
+                        .expect("read"),
+                    manifest_before,
+                    "verification leaves lake-manifest.json byte-identical"
+                );
+                let (exit, _, stderr) = support::cli_in(target_path, &["lock", "--check"]);
+                assert_eq!(exit, 0, "the lock is still current after verify: {stderr}");
+            }
 
             let (exit, _, _) = support::cli_in(
                 target_path,
@@ -636,7 +640,7 @@ pub(crate) fn run(id: &str) {
             let (exit, ok_out, ok_err) = P::example().cli(&["--color", "always", "check"]);
             assert_eq!(exit, 0);
             assert!(ok_err.is_empty(), "no diagnostics on success");
-            assert!(ok_out.starts_with("checked 1 modules"), "{ok_out}");
+            assert!(ok_out.starts_with("checked 1 module ("), "{ok_out}");
         }
         // §24.1: the Engine exposes exactly the six stable entry points, and
         // the crate root re-exports the §24 types.
@@ -869,7 +873,7 @@ pub(crate) fn run(id: &str) {
                     assert_eq!(exit, 0, "{stderr}");
                     assert!(
                         stdout.starts_with(&format!(
-                            "built 1 modules at .lexlean/build/{}",
+                            "built 1 module at .lexlean/build/{}",
                             baseline.to_hex()
                         )),
                         "{stdout}"

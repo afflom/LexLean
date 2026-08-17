@@ -212,7 +212,7 @@ fn lock_error(message: impl Into<String>) -> Diagnostic {
 }
 
 /// Parse a lock file (§11.1). Structural validation only; staleness against
-/// the current configuration is [`check_lock_current`].
+/// the current configuration is [`read_current_lock`].
 pub fn parse_lock(path: &str, bytes: &[u8]) -> Result<Lock, Vec<Diagnostic>> {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return Err(vec![lock_error(format!("{path}: lock is not UTF-8"))]);
@@ -470,9 +470,12 @@ pub fn collect_package_files(
                 diagnostics.push(crate::project::non_utf8_path(entry.path()));
                 continue;
             };
+            // The digested name is the project-relative spelling, not the
+            // host's rendering of it: a package hashes to the same digest on
+            // every supported host (§8.3, §11).
             let relative = path
                 .strip_prefix(root)
-                .map(|p| p.to_string())
+                .map(|p| crate::project::project_relative(p.as_str()))
                 .unwrap_or_else(|_| path.to_string());
             match std::fs::read(&path) {
                 Ok(bytes) => files.push((relative, bytes)),

@@ -1054,7 +1054,9 @@ math = "(operator-name {name})"
         }
         // §18.8: every used external entry is probed during verification.
         "GL-12" => {
-            let fixture = support::verified();
+            let Some(fixture) = support::example_backed("GL-12") else {
+                return;
+            };
             let checked = support::checked_project(&fixture.project);
             let probe_dir = fixture.outcome.root.join("probe");
             let probe_file = support::file_set(&probe_dir)

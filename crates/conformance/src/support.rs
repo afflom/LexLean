@@ -326,6 +326,20 @@ pub fn verified() -> &'static VerifiedFixture {
     })
 }
 
+/// [`verified`] behind the §8.3 host gate: `Some` where the pinned toolchain
+/// is installed, `None` on another supported host without it.
+///
+/// A case holding `None` has no verified run and no attestation to read; what
+/// it can still assert without Lean it asserts, and [`lean_backed`] has
+/// already reported which host it is on. This is the single door through
+/// which a Lean-backed assertion is reached, so a case that forgets the gate
+/// fails on every non-normative host rather than silently claiming a
+/// verification it never ran.
+#[must_use]
+pub fn example_backed(id: &str) -> Option<&'static VerifiedFixture> {
+    lean_backed(id).then(verified)
+}
+
 /// The shared failed run: `=` changed to a false proposition while the old
 /// reflexivity proof is retained (SPEC.md §29.6 mutation 1). Conservative
 /// elaboration accepts it; Lean rejects it; the diagnostic remaps.
@@ -1409,11 +1423,31 @@ pub fn verified_corpus() -> &'static VerifiedFixture {
     })
 }
 
-/// The generated Lean text of the verified corpus module.
+/// The shared corpus project, constructed once and never verified.
+///
+/// The generated Lean is a `build` product (§21): it is produced by the
+/// compiler alone, so every supported host asserts it byte for byte. The
+/// Lean-verified run of the same source is [`verified_corpus`], which the
+/// §8.3 host gate reaches only where the pinned toolchain is installed.
+/// Keeping the two separate is what lets a case assert its generated Lean
+/// on a host that cannot run Lean, instead of failing there.
+pub fn shared_corpus_project() -> &'static P {
+    static PROJECT: OnceLock<P> = OnceLock::new();
+    PROJECT.get_or_init(corpus_project)
+}
+
+/// [`verified_corpus`] behind the §8.3 host gate: `Some` where the pinned
+/// toolchain is installed, `None` on another supported host without it
+/// (which [`lean_backed`] reports).
+#[must_use]
+pub fn corpus_backed(id: &str) -> Option<&'static VerifiedFixture> {
+    lean_backed(id).then(verified_corpus)
+}
+
+/// The generated Lean text of the corpus module.
 #[must_use]
 pub fn corpus_lean() -> String {
-    let fixture = verified_corpus();
-    lean_text(&rendered(&fixture.project), "Main")
+    lean_text(&rendered(shared_corpus_project()), "Main")
 }
 
 /// The generated Lean lines of one corpus declaration: from its `theorem`
@@ -1541,6 +1575,16 @@ pub fn verify_ok(project: &P) -> lexlean::VerifiedProject {
             selection: Selection::Entrypoints,
         })
         .expect("the module verifies with real Lean")
+}
+
+/// [`verify_ok`] behind the §8.3 host gate: `Some` where the pinned toolchain
+/// is installed, `None` on another supported host without it.
+///
+/// The outcome is often discarded: a case that only needs "and pinned Lean
+/// accepts this module" makes that claim by calling this, and the assertion
+/// lives inside [`verify_ok`].
+pub fn verify_ok_backed(id: &str, project: &P) -> Option<lexlean::VerifiedProject> {
+    lean_backed(id).then(|| verify_ok(project))
 }
 
 /// The canonical LaTeX body after `\begin{document}` and its newline.
@@ -1686,6 +1730,40 @@ pub fn lean_backed(id: &str) -> bool {
         "{id}: platform-bound host without the pinned toolchain; only the platform-independent assertions ran (§8.3)"
     );
     false
+}
+
+/// Does this host execute a `#!/bin/sh` file as a program?
+#[must_use]
+pub fn posix_shell_host() -> bool {
+    cfg!(unix)
+}
+
+/// The host gate for cases whose external program is a POSIX shell script
+/// (§8.3), the shell counterpart of [`lean_backed`].
+///
+/// A case that runs an external program has to have one to run. Where the
+/// host cannot execute a `#!/bin/sh` file the case runs its
+/// platform-independent assertions and says which ones it skipped, rather
+/// than failing or — worse — passing silently with fewer assertions. The
+/// normative host is a unix, so this never hides anything there.
+#[must_use]
+pub fn posix_shell_backed(id: &str) -> bool {
+    if posix_shell_host() {
+        return true;
+    }
+    eprintln!(
+        "{id}: this host executes no `#!/bin/sh` program; only the platform-independent assertions ran (§8.3)"
+    );
+    false
+}
+
+/// Report that a case's unix-only half did not run on this host (§8.3).
+///
+/// A `#[cfg(unix)]` block inside a case drops its assertions elsewhere in
+/// silence, and a silent drop reads exactly like a pass. Saying which half
+/// did not run, and why, is the same promise [`lean_backed`] makes.
+pub fn unix_only(id: &str, what: &str) {
+    eprintln!("{id}: this host has no {what}; only the platform-independent assertions ran (§8.3)");
 }
 
 /// Build a fake elan home whose pinned toolchain mirrors the real one by
@@ -2851,15 +2929,29 @@ pub fn declaration_lean(lean: &str, lean_name: &str) -> String {
     lines[start..end].join("\n").trim_end().to_owned()
 }
 
-/// Assert the WS-F1 module verified and that one declaration's generated
-/// Lean is exactly `expected`.
-pub fn f1_exact(lean_name: &str, expected: &str) {
-    let fixture = verified_f1();
-    assert_eq!(
-        fixture.attestation["status"], "verified",
-        "the WS-F1 attestation records success"
-    );
-    let lean = lean_text(&rendered(&fixture.project), "Main");
+/// The shared WS-F1 project, constructed once and never verified; the
+/// counterpart of [`shared_corpus_project`].
+pub fn shared_f1_project() -> &'static P {
+    static PROJECT: OnceLock<P> = OnceLock::new();
+    PROJECT.get_or_init(f1_project)
+}
+
+/// [`verified_f1`] behind the §8.3 host gate.
+#[must_use]
+pub fn f1_backed(id: &str) -> Option<&'static VerifiedFixture> {
+    lean_backed(id).then(verified_f1)
+}
+
+/// Assert that one WS-F1 declaration's generated Lean is exactly `expected`,
+/// and — where the pinned toolchain is installed — that the module verified.
+pub fn f1_exact(id: &str, lean_name: &str, expected: &str) {
+    if let Some(fixture) = f1_backed(id) {
+        assert_eq!(
+            fixture.attestation["status"], "verified",
+            "the WS-F1 attestation records success"
+        );
+    }
+    let lean = lean_text(&rendered(shared_f1_project()), "Main");
     assert_eq!(
         declaration_lean(&lean, lean_name),
         expected,

@@ -6,22 +6,24 @@ pub(crate) fn run(id: &str) {
     match id {
         // §29: the committed example runs the entire pipeline.
         "EX-01" => {
-            let fixture = support::verified();
-            fixture.project.fmt_check_ok();
-            let (exit, _, stderr) = fixture.project.cli(&["lock", "--check"]);
+            let example = P::example();
+            example.fmt_check_ok();
+            let (exit, _, stderr) = example.cli(&["lock", "--check"]);
             assert_eq!(exit, 0, "the committed lock is current: {stderr}");
-            fixture.project.check_ok();
-            assert!(
-                fixture.attestation["declarations"]
-                    .as_array()
-                    .expect("declarations")
-                    .iter()
-                    .any(|row| {
-                        row["name"].as_str() == Some("LexLeanExample.Main.add_zero")
-                            && row["observed"].as_array().is_some_and(Vec::is_empty)
-                    }),
-                "§29.5: an empty observed axiom set for the theorem"
-            );
+            example.check_ok();
+            if let Some(fixture) = support::example_backed("EX-01") {
+                assert!(
+                    fixture.attestation["declarations"]
+                        .as_array()
+                        .expect("declarations")
+                        .iter()
+                        .any(|row| {
+                            row["name"].as_str() == Some("LexLeanExample.Main.add_zero")
+                                && row["observed"].as_array().is_some_and(Vec::is_empty)
+                        }),
+                    "§29.5: an empty observed axiom set for the theorem"
+                );
+            }
             // §30.4: the project, lock, and built-in lexicon inputs validate
             // against their committed schemas (TOML read as JSON).
             let example = support::repo_root().join("examples/nat-add-zero");
@@ -46,6 +48,9 @@ pub(crate) fn run(id: &str) {
         }
         // §29.6 mutation 1: the false proposition fails in Lean, remapped.
         "EX-02" => {
+            if !support::lean_backed("EX-02") {
+                return;
+            }
             let (project, error) = support::broken_proof();
             support::expect_code(error, "LLV7002");
             let verified_root = project.root.join(".lexlean/verified");
@@ -112,6 +117,9 @@ pub(crate) fn run(id: &str) {
         // §29.6 mutation 4: an insufficient allow-list fails policy, with
         // the observed excess recorded.
         "EX-05" => {
+            if !support::lean_backed("EX-05") {
+                return;
+            }
             let (_, error) = support::axioms_insufficient();
             support::expect_code(error, "LLV7005");
             let rendered = format!("{error}");

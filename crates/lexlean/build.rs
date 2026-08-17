@@ -112,11 +112,42 @@ fn resolve(manifest: &Path, crate_relative: &str) -> PathBuf {
             }
             direct
         }
-        _ => panic!(
-            "{}: the normative path `{crate_relative}` is missing; the lexlean crate embeds the repository's language data and refuses to build without it (SPEC.md §7, §21.2)",
-            direct.display()
-        ),
+        // The link may be an *interior* component: `tests/golden` is one
+        // link and `tests/golden/axiom-parser` lies beneath it, so on a
+        // checkout that stored the link as text the full path does not
+        // exist while the prefix does. Resolve the longest existing prefix
+        // through the same text form and re-join the remainder, or the
+        // §8.3 Windows host could never build the crate.
+        _ => resolve_through_prefix(manifest, crate_relative).unwrap_or_else(|| {
+            panic!(
+                "{}: the normative path `{crate_relative}` is missing; the lexlean crate embeds the repository's language data and refuses to build without it (SPEC.md §7, §21.2)",
+                direct.display()
+            )
+        }),
     }
+}
+
+/// Resolve `crate_relative` when one of its leading components, rather than
+/// the whole path, is the link: the longest prefix that exists as a text
+/// link is followed and the remaining components are re-joined onto it.
+fn resolve_through_prefix(manifest: &Path, crate_relative: &str) -> Option<PathBuf> {
+    let components: Vec<&str> = crate_relative.split('/').collect();
+    for split in (1..components.len()).rev() {
+        let prefix = components[..split].join("/");
+        let candidate = manifest.join(&prefix);
+        if !candidate.is_file() {
+            continue;
+        }
+        let target = resolve_text_link(&candidate, &prefix);
+        let mut resolved = target;
+        for component in &components[split..] {
+            resolved = resolved.join(component);
+        }
+        if resolved.exists() {
+            return Some(resolved);
+        }
+    }
+    None
 }
 
 fn resolve_text_link(link: &Path, crate_relative: &str) -> PathBuf {

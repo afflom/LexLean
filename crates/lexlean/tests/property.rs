@@ -411,12 +411,23 @@ proptest! {
     }
 }
 
-fn repo_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+/// The repository root, when the crate is being tested inside it.
+///
+/// `examples/` is repository data, not crate data, and `cargo package`
+/// cannot reach outside the package. Inside the repository the directory is
+/// always found, so nothing is skipped where the gate runs.
+fn repo_root() -> Option<std::path::PathBuf> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
-        .nth(2)
-        .expect("repo root")
-        .to_path_buf()
+        .nth(2)?
+        .to_path_buf();
+    if root.join("examples/nat-add-zero/lexlean.toml").is_file() {
+        return Some(root);
+    }
+    eprintln!(
+        "the crate is being tested outside its repository; the assertions that read examples/ did not run"
+    );
+    None
 }
 
 /// Copy one example (without its build root and oracles) into a fresh
@@ -468,7 +479,9 @@ fn example_modules(example: &std::path::Path) -> BTreeMap<String, String> {
 /// committed source.
 #[test]
 fn formatter_is_idempotent_on_every_example() {
-    let root = repo_root();
+    let Some(root) = repo_root() else {
+        return;
+    };
     let mut examples: Vec<std::path::PathBuf> = std::fs::read_dir(root.join("examples"))
         .expect("examples")
         .flatten()

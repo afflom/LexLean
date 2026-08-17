@@ -1,0 +1,15 @@
+# Every checkout is byte-identical on every host.
+#
+# LexLean refuses a carriage return in its own project and source files
+# (`LLC0101`, SPEC.md §12.1), the golden files and every `expected/` oracle are
+# compared byte for byte (§28.3, §28.4), and the compiler-semantics ID is a
+# digest over the committed language data (§21.2). Git's `core.autocrlf` is on
+# by default in the Windows runner image, so a Windows checkout without this
+# file rewrites `lexlean.toml` and every `.lex.tex` to CRLF and the compiler
+# rejects its own repository. Pinning the working-tree ending here rather than
+# relying on client configuration is what makes the §8.3 Windows host testable.
+#
+# A fixture that must carry a carriage return in its committed bytes belongs
+# under an explicit `-text` rule; none exists, and `just vv` compares the
+# committed bytes, so one that appeared without the rule would fail the gate.
+* text=auto eol=lf

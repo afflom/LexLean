@@ -229,18 +229,18 @@ pub(crate) fn run(id: &str) {
             // and a defined type noun (`natural number list`) meets a
             // polymorphic constant in either argument order — the solved
             // metavariable's solution unfolds too.
-            support::f1_exact(
+            support::f1_exact("SM-05", 
                 "count_add_zero",
                 "public theorem count_add_zero (llv0 : LexLeanExample.Main.count) : Eq (Nat.add llv0 0) llv0 := by\n  rfl",
             );
-            support::f1_exact(
+            support::f1_exact("SM-05", 
                 "list_nil",
                 "public theorem list_nil (llv0 : (List Nat)) : (Eq llv0 List.nil) → Eq List.nil llv0 := by\n  intro llh0\n  rw [llh0]",
             );
             // The core arrow elaborates in math to a non-dependent `Pi`
             // (§15.6), and the canonical formatter spells it back as `→`
             // inside an island where prose cannot hold it.
-            support::f1_exact(
+            support::f1_exact("SM-05", 
                 "arrow_or",
                 "public theorem arrow_or (llv0 : Prop) : Or (llv0 → llv0) llv0 := by\n  left\n  intro llh0\n  exact llh0",
             );
@@ -391,7 +391,7 @@ pub(crate) fn run(id: &str) {
                 ),
                 "an unreferenced lifted binder is `_llv1`: {lean}"
             );
-            support::verify_ok(&unused);
+            support::verify_ok_backed("SM-08", &unused);
 
             let unused_hypothesis = P::example();
             unused_hypothesis.edit(
@@ -404,7 +404,7 @@ pub(crate) fn run(id: &str) {
                 lean.contains("  intro _llh0\n"),
                 "an unreferenced introduced hypothesis is `_llh0`: {lean}"
             );
-            support::verify_ok(&unused_hypothesis);
+            support::verify_ok_backed("SM-08", &unused_hypothesis);
         }
         // §17.9: alpha-safe serialization with dense binder indices.
         "SM-09" => {
@@ -571,8 +571,9 @@ pub(crate) fn run(id: &str) {
             // A reference to a parameterized declaration applies the
             // parameters explicitly, inside and outside its section, and
             // Lean-verifies (C2, S4).
-            let fixture = support::verified_corpus();
-            assert_eq!(fixture.attestation["status"], "verified");
+            if let Some(fixture) = support::corpus_backed("SM-13") {
+                assert_eq!(fixture.attestation["status"], "verified");
+            }
             assert_eq!(
                 support::corpus_declaration_lean("use_inside"),
                 "public theorem use_inside (llv0 : Nat) : Eq (Nat.succ (Nat.add llv0 0)) (Nat.succ llv0) := by\n  apply LexLeanExample.Main.succ_congr\n  exact LexLeanExample.Main.param_add_zero llv0"
@@ -610,8 +611,9 @@ pub(crate) fn run(id: &str) {
             );
             // A numeral typed by a binder, an operator, or a witness slot is
             // accepted (corpus: `Use \\(0\\) as the witness`, `\\(0\\) is even`).
-            let fixture = support::verified_corpus();
-            assert_eq!(fixture.attestation["status"], "verified");
+            if let Some(fixture) = support::corpus_backed("SM-14") {
+                assert_eq!(fixture.attestation["status"], "verified");
+            }
             assert_eq!(
                 support::corpus_declaration_lean("zero_even"),
                 "public theorem zero_even : LexLeanExample.Main.even 0 := by\n  refine ⟨(0 : Nat), ?_⟩\n  rfl"
