@@ -291,23 +291,30 @@ jobs:
           # satisfy the version criteria, so before then `source-tag` and
           # `version-output` are expected to be unmet and nothing else is. At
           # `1.0.0` the command exits zero and this allowance is vacuous.
+          # The report is written outside `release/`. A shell creates a
+          # redirect target before the process it redirects ever runs, so
+          # writing it inside would put an unlisted file in the directory
+          # whose checksum manifest `release-check` is at that moment
+          # reading, and the criterion would report a gap this step made.
+          report="${RUNNER_TEMP}/release-check.txt"
           set +e
-          cargo xtask release-check > release/release-check.txt 2>&1
+          cargo xtask release-check > "$report" 2>&1
           status=$?
           set -e
-          cat release/release-check.txt
-          if [ "$status" -eq 0 ]; then
+          cat "$report"
+          if [ "$status" -ne 0 ]; then
+            unexpected="$(grep -oE '^  [a-z-]+:' "$report" \
+              | tr -d ' :' | sort -u | grep -vxE 'source-tag|version-output' || true)"
+            if [ -n "$unexpected" ]; then
+              echo "::error::criteria unmet for reasons §2.3 does not explain: $unexpected"
+              exit 1
+            fi
+            echo "the only unmet criteria are the version-bound ones §2.3 defers to 1.0.0"
+          else
             echo "release-check: the complete §30 criterion holds"
-            exit 0
           fi
-          unexpected="$(grep -oE '^  [a-z-]+:' release/release-check.txt \
-            | tr -d ' :' | sort -u | grep -vxE 'source-tag|version-output' || true)"
-          if [ -n "$unexpected" ]; then
-            echo "::error::criteria unmet for reasons §2.3 does not explain: $unexpected"
-            exit 1
-          fi
-          echo "the only unmet criteria are the version-bound ones §2.3 defers to 1.0.0"
-      - name: Re-checksum after the criterion report
+          cp "$report" release/release-check.txt
+      - name: Checksum the assembled set, the criterion report included
         run: cargo xtask release-artifacts
       - name: Publish
         env:
