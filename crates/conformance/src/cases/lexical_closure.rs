@@ -517,23 +517,31 @@ features = []
         "LX-13" => {
             let project = ambiguous_project(["test.dupa@1.0.0", "test.dupb@1.0.0"]);
             let error = project.check_fails_with("LLP2002");
-            let diagnostic = error
-                .diagnostics
-                .iter()
-                .find(|d| d.code.as_str() == "LLP2002")
-                .expect("matched");
-            assert!(
-                diagnostic.message.contains("test.dupa::nzz")
-                    && diagnostic.message.contains("test.dupb::nzz"),
-                "the ambiguity diagnostic names both qualified candidate IDs: {}",
-                diagnostic.message
+            // Exactly one diagnostic: the ambiguity, naming exactly the two
+            // differentiating qualified candidates in sorted order (the
+            // shared `test.dupa::z` is not differentiating) and spanning
+            // exactly the ambiguous island `nzz(z)`.
+            assert_eq!(error.diagnostics.len(), 1, "one diagnostic: {error:#?}");
+            let diagnostic = &error.diagnostics[0];
+            assert_eq!(diagnostic.code.as_str(), "LLP2002");
+            assert_eq!(
+                diagnostic.message,
+                "2 distinct linked interpretations survive; the differentiating candidates are: test.dupa::nzz, test.dupb::nzz"
             );
-            assert!(
-                !diagnostic.message.contains("lexlean.std.nat::zero")
-                    && !diagnostic.message.contains("test.dupa::z"),
-                "shared candidates are not differentiating: {}",
-                diagnostic.message
+            let source = project.read("src/Main.lex.tex");
+            let island_start = source.find("nzz(z)").expect("the module applies nzz");
+            let span = diagnostic
+                .primary
+                .as_ref()
+                .expect("the ambiguity carries a span");
+            assert_eq!(span.path, "src/Main.lex.tex");
+            assert_eq!(
+                (span.byte_start, span.byte_end),
+                (island_start, island_start + "nzz(z)".len()),
+                "the span is exactly the ambiguous island"
             );
+            assert_eq!(&source[span.byte_start..span.byte_end], "nzz(z)");
+            assert!(diagnostic.labels.is_empty() && diagnostic.notes.is_empty());
         }
         // §23.5: canonical formatting, with linked-IR preservation.
         "LX-14" => {

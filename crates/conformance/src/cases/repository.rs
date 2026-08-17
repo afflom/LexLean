@@ -35,6 +35,68 @@ fn just_recipes(justfile: &str) -> std::collections::BTreeMap<String, (String, V
     recipes
 }
 
+/// The deferral markers §27.10 forbids in maintained source. Every
+/// spelling is assembled from halves so this file passes its own scan.
+fn deferral_markers() -> Vec<String> {
+    vec![
+        format!("TO{}", "DO"),
+        format!("FIX{}", "ME"),
+        format!("XX{}", "X"),
+        format!("HA{}CK", ""),
+        format!("unimpl{}!", "emented"),
+        format!("to{}!(", "do"),
+    ]
+}
+
+/// The disabled-test attributes one file carries: the ignore attribute in
+/// every form (bare, or with a reason string) and a `cfg_attr` whose
+/// applied attribute is ignore, across lines. An attribute stands at the
+/// start of a line, after whitespace, or after a preceding attribute; an
+/// occurrence inside a string literal or backticked prose is a scanner's
+/// or a document's own mention, not an attribute. The spellings here are
+/// assembled from halves for the same reason.
+fn ignore_attributes(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let is_attribute_position = |index: usize| {
+        text[..index]
+            .bytes()
+            .next_back()
+            .is_none_or(|b| b.is_ascii_whitespace() || b == b']')
+    };
+    let ignore_open = format!("#[ig{}", "nore");
+    for (index, _) in text.match_indices(&ignore_open) {
+        if !is_attribute_position(index) {
+            continue;
+        }
+        let end = text[index..]
+            .find(']')
+            .map_or(text.len(), |offset| index + offset + 1);
+        found.push(text[index..end].to_owned());
+    }
+    let ignore_word = format!("ig{}", "nore");
+    let is_token_boundary = |byte: Option<&u8>| {
+        byte.is_none_or(|b| !(b.is_ascii_alphanumeric() || *b == b'_' || *b == b'"'))
+    };
+    for (index, _) in text.match_indices("#[cfg_attr(") {
+        if !is_attribute_position(index) {
+            continue;
+        }
+        let tail = &text[index..];
+        let end = tail.find(")]").map_or(tail.len(), |offset| offset + 2);
+        let attribute = &tail[..end];
+        let bytes = attribute.as_bytes();
+        let names_ignore = attribute.match_indices(&ignore_word).any(|(at, _)| {
+            at > 0
+                && is_token_boundary(bytes.get(at - 1))
+                && is_token_boundary(bytes.get(at + ignore_word.len()))
+        });
+        if names_ignore {
+            found.push(attribute.split_whitespace().collect::<Vec<_>>().join(" "));
+        }
+    }
+    found
+}
+
 /// The §31 table parsed as `(id, suite, statement)` rows.
 fn spec_table() -> Vec<(String, String, String)> {
     let text = support::spec_text();
@@ -270,6 +332,33 @@ pub(crate) fn run(id: &str) {
                     "§9.2: `{rewriting}` is never part of vv"
                 );
             }
+            // The gate runner's manifest names every task it dispatches, so
+            // the crate description is an honest index of the gates.
+            let xtask_main = root_file("xtask/src/main.rs");
+            let dispatched: Vec<&str> = xtask_main
+                .lines()
+                .filter_map(|line| {
+                    let trimmed = line.trim();
+                    let name = trimmed.strip_prefix('"')?;
+                    let (name, rest) = name.split_once('"')?;
+                    rest.trim_start().starts_with("=>").then_some(name)
+                })
+                .collect();
+            assert!(
+                dispatched.len() >= 8,
+                "xtask dispatches its documented tasks: {dispatched:?}"
+            );
+            let xtask_toml = root_file("xtask/Cargo.toml");
+            let description = xtask_toml
+                .lines()
+                .find_map(|line| line.strip_prefix("description = "))
+                .expect("xtask/Cargo.toml carries a description");
+            for task in dispatched {
+                assert!(
+                    description.contains(task),
+                    "xtask/Cargo.toml description omits the dispatched task `{task}`: {description}"
+                );
+            }
         }
         // §27.5: the committed documents equal regeneration from the model.
         "RP-06" => {
@@ -308,15 +397,25 @@ pub(crate) fn run(id: &str) {
         // marker spellings are assembled from halves so this file passes its
         // own scan.
         "RP-08" => {
-            let markers: Vec<String> = vec![
-                format!("TO{}", "DO"),
-                format!("FIX{}", "ME"),
-                format!("XX{}", "X"),
-                format!("HA{}CK", ""),
-                format!("unimpl{}!", "emented"),
-                format!("to{}!(", "do"),
-                format!("#[ig{}]", "nore"),
-            ];
+            let markers = deferral_markers();
+            // Anti-vacuity: the attribute scanner fires on every planted
+            // form before it vouches for the tree.
+            let ignore_word = format!("ig{}", "nore");
+            let planted = format!(
+                "#[test]\n#[{ignore_word} = \"later\"]\nfn a() {{}}\n#[cfg_attr(\n    windows,\n    {ignore_word}\n)]\nfn b() {{}}\n#[{ignore_word}]\nfn c() {{}}\n"
+            );
+            assert_eq!(
+                ignore_attributes(&planted).len(),
+                3,
+                "the ignore scanner sees the `= reason`, cfg_attr, and bare forms"
+            );
+            assert!(
+                ignore_attributes(&format!(
+                    "starts_with(\"#[{ignore_word}\") #[cfg_attr(windows, {ignore_word}d_never)] #[cfg_attr(unix, allow(un{ignore_word}d))]"
+                ))
+                .is_empty(),
+                "string mentions and other identifiers are not attributes"
+            );
             let mut scanned = 0usize;
             for entry in walkdir::WalkDir::new(root.as_std_path())
                 .into_iter()
@@ -350,6 +449,12 @@ pub(crate) fn run(id: &str) {
                         path.display()
                     );
                 }
+                let ignored = ignore_attributes(&text);
+                assert!(
+                    ignored.is_empty(),
+                    "R4: {} disables a test with {ignored:?}",
+                    path.display()
+                );
             }
             assert!(
                 scanned > 100,

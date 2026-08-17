@@ -405,14 +405,23 @@ pub fn run(
             }
             // Usage errors are LLC0001 (§26.3); in JSON mode they live
             // inside the result object and stderr stays empty (§23.7).
+            // The parser's first line is the error; every further line
+            // (usage, tips, the `--help` pointer) is help, one entry per
+            // line, so the human rendering keeps the multi-line form.
             let rendered = clap_error.render().to_string();
-            let message = rendered
+            let mut lines = rendered
                 .lines()
                 .map(str::trim_end)
-                .filter(|line| !line.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ");
-            let error = usage_error(message);
+                .filter(|line| !line.is_empty());
+            let message = lines.next().map_or_else(
+                || "invalid command line".to_owned(),
+                |line| line.strip_prefix("error: ").unwrap_or(line).to_owned(),
+            );
+            let mut diagnostic = Diagnostic::new(code!("LLC0001"), message);
+            for line in lines {
+                diagnostic = diagnostic.with_help(line.trim_start());
+            }
+            let error = LexLeanError::from_diagnostic(diagnostic);
             return emit(
                 json_mode,
                 ColorMode::Never,
@@ -807,5 +816,58 @@ pub fn main_entry() -> i32 {
                 &mut stderr,
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run_capturing(arguments: &[&str]) -> (i32, String, String) {
+        let arguments: Vec<String> = arguments.iter().map(|s| (*s).to_owned()).collect();
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let cwd = Utf8Path::from_path(cwd.path()).expect("utf8").to_owned();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let exit = run(&arguments, &cwd, &mut stdout, &mut stderr);
+        (
+            exit,
+            String::from_utf8(stdout).expect("utf8"),
+            String::from_utf8(stderr).expect("utf8"),
+        )
+    }
+
+    #[test]
+    fn usage_errors_keep_the_parser_lines_as_help() {
+        // Human mode: the parser's first line is the LLC0001 message and
+        // every further line is one help line, so the usage block keeps
+        // its multi-line form instead of being flattened onto one line.
+        let (exit, stdout, stderr) =
+            run_capturing(&["lexlean", "--color", "never", "check", "--bogus"]);
+        assert_eq!(exit, 2);
+        assert!(stdout.is_empty(), "{stdout}");
+        assert_eq!(
+            stderr,
+            "error[LLC0001]: unexpected argument '--bogus' found\n  help: tip: to pass '--bogus' as a value, use '-- --bogus'\n  help: Usage: lexlean check [OPTIONS] [INPUTS]...\n  help: For more information, try '--help'.\n"
+        );
+        // JSON mode carries the same lines structurally, stderr empty.
+        let (exit, stdout, stderr) =
+            run_capturing(&["lexlean", "--diagnostic-format", "json", "check", "--bogus"]);
+        assert_eq!(exit, 2);
+        assert!(stderr.is_empty(), "{stderr}");
+        let value: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+        assert_eq!(value["diagnostics"][0]["code"], "LLC0001");
+        assert_eq!(
+            value["diagnostics"][0]["message"],
+            "unexpected argument '--bogus' found"
+        );
+        assert_eq!(
+            value["diagnostics"][0]["help"],
+            serde_json::json!([
+                "tip: to pass '--bogus' as a value, use '-- --bogus'",
+                "Usage: lexlean check [OPTIONS] [INPUTS]...",
+                "For more information, try '--help'."
+            ])
+        );
     }
 }
