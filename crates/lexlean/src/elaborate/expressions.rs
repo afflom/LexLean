@@ -2180,3 +2180,65 @@ pub fn entry_signature_term(
 pub fn unify_closed(a: &Term, b: &Term) -> bool {
     unify(a, b, &mut Metas::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn universe_meta_never_binds_to_itself() {
+        let mut alloc = LocalAlloc::default();
+        let mut metas = Metas::default();
+        let name = metas.fresh_universe(&mut alloc);
+        let meta = Universe::Var(name.clone());
+        let successor = Universe::Succ(Box::new(meta.clone()));
+        assert!(
+            unify_universe(&meta, &meta, &mut metas),
+            "a meta unifies with itself"
+        );
+        assert!(
+            !unify_universe(&meta, &successor, &mut metas),
+            "a meta never solves to a universe mentioning itself"
+        );
+        // The store stays unsolved and zonking terminates.
+        assert_eq!(zonk_universe(&meta, &metas), meta);
+        assert!(unify_universe(&meta, &Universe::Num(2), &mut metas));
+        assert_eq!(zonk_universe(&successor, &metas), Universe::Num(3));
+    }
+
+    #[test]
+    fn atom_application_unifies_with_its_head() {
+        let head = Term::Global(GlobalRef::Core(CoreRef::Eq), Vec::new());
+        let atom = Term::App {
+            function: Box::new(head.clone()),
+            explicit_args: Vec::new(),
+            omitted_implicit_binders: vec![ImplicitBinderId(0)],
+        };
+        assert!(unify_closed(&atom, &head));
+        assert!(unify_closed(&head, &atom));
+        let other = Term::Global(GlobalRef::Core(CoreRef::And), Vec::new());
+        assert!(!unify_closed(&atom, &other));
+    }
+
+    #[test]
+    fn fresh_universes_are_unique_across_merged_stores() {
+        let mut alloc = LocalAlloc::default();
+        let mut first = Metas::default();
+        let mut second = Metas::default();
+        let a = first.fresh_universe(&mut alloc);
+        let b = second.fresh_universe(&mut alloc);
+        assert_ne!(a, b, "two stores over one allocator never share a name");
+        assert!(unify_universe(
+            &Universe::Var(a.clone()),
+            &Universe::Num(1),
+            &mut first
+        ));
+        // Merging the stores keeps both metas distinct: `b` stays unsolved.
+        first.universes.extend(second.universes.clone());
+        assert_eq!(zonk_universe(&Universe::Var(a), &first), Universe::Num(1));
+        assert_eq!(
+            zonk_universe(&Universe::Var(b.clone()), &first),
+            Universe::Var(b)
+        );
+    }
+}

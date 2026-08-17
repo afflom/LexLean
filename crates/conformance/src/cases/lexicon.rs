@@ -506,7 +506,8 @@ pub(crate) fn run(id: &str) {
                 error
                     .diagnostics
                     .iter()
-                    .any(|d| d.message.contains("test.pkg::probe") && d.message.contains("accepts 0")),
+                    .any(|d| d.message.contains("test.pkg::probe")
+                        && d.message.contains("accepts 0")),
                 "the load-time diagnostic names the over-applied entry: {error}"
             );
             let value_mismatch = with_entries(&[(
@@ -516,7 +517,10 @@ pub(crate) fn run(id: &str) {
                         "signature = \"(const lexlean.std.nat::nat)\"",
                         "signature = \"(sort prop)\"",
                     )
-                    .replace("category = \"term-constant\"", "category = \"predicate-constant\"")
+                    .replace(
+                        "category = \"term-constant\"",
+                        "category = \"predicate-constant\"",
+                    )
                     .replace("channel = \"both\"", "channel = \"math\"")
                     .replace(
                         "[denotation]\nkind = \"lean\"\nmodule = \"Init\"\nname = \"Nat.zero\"",

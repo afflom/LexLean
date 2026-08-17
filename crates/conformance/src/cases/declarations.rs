@@ -17,6 +17,9 @@ pub(crate) fn run(id: &str) {
                 lean.contains("@[expose] public def count : Type :=\n  Nat\n"),
                 "a type definition is a sort-valued def: {lean}"
             );
+            // The right-hand side is a sort read through defined type nouns
+            // (§13.6): a constant whose type is the defined noun `type`.
+            support::f1_exact("alias", "@[expose] public def alias : Type :=\n  Nat");
             let ambiguous = support::defs_project();
             ambiguous.add_package(
                 "lexicons/test-dupnat",

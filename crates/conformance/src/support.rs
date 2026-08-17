@@ -2446,10 +2446,75 @@ features = []
 math = "(seq (slot 0) (space) (self-form oplus) (space) (slot 1))"
 "#
     );
+    // A defined type noun `type` for `Type`, a constant `omega` typed by it
+    // (denoting `Nat`), and a document type noun `alias`: the right-hand
+    // side of a type definition is a sort only through the defined noun.
+    let type_noun = r#"spec = "lexlean/entry/1"
+id = "type"
+category = "type-noun"
+signature = "(sort (type 1))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(sort (type 0))"
+
+[[form]]
+id = "type"
+channel = "text"
+surface = "type"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+"#;
+    let omega = r#"spec = "lexlean/entry/1"
+id = "omega"
+category = "term-constant"
+signature = "(const test.f1::type)"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat"
+
+[[form]]
+id = "omega"
+channel = "math"
+surface = "omega"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name omega)"
+"#;
+    let alias = r#"spec = "lexlean/entry/1"
+id = "alias"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "alias"
+
+[[form]]
+id = "alias"
+channel = "text"
+surface = "alias"
+canonical_source = true
+features = ["article-an", "lower-case", "singular"]
+"#;
     let mut entries: Vec<FixtureEntry> = defs_entries()
         .into_iter()
         .map(|(name, text)| (name, text.replace("test.defs", "test.f1")))
         .collect();
+    entries.push(("type.toml", type_noun.to_owned()));
+    entries.push(("omega.toml", omega.to_owned()));
+    entries.push(("alias.toml", alias.to_owned()));
     entries.push(("falsum.toml", falsum.to_owned()));
     entries.push(("proposition.toml", proposition.to_owned()));
     entries.push(("neq.toml", neq));
@@ -2479,6 +2544,11 @@ A count is defined as \(ℕ\).
 \noaxioms
 For every natural number \(n\), \(double(n)\) is defined as \(n + n\).
 \end{termdefinition}
+
+\begin{typedefinition}{alias}{test.f1::alias}
+\noaxioms
+An alias is defined as \(omega\).
+\end{typedefinition}
 
 \begin{theorem}{add-zero}
 \noaxioms

@@ -454,6 +454,19 @@ pub(crate) fn run(id: &str) {
                 error.diagnostics.len() <= 256,
                 "diagnostics respect max_diagnostics"
             );
+            // An unknown composed identifier (§12.2 class 3) is named whole,
+            // not by its first atom.
+            let error = mutated("\\(n + 0 = n\\)", "\\(x_1 + 0 = n\\)").check_err();
+            let unknown = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLL1004")
+                .unwrap_or_else(|| panic!("an unknown identifier is LLL1004: {error}"));
+            assert!(
+                unknown.message.contains("`x_1`"),
+                "the composed identifier is named whole: {}",
+                unknown.message
+            );
         }
         // §14.4: distinct parses are ambiguity naming the differentiating
         // candidates; identical IR collapses.

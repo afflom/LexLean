@@ -522,7 +522,8 @@ impl Fmt<'_> {
         // (level 0 or an antecedent, trailing), `P implies Q` at the
         // implication level (an equivalence operand), and the core arrow in
         // math below that.
-        let implication = matches!(term, Term::Pi { binders, body } if Self::is_implication(binders, body));
+        let implication =
+            matches!(term, Term::Pi { binders, body } if Self::is_implication(binders, body));
         let quantified = (matches!(term, Term::Pi { .. }) && !implication)
             || matches!(
                 term,
