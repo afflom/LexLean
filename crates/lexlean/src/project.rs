@@ -261,6 +261,27 @@ impl Project {
         self.confined(relative, Expect::File)
     }
 
+    /// Like [`Self::confined_file`], but a path that simply does not exist
+    /// is the caller's own failure — a missing lock is a lock error, a
+    /// missing workspace pin an environment one — rather than a
+    /// confinement violation (§23.6: exit 4 is for a security-policy or
+    /// resource-limit violation, which a missing file is not).
+    pub fn confined_file_or_missing(
+        &self,
+        relative: &str,
+        missing: impl FnOnce() -> Diagnostic,
+    ) -> Result<Utf8PathBuf, Diagnostic> {
+        if crate::config::is_project_relative(relative) {
+            let candidate = self.root.join(relative);
+            if std::fs::symlink_metadata(candidate.as_std_path())
+                .is_err_and(|io_error| io_error.kind() == std::io::ErrorKind::NotFound)
+            {
+                return Err(missing());
+            }
+        }
+        self.confined_file(relative)
+    }
+
     /// Verify a project-relative path denotes a directory with no symlink
     /// component under the project root, and return its absolute path
     /// (§25.1).
@@ -322,8 +343,25 @@ impl Project {
                     continue;
                 }
             };
-            if !absolute_root.exists() {
-                continue;
+            // A configured source root that does not exist is a broken
+            // configuration, not an empty one (§10.1: source roots are
+            // project-relative directories).
+            match std::fs::symlink_metadata(absolute_root.as_std_path()) {
+                Ok(metadata) if metadata.is_dir() => {}
+                Ok(_) => {
+                    diagnostics.push(Diagnostic::new(
+                        code!("LLC0101"),
+                        format!("source root `{root}` is not a directory"),
+                    ));
+                    continue;
+                }
+                Err(io_error) => {
+                    diagnostics.push(Diagnostic::new(
+                        code!("LLC0101"),
+                        format!("source root `{root}`: {io_error}"),
+                    ));
+                    continue;
+                }
             }
             for entry in walkdir::WalkDir::new(absolute_root.as_std_path())
                 .follow_links(false)
@@ -456,6 +494,13 @@ impl Project {
     ) -> Result<BTreeMap<String, String>, Vec<Diagnostic>> {
         let all = self.all_modules()?;
         match selection {
+            // §23.3: `--all` is every module beneath every source root; a
+            // project with none selects nothing, and an empty selection is
+            // a selection error (§23.6 exit 2), not a vacuous success.
+            Selection::All if all.is_empty() => Err(vec![Diagnostic::new(
+                code!("LLC0002"),
+                "`--all` selects no module: no source root holds a `.lex.tex` file".to_owned(),
+            )]),
             Selection::All => Ok(all),
             Selection::Entrypoints => {
                 let mut selected = BTreeMap::new();

@@ -26,7 +26,12 @@ pub fn preflight(project: &Project, lock: &Lock) -> Result<(), Diagnostic> {
     // (§8.2, §10.4); a hash match against a lock is not enough on its own.
     let toolchain_relative = workspace_relative("lean-toolchain");
     let toolchain_bytes = project
-        .confined_file(&toolchain_relative)
+        .confined_file_or_missing(&toolchain_relative, || {
+            Diagnostic::new(
+                code!("LLV7007"),
+                format!("the Lake workspace has no `{toolchain_relative}`"),
+            )
+        })
         .and_then(|absolute| {
             std::fs::read(absolute.as_std_path()).map_err(|io_error| {
                 Diagnostic::new(
@@ -48,7 +53,12 @@ pub fn preflight(project: &Project, lock: &Lock) -> Result<(), Diagnostic> {
     }
     for (path, recorded) in &lock.workspace_files {
         // Pinned files are confined: no symlink component (§25.1).
-        let absolute = project.confined_file(path)?;
+        let absolute = project.confined_file_or_missing(path, || {
+            Diagnostic::new(
+                code!("LLV7007"),
+                format!("the lock records `{path}`, which the Lake workspace does not have"),
+            )
+        })?;
         let bytes = std::fs::read(absolute.as_std_path())
             .map_err(|io_error| mismatch(format!("{path}: {io_error}")))?;
         let observed = Sha256Digest::of(&bytes);
@@ -65,7 +75,12 @@ pub fn preflight(project: &Project, lock: &Lock) -> Result<(), Diagnostic> {
     let manifest_relative = workspace_relative("lake-manifest.json");
     let manifest_path = project.absolute(&manifest_relative);
     if std::fs::symlink_metadata(manifest_path.as_std_path()).is_ok() {
-        let manifest_path = project.confined_file(&manifest_relative)?;
+        let manifest_path = project.confined_file_or_missing(&manifest_relative, || {
+            Diagnostic::new(
+                code!("LLV7007"),
+                format!("the lock records `{manifest_relative}`, which the Lake workspace does not have"),
+            )
+        })?;
         let bytes = std::fs::read(manifest_path.as_std_path())
             .map_err(|io_error| mismatch(format!("{manifest_relative}: {io_error}")))?;
         let parsed: serde_json::Value = serde_json::from_slice(&bytes)

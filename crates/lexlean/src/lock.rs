@@ -978,7 +978,12 @@ fn pin_candidate(project: &Project, relative: &str) -> Result<Option<Vec<u8>>, D
             format!("{relative}: {io_error}"),
         )),
         Ok(_) => {
-            let absolute = project.confined_file(relative)?;
+            let absolute = project.confined_file_or_missing(relative, || {
+                Diagnostic::new(
+                    code!("LLV7007"),
+                    format!("the Lake workspace has no `{relative}`"),
+                )
+            })?;
             std::fs::read(absolute.as_std_path())
                 .map(Some)
                 .map_err(|io_error| {
@@ -1004,7 +1009,15 @@ pub fn workspace_pins(project: &Project) -> Result<Vec<(String, Sha256Digest)>, 
     let mut rows = Vec::new();
 
     let toolchain_relative = workspace_relative("lean-toolchain");
-    match project.confined_file(&toolchain_relative) {
+    match project.confined_file_or_missing(&toolchain_relative, || {
+        Diagnostic::new(
+            code!("LLV7007"),
+            format!(
+                "the Lake workspace has no `{toolchain_relative}`; language 1.0 pins {}",
+                crate::LEAN_TOOLCHAIN
+            ),
+        )
+    }) {
         Ok(absolute) => match std::fs::read(absolute.as_std_path()) {
             Ok(bytes) => {
                 let content = String::from_utf8_lossy(&bytes);
@@ -1138,7 +1151,12 @@ pub fn compute_lock(
 /// Read the committed lock bytes through the confined lock path (§25.1):
 /// no symlink component, a regular file.
 pub fn read_lock_bytes(project: &Project) -> Result<Vec<u8>, Diagnostic> {
-    let lock_path = project.confined_file(&project.config.lockfile)?;
+    let lock_path = project.confined_file_or_missing(&project.config.lockfile, || {
+        lock_error(format!(
+            "{} does not exist; run `lexlean lock`",
+            project.config.lockfile
+        ))
+    })?;
     std::fs::read(lock_path.as_std_path()).map_err(|io_error| {
         lock_error(format!(
             "{}: {io_error}; run `lexlean lock`",

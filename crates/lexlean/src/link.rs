@@ -316,7 +316,9 @@ fn check_project_inline(
             continue;
         }
         let absolute = project
-            .confined_file(&relative)
+            .confined_file_or_missing(&relative, || {
+                Diagnostic::new(code!("LLC0002"), format!("`{relative}` does not exist"))
+            })
             .map_err(|diagnostic| err(vec![diagnostic]))?;
         let bytes = std::fs::read(absolute.as_std_path()).map_err(|io_error| {
             err(vec![Diagnostic::new(

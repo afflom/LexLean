@@ -338,6 +338,51 @@ pub(crate) fn run(id: &str) {
         }
         // §23.3: selection modes are exclusive and canonicalized.
         "CF-05" => {
+            // §23.6: a file the project needs and does not have is a
+            // configuration, selection, or environment failure — never the
+            // security class, which is for a policy or limit violation.
+            let missing_lock = P::example();
+            std::fs::remove_file(missing_lock.root.join("lexlean.lock").as_std_path())
+                .expect("remove the lock");
+            let error = missing_lock.check_err();
+            support::expect_code(&error, "LLC0102");
+            assert_eq!(error.class.exit_code(), 2, "a missing lock is a lock error");
+
+            let missing_pin = P::example();
+            std::fs::remove_file(missing_pin.root.join("lean-toolchain").as_std_path())
+                .expect("remove the pin");
+            let error = missing_pin.check_err();
+            support::expect_code(&error, "LLV7007");
+            assert_eq!(
+                error.class.exit_code(),
+                3,
+                "a missing workspace pin is an environment failure"
+            );
+
+            let missing_root = P::example();
+            std::fs::remove_dir_all(missing_root.root.join("src").as_std_path())
+                .expect("remove the source root");
+            let error = missing_root.check_err();
+            support::expect_code(&error, "LLC0101");
+            assert_eq!(
+                error.class.exit_code(),
+                2,
+                "a missing source root is a configuration error"
+            );
+
+            // §23.3, §23.6: `--all` over a project with no module selects
+            // nothing, and an empty selection is an error, not a success.
+            let empty = P::example();
+            std::fs::remove_file(empty.root.join("src/Main.lex.tex").as_std_path())
+                .expect("remove the module");
+            let error = match empty.engine().check(lexlean::CheckRequest {
+                selection: lexlean::Selection::All,
+            }) {
+                Ok(_) => panic!("`--all` over no module must be an empty selection"),
+                Err(error) => error,
+            };
+            support::expect_code(&error, "LLC0002");
+
             let project = P::example();
             let (exit, _, _) = project.cli(&["check", "--all", "src/Main.lex.tex"]);
             assert_eq!(exit, 2, "--all with explicit inputs is CLI misuse");
