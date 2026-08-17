@@ -654,8 +654,25 @@ pub(crate) fn run(id: &str) {
         // checks every §30.3 artifact by content, and the crate package
         // builds standalone with the same semantics ID.
         "RP-12" => {
-            let unmet = repo_model::release::check(root.as_std_path())
+            let (_, hidden_tests) = crate::workspace_test_names_with_flags(root.as_std_path());
+            assert!(
+                hidden_tests.is_empty(),
+                "no workspace test is ignored or cfg-hidden: {hidden_tests:?}"
+            );
+            let unmet = repo_model::release::check(root.as_std_path(), &hidden_tests)
                 .expect_err("a 0.1.0 tree must refuse release (§2.3, §30.4)");
+            // The criterion reads the attribute-block scan, so a hidden test
+            // is unmet whatever attribute form hides it (§30.4).
+            let planted: BTreeSet<String> = ["conformance_rp_12".to_owned()].into_iter().collect();
+            let with_hidden = repo_model::release::check(root.as_std_path(), &planted)
+                .expect_err("a hidden test is unmet");
+            assert!(
+                with_hidden
+                    .iter()
+                    .any(|reason| reason.contains("no-ignored-test")
+                        && reason.contains("conformance_rp_12")),
+                "the refusal names the hidden test: {with_hidden:?}"
+            );
             assert!(
                 unmet.iter().any(|reason| reason.contains("source-tag")),
                 "the refusal names the version criterion"
@@ -728,8 +745,8 @@ pub(crate) fn run(id: &str) {
                 )
                 .expect("copy");
             }
-            let refused =
-                repo_model::release::check(stage.as_std_path()).expect_err("no release/ directory");
+            let refused = repo_model::release::check(stage.as_std_path(), &BTreeSet::new())
+                .expect_err("no release/ directory");
             for name in ["checksums", "sbom", "crate-package", "version-output"] {
                 assert!(
                     refused.iter().any(|reason| reason.starts_with(name)),

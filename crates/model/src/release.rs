@@ -279,7 +279,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 ///
 /// The list of unmet criteria, each `name: requirement`.
 #[allow(clippy::too_many_lines)]
-pub fn check(root: &Path) -> Result<(), Vec<String>> {
+pub fn check(root: &Path, hidden_tests: &BTreeSet<String>) -> Result<(), Vec<String>> {
     let mut unmet = Vec::new();
     let mut fail = |name: &str, detail: String| unmet.push(format!("{name}: {detail}"));
     let read = |relative: &str| std::fs::read_to_string(root.join(relative));
@@ -483,33 +483,18 @@ pub fn check(root: &Path) -> Result<(), Vec<String>> {
         ),
     }
 
-    // §30.4: no ignored or cfg-hidden test.
-    let ignore_attribute = format!("#[{}", "ignore");
-    let cfg_attr_ignore = format!("cfg_attr({}", "");
-    for source in files_under(&root.join("crates"))
-        .into_iter()
-        .chain(files_under(&root.join("xtask")))
-    {
-        if source.extension().is_none_or(|extension| extension != "rs")
-            || source.components().any(|part| part.as_os_str() == "target")
-        {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&source) else {
-            continue;
-        };
-        for (index, line) in text.lines().enumerate() {
-            let trimmed = line.trim();
-            let hidden = trimmed.starts_with(&ignore_attribute)
-                || (trimmed.starts_with(&format!("#[{cfg_attr_ignore}"))
-                    && trimmed.contains("ignore"));
-            if hidden {
-                fail(
-                    "no-ignored-test",
-                    format!("{}:{}: {trimmed}", source.display(), index + 1),
-                );
-            }
-        }
+    // §30.4: no ignored or cfg-hidden test. The caller supplies the set
+    // the attribute-block scanner flagged (the same scan the honesty
+    // meta-gate runs), so a test hidden by any attribute form — `#[ignore]`,
+    // `#[ignore = "..."]`, `#[cfg_attr(..., ignore)]`, a `#[cfg]` on the
+    // test, its inline module, or the `mod` declaration that includes its
+    // file — fails the criterion, not just the two spellings a line scan
+    // can see.
+    for name in hidden_tests {
+        fail(
+            "no-ignored-test",
+            format!("`{name}` is ignored or hidden behind a cfg"),
+        );
     }
 
     // §27.9: a falsifiability record per gate.

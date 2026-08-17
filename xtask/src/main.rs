@@ -433,7 +433,8 @@ fn check_reproducibility(root: &Path) -> Result<(), Fail> {
 /// cargo: the packaged crate builds standalone offline and reports the same
 /// four-line identity as the in-repository binary (§30.3).
 fn release_check(root: &Path) -> Result<(), Fail> {
-    let mut unmet: Vec<String> = match repo_model::release::check(root) {
+    let (_, hidden_tests) = repo_conformance::workspace_test_names_with_flags(root);
+    let mut unmet: Vec<String> = match repo_model::release::check(root, &hidden_tests) {
         Ok(()) => Vec::new(),
         Err(unmet) => unmet,
     };

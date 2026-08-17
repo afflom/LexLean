@@ -149,22 +149,30 @@ pub fn check_honesty(root: &Path, tests: &BTreeSet<String>) -> std::io::Result<H
         }
     }
 
-    // The third direction: every ID a test name claims is registered.
-    let prefixes: BTreeSet<String> = model
-        .ids
-        .id
-        .iter()
-        .filter_map(|row| row.id.split('-').next().map(str::to_lowercase))
-        .collect();
+    // The third direction: every ID a test name claims is registered. A
+    // `conformance_` test names an ID by §27.8's formula, so *any* such
+    // name is a claim: an unregistered prefix (`conformance_zz_01`) and a
+    // malformed shape (`conformance_lx_101`, `conformance_lx`) are claims
+    // about IDs that do not exist, not names to skip.
     for name in tests {
         let Some(rest) = name.strip_prefix("conformance_") else {
             continue;
         };
         let mut parts = rest.splitn(2, '_');
         let (Some(letters), Some(digits)) = (parts.next(), parts.next()) else {
+            report.violations.push(format!(
+                "§27.8: test `{name}` is not `conformance_<id>` for any registered ID."
+            ));
             continue;
         };
-        if !prefixes.contains(letters) || digits.len() != 2 {
+        let shaped = letters.len() == 2
+            && letters.chars().all(|c| c.is_ascii_lowercase())
+            && digits.len() == 2
+            && digits.chars().all(|c| c.is_ascii_digit());
+        if !shaped {
+            report.violations.push(format!(
+                "§27.8: test `{name}` is not `conformance_<id>` for any registered ID."
+            ));
             continue;
         }
         let id = format!("{}-{digits}", letters.to_uppercase());

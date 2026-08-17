@@ -287,47 +287,69 @@ fn unexpected_absolute_path_detector_is_exact() {
 
 /// §8.3, §24.5: a non-UTF-8 argument or working directory is the
 /// registered environment diagnostic (exit 3), never a panic, in both
-/// output modes.
-#[cfg(unix)]
+/// output modes. The test exists on every supported host (§30.4: no test
+/// is hidden behind a `cfg`); only the way a host spells an ill-formed
+/// path differs, and Windows argv is UTF-16, where this construct cannot
+/// be built at all — there the CLI is exercised with a well-formed path
+/// instead, so the name never silently disappears.
 #[test]
 fn non_utf8_argv_and_cwd_are_environment_diagnostics() {
+    #[cfg(not(unix))]
+    {
+        let binary = env!("CARGO_BIN_EXE_lexlean");
+        let output = std::process::Command::new(binary)
+            .args(["--color", "never", "check", "src/Absent.lex.tex"])
+            .output()
+            .expect("runs");
+        assert_ne!(output.status.code(), Some(0), "an absent input fails");
+        assert_ne!(
+            output.status.code(),
+            None,
+            "the process is not terminated by a signal"
+        );
+        return;
+    }
+    #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;
-    let binary = env!("CARGO_BIN_EXE_lexlean");
-    let bad = std::ffi::OsStr::from_bytes(b"src/Bad\xff.lex.tex");
-    let output = std::process::Command::new(binary)
-        .args(["--color", "never", "check"])
-        .arg(bad)
-        .output()
-        .expect("runs");
-    assert_eq!(output.status.code(), Some(3), "environment class");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.starts_with("error[LLV7008]"), "{stderr}");
-    assert!(output.stdout.is_empty());
-    let output = std::process::Command::new(binary)
-        .args(["--diagnostic-format", "json", "check"])
-        .arg(bad)
-        .output()
-        .expect("runs");
-    assert_eq!(output.status.code(), Some(3));
-    assert!(output.stderr.is_empty(), "JSON mode keeps stderr empty");
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
-    assert_eq!(value["command"], "check");
-    assert_eq!(value["exit_code"], 3);
-    assert_eq!(value["diagnostics"][0]["code"], "LLV7008");
+    #[cfg(unix)]
+    {
+        let binary = env!("CARGO_BIN_EXE_lexlean");
+        let bad = std::ffi::OsStr::from_bytes(b"src/Bad\xff.lex.tex");
+        let output = std::process::Command::new(binary)
+            .args(["--color", "never", "check"])
+            .arg(bad)
+            .output()
+            .expect("runs");
+        assert_eq!(output.status.code(), Some(3), "environment class");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.starts_with("error[LLV7008]"), "{stderr}");
+        assert!(output.stdout.is_empty());
+        let output = std::process::Command::new(binary)
+            .args(["--diagnostic-format", "json", "check"])
+            .arg(bad)
+            .output()
+            .expect("runs");
+        assert_eq!(output.status.code(), Some(3));
+        assert!(output.stderr.is_empty(), "JSON mode keeps stderr empty");
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
+        assert_eq!(value["command"], "check");
+        assert_eq!(value["exit_code"], 3);
+        assert_eq!(value["diagnostics"][0]["code"], "LLV7008");
 
-    let temp = tempfile::tempdir().expect("tempdir");
-    let bad_dir = temp.path().join(std::ffi::OsStr::from_bytes(b"cwd\xff"));
-    std::fs::create_dir(&bad_dir).expect("mkdir");
-    let output = std::process::Command::new(binary)
-        .args(["--color", "never", "check"])
-        .current_dir(&bad_dir)
-        .output()
-        .expect("runs");
-    assert_eq!(
-        output.status.code(),
-        Some(3),
-        "a non-UTF-8 cwd is an environment failure"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.starts_with("error[LLV7008]"), "{stderr}");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bad_dir = temp.path().join(std::ffi::OsStr::from_bytes(b"cwd\xff"));
+        std::fs::create_dir(&bad_dir).expect("mkdir");
+        let output = std::process::Command::new(binary)
+            .args(["--color", "never", "check"])
+            .current_dir(&bad_dir)
+            .output()
+            .expect("runs");
+        assert_eq!(
+            output.status.code(),
+            Some(3),
+            "a non-UTF-8 cwd is an environment failure"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.starts_with("error[LLV7008]"), "{stderr}");
+    }
 }

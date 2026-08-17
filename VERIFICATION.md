@@ -77,10 +77,10 @@ Removed: the comment was deleted; `audit-deferral` reports nothing deferred.
 Planted: the literal `"LLL1004"` in `crates/conformance/src/cases/lexical_closure.rs` changed so that its third digit is `9` (a well-shaped but unregistered code) outside any `code!(` invocation. Command: `cargo xtask validate-model`. Expected: R5 rejects the unregistered literal at its line.
 
 ```text
-gate failed: R5: crates/conformance/src/cases/lexical_closure.rs:203: `LLL1<9>4` is not a registered diagnostic code (§26.1)
+gate failed: R5: crates/conformance/src/cases/lexical_closure.rs:225: `LLL1904` is not a registered diagnostic code (§26.1)
 ```
 
-Removed: the literal was restored; `audit-errors` reports 47 registered codes, every one constructed by the shipped crate.
+Removed: the literal was restored; `audit-errors` reports every registered code as constructed by the shipped crate, and no unregistered literal anywhere.
 
 ### audit-shipped can fail
 
@@ -110,7 +110,7 @@ Planted: a `[[token]]` row `orphan-token` appended to `language/renderer-tokens.
 gate failed: R8: unused registry rows fail the language audit (§13.10): ["orphan-token"]
 ```
 
-Removed: the row was deleted; the audit reports 72 tokens equal to the referenced closure.
+Removed: the row was deleted; the audit reports the registry equal to the referenced closure, with no unused row.
 
 ### audit-no-unsafe can fail
 
@@ -124,12 +124,12 @@ An `unsafe` block planted in `crates/lexlean/src/error.rs` instead does not even
 
 ### honesty-vocabulary can fail
 
-Planted: the sentence "The authority `LEAN-REL-4-32-1` proves every generated theorem." appended to `README.md`. Command: `cargo xtask validate-model`. Expected: R2 rejects assertive vocabulary about a cited authority.
+Planted: the sentence "The authority `LEAN-REL-4-32-1` proves every generated theorem." appended to `README.md`. Command: `cargo xtask validate-model`. Expected: R2 rejects assertive vocabulary about a cited authority, naming the appended line (its number is the file's last line, so it moves as the README grows).
 
 ```text
 gate failed: the honesty meta-gate failed inside validate-model:
 
-R2: README.md:110: `LEAN-REL-4-32-1` is cited, not established here, but this line says `proves`.
+R2: README.md:134: `LEAN-REL-4-32-1` is cited, not established here, but this line says `proves`.
 ```
 
 Removed: the sentence was deleted; the vocabulary check is clean.
