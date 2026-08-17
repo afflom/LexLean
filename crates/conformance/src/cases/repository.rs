@@ -97,6 +97,16 @@ fn ignore_attributes(text: &str) -> Vec<String> {
     found
 }
 
+/// Every §28.2 fixture directory of the repository.
+fn repo_conformance_fixtures(root: &camino::Utf8Path) -> Vec<camino::Utf8PathBuf> {
+    let fixtures = crate::fixtures::discover(root);
+    assert!(
+        fixtures.len() > 20,
+        "the fixture suite is discovered: {fixtures:?}"
+    );
+    fixtures
+}
+
 /// The §31 table parsed as `(id, suite, statement)` rows.
 fn spec_table() -> Vec<(String, String, String)> {
     let text = support::spec_text();
@@ -234,6 +244,23 @@ pub(crate) fn run(id: &str) {
                 checked += 1;
             }
             assert!(checked > 80, "the §7 tree parse found only {checked} rows");
+            // The committed tree holds inputs and oracles only: every
+            // example and fixture project runs from a temporary copy, the
+            // live build roots are ignored, and no fixture project carries
+            // one (the runner refuses it; `expected/` is the oracle).
+            let gitignore = root_file(".gitignore");
+            for rule in ["examples/**/.lexlean/", "tests/**/.lexlean/"] {
+                assert!(
+                    gitignore.lines().any(|line| line.trim() == rule),
+                    ".gitignore lacks the build-root rule `{rule}`"
+                );
+            }
+            for fixture in repo_conformance_fixtures(&root) {
+                assert!(
+                    !fixture.join("project/.lexlean").as_std_path().exists(),
+                    "{fixture}: the committed fixture project carries a build root; fixtures run from a temporary copy — remove it"
+                );
+            }
         }
         // §7, §8.4: shipped crates derive from `publish = false`, and the
         // shipped crate depends on no repository-only tooling.
