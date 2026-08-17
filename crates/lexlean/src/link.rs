@@ -221,105 +221,6 @@ fn bytes_of(atoms: &[Atom], range: AtomRange) -> (usize, usize) {
     (first.byte_start, last.byte_end)
 }
 
-/// The Lean 4 reserved keyword and token set for generated-name collision
-/// checks (§17.8): every token that pinned Lean 4.32.1's parser rejects as
-/// a declaration name (`theorem <token> : True := True.intro` fails with
-/// `unexpected token`), determined against the pinned toolchain, plus the
-/// builtin sort names. Component IDs are lowercase ASCII, so a mixed-case
-/// token can never collide, but the set is complete regardless so the check
-/// reads as the closed set it is. Tactic names such as `apply`, `left`, or
-/// `cases` are not tokens and are valid declaration names.
-const LEAN_KEYWORDS: &[&str] = &[
-    "abbrev",
-    "at",
-    "attribute",
-    "axiom",
-    "binder_predicate",
-    "break",
-    "builtin_initialize",
-    "by",
-    "calc",
-    "catch",
-    "class",
-    "continue",
-    "declare_syntax_cat",
-    "decreasing_by",
-    "def",
-    "deriving",
-    "do",
-    "elab",
-    "elab_rules",
-    "else",
-    "end",
-    "example",
-    "exists",
-    "export",
-    "extends",
-    "finally",
-    "for",
-    "from",
-    "fun",
-    "have",
-    "hiding",
-    "if",
-    "import",
-    "in",
-    "include",
-    "inductive",
-    "infix",
-    "infixl",
-    "infixr",
-    "init_quot",
-    "instance",
-    "let",
-    "local",
-    "macro",
-    "macro_rules",
-    "match",
-    "mut",
-    "mutual",
-    "namespace",
-    "nofun",
-    "nomatch",
-    "noncomputable",
-    "notation",
-    "omit",
-    "opaque",
-    "open",
-    "partial",
-    "postfix",
-    "prefix",
-    "private",
-    "protected",
-    "public",
-    "renaming",
-    "repeat",
-    "return",
-    "scoped",
-    "section",
-    "set_option",
-    "show",
-    "sorry",
-    "structure",
-    "suffices",
-    "syntax",
-    "termination_by",
-    "then",
-    "theorem",
-    "try",
-    "universe",
-    "unless",
-    "unsafe",
-    "using",
-    "variable",
-    "where",
-    "with",
-    "Prop",
-    "Sort",
-    "Type",
-    "λ",
-];
-
 struct ModuleLoad {
     path: String,
     normalized: String,
@@ -1102,7 +1003,7 @@ fn link_declaration(
     }
     // Name generation (§17.8): `-` to `_`, collision and keyword checked.
     let lean_name = decl.component.text.replace('-', "_");
-    if LEAN_KEYWORDS.contains(&lean_name.as_str()) {
+    if crate::backend::lean_tokens::is_reserved(&lean_name) {
         return Err(Diagnostic::new(
             code!("LLP2003"),
             format!(

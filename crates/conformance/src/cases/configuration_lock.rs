@@ -439,7 +439,26 @@ pub(crate) fn run(id: &str) {
             );
             #[cfg(unix)]
             {
+                // The permission claim is about the bytes the compiler
+                // writes, so it is read from a lock the compiler just wrote:
+                // an up-to-date lock is not rewritten (asserted above), and a
+                // copied file carries the copy's mode, not the writer's.
                 use std::os::unix::fs::PermissionsExt;
+                std::fs::remove_file(project.root.join("lexlean.lock").as_std_path())
+                    .expect("remove the lock");
+                let rewritten = project
+                    .engine()
+                    .lock(LockRequest {
+                        check_only: false,
+                        allow_network: false,
+                    })
+                    .expect("relock after removal");
+                assert!(rewritten.written, "a missing lock is written");
+                assert_eq!(
+                    project.read("lexlean.lock"),
+                    bytes,
+                    "the rewritten lock is the same lock"
+                );
                 let mode = std::fs::metadata(project.root.join("lexlean.lock").as_std_path())
                     .expect("stat")
                     .permissions()
