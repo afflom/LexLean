@@ -1455,7 +1455,7 @@ pub const PROOF_FORMS_LEAN: &str = "module\npublic import Init\nset_option autoI
 
 /// The exact canonical LaTeX body (after `\\begin{document}`) of
 /// [`PROOF_FORMS_MODULE`].
-pub const PROOF_FORMS_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{theorem}\n\\label{ll:main:cases-goal}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nConsider the cases of \\(n\\).\nCase zero:\nThe goal follows by reflexivity.\nCase \\(succ\\) with \\(m\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:right-goal}\nFor every natural number \\(n\\), \\(n = 1\\) or \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nSelect the right alternative.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:induction-goal}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nProceed by induction on \\(n\\).\nCase zero:\nThe goal follows by reflexivity.\nCase \\(succ\\) with \\(m\\), \\(ih\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:first}\nIf \\(0 + 0 = 0\\), then \\(0 \\cdot 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\nAssume \\(h\\).\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:apply-goal}\n\\(0 \\cdot 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\nApply \\(\\texttt{Main::first}\\).\nPremise \\(1\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:zz}\n\\(0 + 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:calc-goal}\n\\(0 + 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\n\\begin{align*}\n0 + 0 &= 0 && \\text{by } \\texttt{Main::zz}\n\\end{align*}\n\\end{proof}\n\\end{document}\n";
+pub const PROOF_FORMS_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{theorem}\n\\label{ll:main:cases-goal}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nConsider the cases of \\(n\\).\nCase zero:\nThe goal follows by reflexivity.\nCase \\(\\operatorname{succ}\\) with \\(m\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:right-goal}\nFor every natural number \\(n\\), \\(n = 1\\) or \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nSelect the right alternative.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:induction-goal}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nProceed by induction on \\(n\\).\nCase zero:\nThe goal follows by reflexivity.\nCase \\(\\operatorname{succ}\\) with \\(m\\), \\(ih\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:first}\nIf \\(0 + 0 = 0\\), then \\(0 \\cdot 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\nAssume \\(h\\).\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:apply-goal}\n\\(0 \\cdot 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\nApply \\(\\texttt{Main::first}\\).\nPremise \\(1\\):\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:zz}\n\\(0 + 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:calc-goal}\n\\(0 + 0 = 0\\).\n\\end{theorem}\n\\begin{proof}\n\\begin{align*}\n0 + 0 &= 0 && \\text{by } \\texttt{Main::zz}\n\\end{align*}\n\\end{proof}\n\\end{document}\n";
 
 /// A three-level section nest with two parameters of which one is used.
 pub const SECTIONS_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{section}{outer}\n\\heading{Natural number addition}\n\\parameters{natural number \\(p\\); natural number \\(q\\)}\n\\begin{section}{middle}\n\\heading{Natural number addition}\n\\begin{section}{inner}\n\\heading{Natural number addition}\n\\begin{theorem}{deep}\n\\noaxioms\n\\(q + 0 = q\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{section}\n\\end{section}\n\\end{section}\n\\end{lexlean}\n";
@@ -1947,4 +1947,376 @@ pub fn print_axioms_output() -> (String, String) {
     let good = run("Good.lean", body);
     let bad = run("Bad.lean", &format!("{body}#print axioms Demo.M.missing\n"));
     (good, bad)
+}
+
+// ---- WS-B2 helpers (canonical prose of text frames) ----
+
+/// A text-frame entry of the `test.frames` fixture package: `category`
+/// and `frame` name the §13.4 frame, `signature` the LSE signature,
+/// `denotation` the complete `[denotation]` table body, `features` the
+/// canonical text form's features, and `render_text` an optional text
+/// render template (§13.9).
+#[allow(clippy::too_many_arguments)]
+fn frames_text_entry(
+    id: &str,
+    category: &str,
+    frame: &str,
+    signature: &str,
+    arity: u32,
+    denotation: &str,
+    features: &str,
+    render_text: Option<&str>,
+) -> String {
+    let render = render_text.map_or(String::new(), |template| {
+        format!("\n[render]\ntext = \"{template}\"\n")
+    });
+    format!(
+        r#"spec = "lexlean/entry/1"
+id = "{id}"
+category = "{category}"
+signature = "{signature}"
+surface_arity = {arity}
+frame = "{frame}"
+
+[denotation]
+{denotation}
+
+[[form]]
+id = "{id}"
+channel = "text"
+surface = "{id}"
+canonical_source = true
+features = {features}
+{render}"#
+    )
+}
+
+/// The `test.frames` fixture package: one entry per §13.4 text frame with
+/// document denotations (`even` adjective, `vanishes` intransitive,
+/// `precedes` transitive, `double` noun-of, `total` binary-noun-of), Lean
+/// denotations for `the successor of` (`Nat.succ`), `the sum of ... and
+/// ...` (`Nat.add`), and the transitive `bounded` (`Nat.le`) whose text
+/// render template `ARG_0 is bounded by ARG_1` overrides the fixed
+/// transitive pattern; the proof constant `lerefl` (`Nat.le_refl`) and the
+/// label words `parity`, `order`, and `sums` for phrase punctuation.
+#[must_use]
+pub fn frames_entries() -> Vec<FixtureEntry> {
+    let nat = "(const lexlean.std.nat::nat)";
+    let unary_prop = format!("(pi ((explicit n {nat})) (sort prop))");
+    let binary_prop = format!("(pi ((explicit n {nat}) (explicit m {nat})) (sort prop))");
+    let unary_nat = format!("(pi ((explicit n {nat})) {nat})");
+    let binary_nat = format!("(pi ((explicit a {nat}) (explicit b {nat})) {nat})");
+    let document = |component: &str| {
+        format!("kind = \"document\"\nmodule = \"Main\"\ncomponent = \"{component}\"")
+    };
+    let lean = |name: &str| format!("kind = \"lean\"\nmodule = \"Init\"\nname = \"{name}\"");
+    let lower = "[\"lower-case\"]";
+    let noun = "[\"lower-case\", \"singular\"]";
+    vec![
+        (
+            "even.toml",
+            frames_text_entry(
+                "even",
+                "adjective-predicate",
+                "adjective",
+                &unary_prop,
+                1,
+                &document("even"),
+                lower,
+                None,
+            ),
+        ),
+        (
+            "vanishes.toml",
+            frames_text_entry(
+                "vanishes",
+                "intransitive-predicate",
+                "intransitive",
+                &unary_prop,
+                1,
+                &document("vanishes"),
+                lower,
+                None,
+            ),
+        ),
+        (
+            "precedes.toml",
+            frames_text_entry(
+                "precedes",
+                "transitive-predicate",
+                "transitive",
+                &binary_prop,
+                2,
+                &document("precedes"),
+                lower,
+                None,
+            ),
+        ),
+        (
+            "double.toml",
+            frames_text_entry(
+                "double",
+                "noun-function",
+                "noun-of",
+                &unary_nat,
+                1,
+                &document("double"),
+                noun,
+                None,
+            ),
+        ),
+        (
+            "total.toml",
+            frames_text_entry(
+                "total",
+                "binary-noun-function",
+                "binary-noun-of",
+                &binary_nat,
+                2,
+                &document("total"),
+                noun,
+                None,
+            ),
+        ),
+        (
+            "successor.toml",
+            frames_text_entry(
+                "successor",
+                "noun-function",
+                "noun-of",
+                &unary_nat,
+                1,
+                &lean("Nat.succ"),
+                noun,
+                None,
+            ),
+        ),
+        (
+            "sum.toml",
+            frames_text_entry(
+                "sum",
+                "binary-noun-function",
+                "binary-noun-of",
+                &binary_nat,
+                2,
+                &lean("Nat.add"),
+                noun,
+                None,
+            ),
+        ),
+        (
+            "bounded.toml",
+            frames_text_entry(
+                "bounded",
+                "transitive-predicate",
+                "transitive",
+                &binary_prop,
+                2,
+                &lean("Nat.le"),
+                lower,
+                Some(
+                    "(seq (slot 0) (space) (form lexlean.core::is is-l) (space) (self-form bounded) (space) (form lexlean.core::by by-l) (space) (slot 1))",
+                ),
+            ),
+        ),
+        (
+            "lerefl.toml",
+            corpus_proof_constant(
+                "lerefl",
+                "lerefl",
+                &format!(
+                    "(pi ((explicit n {nat})) (app (const test.frames::bounded) (local n) (local n)))"
+                ),
+                "Nat.le_refl",
+            ),
+        ),
+        ("parity.toml", label_word_entry("parity", "parity")),
+        ("order.toml", label_word_entry("order", "order")),
+        ("sums.toml", label_word_entry("sums", "sums")),
+    ]
+}
+
+/// The frames module: every §13.4 text frame in statements and definition
+/// heads, nested noun phrases as frame arguments, frames under the
+/// conditional, conjunction, and disjunction connectives, a
+/// sentence-initial noun phrase, phrase punctuation in the title and a
+/// heading, and cases on a core structure; Lean-verifiable.
+pub const FRAMES_MODULE: &str = r"\begin{lexlean}{Main}
+\useglossary{lexlean.std.nat@1.0.0}
+\useglossary{test.frames@1.0.0}
+\title{Natural number addition: parity (order)}
+
+\begin{section}{frames}
+\heading{Natural number order - parity: sums}
+\begin{predicatedefinition}{even}{test.frames::even}
+\noaxioms
+For every natural number \(n\), \(n\) is even holds exactly when there exists a natural number \(k\) such that \(n = k + k\).
+\end{predicatedefinition}
+
+\begin{predicatedefinition}{vanishes}{test.frames::vanishes}
+\noaxioms
+For every natural number \(n\), \(n\) vanishes holds exactly when \(n = 0\).
+\end{predicatedefinition}
+
+\begin{predicatedefinition}{precedes}{test.frames::precedes}
+\noaxioms
+For every natural number \(n\); natural number \(m\), \(n\) precedes \(m\) holds exactly when there exists a natural number \(k\) such that \(n + k = m\).
+\end{predicatedefinition}
+
+\begin{termdefinition}{double}{test.frames::double}
+\noaxioms
+For every natural number \(n\), the double of \(n\) is defined as \(n + n\).
+\end{termdefinition}
+
+\begin{termdefinition}{total}{test.frames::total}
+\noaxioms
+For every natural number \(a\); natural number \(b\), the total of \(a\) and \(b\) is defined as \(a + b\).
+\end{termdefinition}
+
+\begin{theorem}{double-even}
+\noaxioms
+For every natural number \(n\), the double of \(n\) is even.
+\begin{proof}
+Use \(n\) as the witness.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{sum-even}
+\noaxioms
+For every natural number \(n\), the sum of \(n\) and \(n\) is even.
+\begin{proof}
+Use \(n\) as the witness.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{total-even}
+\noaxioms
+For every natural number \(n\), the total of \(n\) and \(n\) is even.
+\begin{proof}
+Use \(n\) as the witness.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{self-precedes}
+\noaxioms
+For every natural number \(n\), \(n\) precedes \(n\).
+\begin{proof}
+Use \(0\) as the witness.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{successor-precedes}
+\noaxioms
+the successor of \(0\) precedes the successor of the double of \(0\).
+\begin{proof}
+Use \(0\) as the witness.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{vanishes-conditional}
+\noaxioms
+For every natural number \(n\), if \(n\) vanishes, then \(n\) precedes \(n\).
+\begin{proof}
+Assume \(h\).
+Use \(0\) as the witness.
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{even-and-precedes}
+\noaxioms
+\(0\) is even and \(0\) precedes \(0\).
+\begin{proof}
+\begin{constructor}
+\begin{branch}{1}
+Use \(0\) as the witness.
+Close the goal by reflexivity.
+\end{branch}
+\begin{branch}{2}
+Use \(0\) as the witness.
+Close the goal by reflexivity.
+\end{branch}
+\end{constructor}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{bounded-self}
+\noaxioms
+For every natural number \(n\), \(n\) bounded the successor of \(n\) or \(n\) bounded \(n\).
+\begin{proof}
+Select the right alternative.
+Close the goal with \(lerefl(n)\).
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{cases-conjunction}
+\noaxioms
+For every natural number \(n\), if \(n\) is even and \(n\) vanishes, then \(n\) precedes \(n\).
+\begin{proof}
+Assume \(h\).
+\begin{cases}{h}
+\begin{case}{lexlean.core::and-intro}
+\bind{he;hv}
+Use \(0\) as the witness.
+Close the goal by reflexivity.
+\end{case}
+\end{cases}
+\end{proof}
+\end{theorem}
+\end{section}
+\end{lexlean}
+";
+
+/// A project holding the frames module and its fixture package (relocked).
+#[must_use]
+pub fn frames_project() -> P {
+    let project = P::example();
+    let entries = frames_entries();
+    let entry_refs: Vec<(&str, &str)> = entries
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect();
+    project.add_package(
+        "lexicons/test-frames",
+        "test.frames",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &entry_refs,
+    );
+    project.write("src/Main.lex.tex", FRAMES_MODULE);
+    project.relock();
+    project
+}
+
+/// The one shared Lean-verified run of the frames module: its statements
+/// are Lean-facing, so the canonical prose is asserted over a module the
+/// pinned toolchain accepts.
+pub fn verified_frames() -> &'static VerifiedFixture {
+    static FIXTURE: OnceLock<VerifiedFixture> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let _guard = env_lock();
+        let project = frames_project();
+        let outcome = project
+            .engine()
+            .verify(VerifyRequest {
+                selection: Selection::Entrypoints,
+            })
+            .unwrap_or_else(|error| {
+                panic!("the frames module verifies under pinned Lean 4.32.1: {error:#?}")
+            });
+        let attestation: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(outcome.root.join("attestation.json").as_std_path())
+                .expect("attestation exists"),
+        )
+        .expect("attestation parses");
+        VerifiedFixture {
+            project,
+            outcome,
+            attestation,
+        }
+    })
 }
