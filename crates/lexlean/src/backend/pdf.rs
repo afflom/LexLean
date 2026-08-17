@@ -117,7 +117,7 @@ pub fn run_provider(
     provider: &PdfProvider,
     tex_bytes: &[u8],
     stem: &str,
-    staging_parent: &Utf8PathBuf,
+    provider_root: &Utf8PathBuf,
     normalizer: &Normalizer,
 ) -> Result<PdfResult, Diagnostic> {
     let limits = &project.config.limits;
@@ -136,7 +136,7 @@ pub fn run_provider(
 
     // 4–5. An isolated temporary working directory holding exactly the
     // canonical `.tex` and the declared regular resources.
-    let workspace = tempfile::tempdir_in(staging_parent.as_std_path())
+    let workspace = tempfile::tempdir_in(provider_root.as_std_path())
         .map_err(|io_error| protocol(format!("pdf staging: {io_error}")))?;
     let workspace_root = Utf8PathBuf::from_path_buf(workspace.path().to_path_buf())
         .map_err(|bad| crate::project::non_utf8_path(&bad))?;

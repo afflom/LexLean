@@ -785,6 +785,18 @@ pub fn run(
     }
     let staging_utf8 = Utf8PathBuf::from_path_buf(staging.path().to_path_buf())
         .map_err(|_| fail(Diagnostic::new(code!("LLS8001"), "non-UTF-8 staging path")))?;
+    // The external PDF provider's isolated directory is a sibling of the
+    // staging tree, never inside it (§19.7 step 4, §25.6): the provider is
+    // an untrusted external program, and a program that walks out of its
+    // working directory must not reach the artifacts being staged for
+    // publication. Both live under the configured build root.
+    let provider_root = project.root.join(&project.config.build_root).join("pdf");
+    std::fs::create_dir_all(provider_root.as_std_path()).map_err(|io_error| {
+        fail(Diagnostic::new(
+            code!("LLB6003"),
+            format!("{provider_root}: {io_error}"),
+        ))
+    })?;
     let workspace_root = if project.config.lean_workspace == "." {
         project.root.clone()
     } else {
@@ -1148,7 +1160,7 @@ pub fn run(
                 provider,
                 module.tex_text.as_bytes(),
                 &module.lean_module,
-                &staging_utf8,
+                &provider_root,
                 &normalizer,
             )
             .map_err(fail)?;

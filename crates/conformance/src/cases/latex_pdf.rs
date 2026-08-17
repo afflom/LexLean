@@ -795,6 +795,20 @@ math = "(token write18)"
                 &std::fs::read(verified.root.join("attestation.json").as_std_path()).expect("read"),
             )
             .expect("parses");
+            // §19.7 step 4, §25.6: the provider's isolated directory is a
+            // sibling of the verification staging tree, never inside it —
+            // an untrusted external program that walks out of its working
+            // directory must not reach the artifacts being staged. The
+            // published set is the fixed §22.8 one, with no provider
+            // scratch in it.
+            let published = support::file_set(&verified.root);
+            assert!(
+                published
+                    .iter()
+                    .all(|name| !name.contains("work/") && !name.contains("home/")),
+                "no provider scratch is published: {published:?}"
+            );
+
             let pdf = attestation["pdf"].as_array().expect("pdf rows");
             assert_eq!(pdf.len(), 1);
             assert_eq!(pdf[0]["module"].as_str(), Some("LexLeanExample.Main"));
