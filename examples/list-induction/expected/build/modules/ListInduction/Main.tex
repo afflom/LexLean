@@ -54,9 +54,13 @@ For every \(\operatorname{list}(T)\) \(xs\), \(xs ++ \operatorname{nil} = xs\).
 \begin{proof}
 Proceed by induction on \(xs\).
 Case \(\operatorname{nil}\):
+\begin{quote}
 The goal follows by reflexivity.
+\end{quote}
 Case \(\operatorname{cons}\) with \(x\), \(rest\), \(ih\):
+\begin{quote}
 Rewrite the goal using \(\rightarrow \texttt{Main::cons-append}(T, x, rest, \operatorname{nil})\), \(\rightarrow ih\).
+\end{quote}
 \end{proof}
 \begin{theorem}
 \label{ll:main:succ-add-doc}

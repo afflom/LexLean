@@ -3,15 +3,15 @@
 # compiler executable (presence only). SPEC.md §28.2, §28.4.
 
 [platform_independent]
-".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.A95707511c75740b0ba636f3556a1ee78.lean" = "ce72b0930147248dfa799553ba634a7da3d05df24977acc9873052cdc47d91a2"
+".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.A2266331d0b2dcbde06fd8a619bfb8a91.lean" = "ce72b0930147248dfa799553ba634a7da3d05df24977acc9873052cdc47d91a2"
 ".lexlean/verified/$ATTESTATION/audit/output.txt" = "e0a31c670eac06f52782d864e0a948c11d06d4901077474ddcc6afb86817ac0a"
-".lexlean/verified/$ATTESTATION/build-manifest.json" = "894d226044c74e7a5477e417f5ea2d19b349125870392c149da0e9138dd7230f"
+".lexlean/verified/$ATTESTATION/build-manifest.json" = "7995d9b07bcfc72c968dbffb1e8f697c3dab75e0d7f199919556953767c6fb35"
 ".lexlean/verified/$ATTESTATION/coverage/LexLeanExample/Main.coverage.json" = "72ad0cecf108a6d1418608241feef48911979624998aed0f00219441f6376fc0"
 ".lexlean/verified/$ATTESTATION/lexicons/Main.closure.json" = "c0ce1283dec0aa9cfaf50362a90c24a4a4ad0ebaa54bc3c949e5578d0326a3be"
-".lexlean/verified/$ATTESTATION/maps/LexLeanExample/Main.map.json" = "c766cd88535615fd5bfbd6138762cbd1a5e1af91a96a65014a27a5505d536e7d"
+".lexlean/verified/$ATTESTATION/maps/LexLeanExample/Main.map.json" = "966c12c60edd9cd57501dd000f4c5e7891d0ac6ad7a0cb81ec09660a9779a657"
 ".lexlean/verified/$ATTESTATION/modules/LexLeanExample/Main.lean" = "792d7e4ee5a217e84aa1de344819b604708295330fe60d72142e4377b1fade13"
 ".lexlean/verified/$ATTESTATION/modules/LexLeanExample/Main.tex" = "8de0caeff94f772f520b5acfa68458761dd2bdf96f78488ec3872ff3d07864e8"
-".lexlean/verified/$ATTESTATION/probe/LexLeanProbe.P95707511c75740b0ba636f3556a1ee78.lean" = "9b60841472826e74bb77f24f90d6dc56dcfe4ab727fa000a8ae6f164b7edb8d5"
+".lexlean/verified/$ATTESTATION/probe/LexLeanProbe.P2266331d0b2dcbde06fd8a619bfb8a91.lean" = "9b60841472826e74bb77f24f90d6dc56dcfe4ab727fa000a8ae6f164b7edb8d5"
 
 [process_bound]
 files = [

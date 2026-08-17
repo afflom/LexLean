@@ -47,9 +47,11 @@ For every natural number \(n\), if \(n\) is even, then \(2\) divides \(n\).
 Assume \(h\).
 Consider the cases of \(h\).
 Case \(\operatorname{existsintro}\) with \(k\), \(hk\):
+\begin{quote}
 Use \(k\) as the witness.
 Rewrite the goal using \(\rightarrow hk\).
 The goal follows from \(\operatorname{eqsymm}(\operatorname{twomul}(k))\).
+\end{quote}
 \end{proof}
 \section{Excluded middle}
 \label{ll:main:excluded-middle}
@@ -67,10 +69,14 @@ For every natural number \(n\), \(n\) is positive or \(n = 0\).
 \begin{proof}
 Consider the cases of \(n\).
 Case zero:
+\begin{quote}
 Select the right alternative.
 The goal follows by reflexivity.
+\end{quote}
 Case \(\operatorname{succ}\) with \(m\):
+\begin{quote}
 Select the left alternative.
 The goal follows from \(\texttt{Order::successor-positive}(m)\).
+\end{quote}
 \end{proof}
 \end{document}

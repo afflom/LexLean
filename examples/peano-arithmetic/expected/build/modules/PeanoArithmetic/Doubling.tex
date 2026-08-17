@@ -61,9 +61,11 @@ For every natural number \(n\), if \(n\) is even, then \(\operatorname{succ}(\op
 Assume \(h\).
 Consider the cases of \(h\).
 Case \(\operatorname{existsintro}\) with \(k\), \(hk\):
+\begin{quote}
 Use \(\operatorname{succ}(k)\) as the witness.
 Rewrite the goal using \(\rightarrow hk\), \(\leftarrow \texttt{Addition::succ-add}(k, k)\).
 The goal follows by reflexivity.
+\end{quote}
 \end{proof}
 \section{Sums}
 \label{ll:doubling:sums}

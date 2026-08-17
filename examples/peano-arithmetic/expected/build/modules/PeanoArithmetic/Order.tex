@@ -35,9 +35,13 @@ For every natural number \(n\), \(0 \le n\).
 \begin{proof}
 Proceed by induction on \(n\).
 Case zero:
+\begin{quote}
 The goal follows from \(\operatorname{lerefl}(0)\).
+\end{quote}
 Case \(\operatorname{succ}\) with \(m\), \(ih\):
+\begin{quote}
 The goal follows from \(\operatorname{letrans}(ih, \operatorname{lesucc}(m))\).
+\end{quote}
 \end{proof}
 \begin{theorem}
 \label{ll:order:le-add-right}
@@ -56,12 +60,16 @@ For every natural number \(n\), \(n = 0\) or there exists a natural number \(m\)
 \begin{proof}
 Consider the cases of \(n\).
 Case zero:
+\begin{quote}
 Select the left alternative.
 The goal follows by reflexivity.
+\end{quote}
 Case \(\operatorname{succ}\) with \(k\):
+\begin{quote}
 Select the right alternative.
 Use \(k\) as the witness.
 The goal follows by reflexivity.
+\end{quote}
 \end{proof}
 \begin{theorem}
 \label{ll:order:successor-not-zero}

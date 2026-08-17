@@ -166,6 +166,7 @@ tokens = [
     "section-counter",
     "textbf",
     "align-star",
+    "quote",
     "align",
     "newline",
     "text",

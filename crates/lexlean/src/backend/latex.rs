@@ -1450,6 +1450,26 @@ fn numbered_label(sink: &mut Sink<'_, '_>, word: &str, index: usize) -> Result<(
     Ok(())
 }
 
+/// One nested proof scope — a `constructor` branch, an `apply` premise, or
+/// a `cases`/`induction` case — set inside a `quote` environment (§19.5:
+/// the document renders the proof IR). The label says which scope opens;
+/// the indentation says where it closes, so two proofs that differ only in
+/// how their branches nest cannot render to the same document.
+fn nested_proof(
+    sink: &mut Sink<'_, '_>,
+    proof: &Proof,
+    steps: &mut StepCursor<'_>,
+) -> Result<(), Diagnostic> {
+    let source = sink.source.clone();
+    env_open(sink, "quote")?;
+    sink.ws("\n");
+    proof_prose(sink, proof, steps)?;
+    sink.source = source;
+    env_close(sink, "quote")?;
+    sink.ws("\n");
+    Ok(())
+}
+
 /// Canonical proof prose (§19.5).
 #[allow(clippy::too_many_lines)]
 fn proof_prose(
@@ -1505,7 +1525,7 @@ fn proof_prose(
                 for (index, premise) in premises.iter().enumerate() {
                     sink.source = head_source.clone();
                     numbered_label(sink, "premise-word", index)?;
-                    proof_prose(sink, premise, steps)?;
+                    nested_proof(sink, premise, steps)?;
                 }
             }
         }
@@ -1614,7 +1634,7 @@ fn proof_prose(
             for (index, branch) in branches.iter().enumerate() {
                 sink.source = head_source.clone();
                 numbered_label(sink, "branch-word", index)?;
-                proof_prose(sink, branch, steps)?;
+                nested_proof(sink, branch, steps)?;
             }
         }
         Proof::Cases { scrutinee, cases } => {
@@ -1633,7 +1653,7 @@ fn proof_prose(
             for case in cases {
                 sink.source = head_source.clone();
                 case_label(sink, case)?;
-                proof_prose(sink, &case.proof, steps)?;
+                nested_proof(sink, &case.proof, steps)?;
             }
         }
         Proof::Induction { scrutinee, cases } => {
@@ -1652,7 +1672,7 @@ fn proof_prose(
             for case in cases {
                 sink.source = head_source.clone();
                 case_label(sink, case)?;
-                proof_prose(sink, &case.proof, steps)?;
+                nested_proof(sink, &case.proof, steps)?;
             }
         }
         Proof::Calculate {

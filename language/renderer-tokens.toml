@@ -488,6 +488,14 @@ grouping = false
 authority = "lexlean.core"
 
 [[token]]
+id = "quote"
+bytes = "quote"
+channel = "text"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
 id = "right-bracket"
 bytes = "]"
 channel = "both"

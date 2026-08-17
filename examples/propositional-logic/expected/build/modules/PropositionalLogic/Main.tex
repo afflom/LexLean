@@ -23,10 +23,16 @@ For every proposition \(p\) and proposition \(q\), if \(p\) and \(q\), then \(q\
 Assume \(h\).
 Consider the cases of \(h\).
 Case \(\operatorname{andintro}\) with \(hp\), \(hq\):
+\begin{quote}
 Branch \(1\):
+\begin{quote}
 The goal follows from \(hq\).
+\end{quote}
 Branch \(2\):
+\begin{quote}
 The goal follows from \(hp\).
+\end{quote}
+\end{quote}
 \end{proof}
 \begin{theorem}
 \label{ll:main:and-assoc}
@@ -34,31 +40,59 @@ For every proposition \(p\) and proposition \(q\) and proposition \(r\), \(p\) a
 \end{theorem}
 \begin{proof}
 Branch \(1\):
+\begin{quote}
 Assume \(h\).
 Consider the cases of \(h\).
 Case \(\operatorname{andintro}\) with \(hpq\), \(hr\):
+\begin{quote}
 Consider the cases of \(hpq\).
 Case \(\operatorname{andintro}\) with \(hp\), \(hq\):
+\begin{quote}
 Branch \(1\):
+\begin{quote}
 The goal follows from \(hp\).
+\end{quote}
 Branch \(2\):
+\begin{quote}
 Branch \(1\):
+\begin{quote}
 The goal follows from \(hq\).
+\end{quote}
 Branch \(2\):
+\begin{quote}
 The goal follows from \(hr\).
+\end{quote}
+\end{quote}
+\end{quote}
+\end{quote}
+\end{quote}
 Branch \(2\):
+\begin{quote}
 Assume \(h\).
 Consider the cases of \(h\).
 Case \(\operatorname{andintro}\) with \(hp\), \(hqr\):
+\begin{quote}
 Consider the cases of \(hqr\).
 Case \(\operatorname{andintro}\) with \(hq\), \(hr\):
+\begin{quote}
 Branch \(1\):
+\begin{quote}
 Branch \(1\):
+\begin{quote}
 The goal follows from \(hp\).
+\end{quote}
 Branch \(2\):
+\begin{quote}
 The goal follows from \(hq\).
+\end{quote}
+\end{quote}
 Branch \(2\):
+\begin{quote}
 The goal follows from \(hr\).
+\end{quote}
+\end{quote}
+\end{quote}
+\end{quote}
 \end{proof}
 \section{Disjunction}
 \label{ll:main:disjunction}
@@ -70,11 +104,15 @@ For every proposition \(p\) and proposition \(q\), if \(p\) or \(q\), then \(q\)
 Assume \(h\).
 Consider the cases of \(h\).
 Case \(\operatorname{orinl}\) with \(hp\):
+\begin{quote}
 Select the right alternative.
 The goal follows from \(hp\).
+\end{quote}
 Case \(\operatorname{orinr}\) with \(hq\):
+\begin{quote}
 Select the left alternative.
 The goal follows from \(hq\).
+\end{quote}
 \end{proof}
 \begin{theorem}
 \label{ll:main:or-elim}
@@ -84,11 +122,15 @@ For every proposition \(p\) and proposition \(q\) and proposition \(r\), if \(p\
 Assume \(hpq\), \(hpr\), \(hqr\).
 Consider the cases of \(hpq\).
 Case \(\operatorname{orinl}\) with \(hp\):
+\begin{quote}
 Apply \(hpr\).
 The goal follows from \(hp\).
+\end{quote}
 Case \(\operatorname{orinr}\) with \(hq\):
+\begin{quote}
 Apply \(hqr\).
 The goal follows from \(hq\).
+\end{quote}
 \end{proof}
 \section{Negation}
 \label{ll:main:negation}
@@ -109,15 +151,19 @@ For every proposition \(p\) and proposition \(q\), if not \(p \lor q\), then not
 \begin{proof}
 Assume \(h\).
 Branch \(1\):
+\begin{quote}
 Assume \(hp\).
 Apply \(h\).
 Select the left alternative.
 The goal follows from \(hp\).
+\end{quote}
 Branch \(2\):
+\begin{quote}
 Assume \(hq\).
 Apply \(h\).
 Select the right alternative.
 The goal follows from \(hq\).
+\end{quote}
 \end{proof}
 \begin{theorem}
 \label{ll:main:explosion}
@@ -127,7 +173,9 @@ For every proposition \(p\) and proposition \(q\), if \(p\) and not \(p\), then 
 Assume \(h\).
 Consider the cases of \(h\).
 Case \(\operatorname{andintro}\) with \(hp\), \(hn\):
+\begin{quote}
 The goal follows from \(\operatorname{absurd}(hp, hn)\).
+\end{quote}
 \end{proof}
 \section{Equivalence}
 \label{ll:main:equivalence}
@@ -137,11 +185,15 @@ For every proposition \(p\), \(p\) if and only if \(p\).
 \end{theorem}
 \begin{proof}
 Branch \(1\):
+\begin{quote}
 Assume \(h\).
 The goal follows from \(h\).
+\end{quote}
 Branch \(2\):
+\begin{quote}
 Assume \(h\).
 The goal follows from \(h\).
+\end{quote}
 \end{proof}
 \begin{theorem}
 \label{ll:main:iff-symm}
@@ -151,10 +203,16 @@ For every proposition \(p\) and proposition \(q\), if \(p\) if and only if \(q\)
 Assume \(h\).
 Consider the cases of \(h\).
 Case \(\operatorname{iffintro}\) with \(mp\), \(mpr\):
+\begin{quote}
 Branch \(1\):
+\begin{quote}
 The goal follows from \(mpr\).
+\end{quote}
 Branch \(2\):
+\begin{quote}
 The goal follows from \(mp\).
+\end{quote}
+\end{quote}
 \end{proof}
 \section{Classical reasoning}
 \label{ll:main:classical}
@@ -166,8 +224,12 @@ For every proposition \(p\), if not not \(p\), then \(p\).
 Assume \(hnn\).
 Consider the cases of \(\operatorname{em}(p)\).
 Case \(\operatorname{orinl}\) with \(hp\):
+\begin{quote}
 The goal follows from \(hp\).
+\end{quote}
 Case \(\operatorname{orinr}\) with \(hn\):
+\begin{quote}
 The goal follows from \(\operatorname{absurd}(hn, hnn)\).
+\end{quote}
 \end{proof}
 \end{document}
