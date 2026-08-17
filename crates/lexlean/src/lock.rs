@@ -1,7 +1,7 @@
 //! The lock file: package resolution, canonical serialization, and exact
 //! checking (SPEC.md §11).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserialize;
@@ -298,6 +298,18 @@ pub fn parse_lock(path: &str, bytes: &[u8]) -> Result<Lock, Vec<Diagnostic>> {
             imports: row.imports.clone(),
         });
     }
+    // §11.3: every package appears exactly once in the lock. A lock naming
+    // one package ID twice is rejected as a lock, not carried into the
+    // closure for the loader to reject there (§13.11).
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for row in &raw.packages {
+        if !seen.insert(row.id.as_str()) {
+            diagnostics.push(duplicate(format!(
+                "{path}: duplicate package `{}`: every package appears exactly once in the lock",
+                row.id
+            )));
+        }
+    }
     let pdf = raw.pdf.as_ref().map(|raw_pdf| LockPdf {
         program: raw_pdf.program.clone(),
         version_argv: raw_pdf.version_argv.clone(),
@@ -344,6 +356,11 @@ fn security(message: impl Into<String>) -> Diagnostic {
 
 fn resolution(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(code!("LLR3001"), message)
+}
+
+/// A duplicate-identity failure in the configured closure (§11.3, §13.11).
+fn duplicate(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::new(code!("LLR3002"), message)
 }
 
 /// Walk `relative` beneath `base` with `symlink_metadata`, rejecting any
@@ -535,6 +552,19 @@ pub fn resolve_packages(
     }
 
     for source in &project.config.lexicon_sources {
+        // `lexlean.core` is embedded: the compiler carries its exact bytes
+        // and digest, and the lock must identify that digest (§12.3). A path
+        // or Git source claiming the same package ID would supply a second,
+        // foreign `lexlean.core` --- and with it the `is_core` privileges of
+        // §13.5 --- so it never reaches the loader.
+        if let LexiconSource::Path { package, .. } | LexiconSource::Git { package, .. } = source {
+            if package == "lexlean.core" {
+                diagnostics.push(duplicate(
+                    "duplicate package `lexlean.core`: it is the embedded bootstrap package, which no path or git lexicon_source may supply".to_owned(),
+                ));
+                continue;
+            }
+        }
         match source {
             LexiconSource::Builtin { .. } => {}
             LexiconSource::Path { package: id, path } => {
@@ -615,6 +645,20 @@ pub fn resolve_packages(
                     Err(mut git_diagnostics) => diagnostics.append(&mut git_diagnostics),
                 }
             }
+        }
+    }
+
+    // Every package appears exactly once in the lock (§11.3), and loading a
+    // closure with duplicate package IDs is refused (§13.11). Both are
+    // decided here, where the lock is computed, so a lock the compiler wrote
+    // is never one the compiler refuses to load.
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for row in &rows {
+        if !seen.insert(row.id.as_str()) {
+            diagnostics.push(duplicate(format!(
+                "duplicate package `{}`: it is resolved by more than one lexicon source",
+                row.id
+            )));
         }
     }
 
