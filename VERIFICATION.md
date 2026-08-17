@@ -31,7 +31,8 @@ Outside `vv`:
 - Every §31 conformance ID is level `build` (§27.3): constructed here and validated against its oracle by the test `conformance_<id>`. Evidence, not a proof.
 - Facts about Lean 4.32.1, Lake, `leanchecker`, and `#print axioms` output are `some-true` rows in `model/ledger.toml`: reproduced from the cited authority rows in `model/authorities.toml`, not established here.
 - `lexlean verify` is the only command that runs Lean; its attestation records toolchain hashes, per-process records, and per-declaration observed axiom sets, and its ID is recomputed by `conformance_vr_14`.
-- Lean-backed conformance cases detect the host at run time (`repo_conformance::support::lean_backed`): on Linux x86-64 the pinned toolchain is mandatory and a missing toolchain fails the case; on another supported host without the toolchain the case runs only its platform-independent assertions and prints that it did (§8.3).
+- Lean-backed conformance cases detect the host at run time (`repo_conformance::support::lean_backed`): on Linux x86-64 the pinned toolchain is mandatory and a missing toolchain fails the case; on another supported host without the toolchain the case runs only its platform-independent assertions and prints that it did (§8.3). A verified fixture is reached only through `example_backed`, `corpus_backed`, `f1_backed`, or `verify_ok_backed`, so a case that forgets the gate fails on every non-normative host rather than claiming a verification it never ran. The generated Lean and LaTeX of those same fixtures are `build` products and are asserted byte for byte on every supported host.
+- The cases whose subject is an external program written as `#!/bin/sh` — the PDF-provider cases — take the same shape through `posix_shell_backed`, and a unix-only half of any other case reports itself through `unix_only` rather than dropping its assertions in silence.
 
 ## Falsifiability records
 
@@ -42,9 +43,13 @@ Each gate below was made to fail by planting a defect, running the gate's comman
 Planted: `fn   badly_formatted( ) {}` appended to `crates/model/src/release.rs`. Command: `cargo fmt --all -- --check`. Expected: a formatting diff and a nonzero exit.
 
 ```text
-Diff in crates/model/src/release.rs:578:
+Diff in crates/model/src/release.rs:563:
+         );
+     }
+ }
 -fn   badly_formatted( ) {}
 +fn badly_formatted() {}
+
 exit=1
 ```
 
@@ -189,11 +194,11 @@ Removed: the function was deleted; clippy is clean.
 Planted: the last hex digit of the empty-input SHA-256 vector in `crates/model/src/release.rs` changed from `5` to `6`. Command: `cargo test -p repo-model --all-features`. Expected: the unit test fails on the digest.
 
 ```text
-thread 'release::tests::the_local_sha256_agrees_with_the_test_vectors' panicked at crates/model/src/release.rs:566:9:
+thread 'release::tests::the_local_sha256_agrees_with_the_test_vectors' panicked at crates/model/src/release.rs:551:9:
 assertion `left == right` failed
   left: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
  right: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b856"
-test result: FAILED. 3 passed; 1 failed
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 Removed: the vector was restored. A conformance test fails the same way: `Json::to_file_bytes` changed to omit its final LF fails `conformance_ar_11` (`file form adds exactly one final LF; the hash form has none`).
@@ -283,15 +288,18 @@ Planted: a `release/` directory holding an SBOM `{"bomFormat":"CycloneDX","compo
 release-check: the packaged crate builds standalone with the same identity:
 lexlean 0.1.0
 language 1.0
-compiler-semantics fe64624defc6e59ec80db231c0789c5fccdb926dcdad1dee47721b4961a425cf
+compiler-semantics fa171c7a2d78cf17e6cb49bbec5c1eed8bee20033472b1953211104068589ba7
 lean-toolchain leanprover/lean4:v4.32.1
 
 gate failed: RP-12: the release is refused; unmet criteria:
   source-tag: the workspace version is not 1.0.0; §2.3 fixes the first complete release at 1.0.0
-  source-tag: CHANGELOG.md: No such file or directory (os error 2)
+  source-tag: CHANGELOG.md has no `## 1.0.0` entry
   checksums: sbom.json: hash mismatch
   host-binaries: release/bin/x86_64-unknown-linux-gnu/lexlean is missing or empty
-  ...
+  host-binaries: release/bin/aarch64-unknown-linux-gnu/lexlean is missing or empty
+  host-binaries: release/bin/x86_64-apple-darwin/lexlean is missing or empty
+  host-binaries: release/bin/aarch64-apple-darwin/lexlean is missing or empty
+  host-binaries: release/bin/x86_64-pc-windows-msvc/lexlean.exe is missing or empty
   crate-package: release/lexlean.crate: No such file or directory (os error 2)
   semantics-id: release/compiler-semantics-id.txt is not one 64-hex-digit line
   version-output: release/version-output.txt: No such file or directory (os error 2)

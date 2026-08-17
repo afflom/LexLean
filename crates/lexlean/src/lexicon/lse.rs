@@ -1583,19 +1583,6 @@ pub fn check_value<'a>(
     Ok(checker.finish(ty))
 }
 
-/// Infer the expected type of every `(nat ...)` literal in `expr`, in
-/// pre-order occurrence: `Some` when an explicit binder of a known function
-/// (or the given expected type) determines it, `None` otherwise. The
-/// elaborator's LSE-to-term conversion consumes this vector positionally to
-/// give glossary literals their types.
-pub fn infer_literal_types<'a>(
-    expr: &Lse,
-    expected: Option<&Lse>,
-    lookup: &'a dyn Fn(&QualifiedId) -> ConstInfo<'a>,
-) -> Result<Vec<Option<Lse>>, TypeError> {
-    check_value(expr, expected, lookup).map(|checked| checked.literal_types)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

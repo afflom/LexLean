@@ -16,6 +16,36 @@ lexlean build
 lexlean verify
 ```
 
+## Install
+
+`lexlean verify` runs the pinned `leanprover/lean4:v4.32.1` toolchain, so the
+published container image carries both and is the shortest path to a run that
+can actually verify:
+
+```text
+docker pull ghcr.io/afflom/lexlean:0.1.0
+docker run --rm -v "$PWD:/work" ghcr.io/afflom/lexlean:0.1.0 verify
+```
+
+Each [release](https://github.com/afflom/lexlean/releases) also attaches one
+binary per supported host (SPEC.md §8.3), the packaged crate, a CycloneDX bill
+of materials, `checksums.txt` over every other asset, and the `just vv`
+evidence for the tagged commit. A binary alone can `init`, `lock`, `fmt`,
+`check`, and `build`; `verify` additionally needs the pinned toolchain
+installed through [elan](https://github.com/leanprover/elan).
+
+From source, with the prerequisites below:
+
+```text
+cargo install --locked --path crates/lexlean
+```
+
+Versions follow SPEC.md §30.1 and are recorded in [CHANGELOG.md](CHANGELOG.md).
+§2.3 fixes `0.1.0` as the initial implementation version and `1.0.0` as the
+first release satisfying the complete specification, so a `0.1.0` tag does not
+claim the §30 release criterion — `cargo xtask release-check` reads that
+criterion and says exactly which parts of it do not yet hold.
+
 ## The literal example
 
 [examples/nat-add-zero/src/Main.lex.tex](examples/nat-add-zero/src/Main.lex.tex) is the complete SPEC.md §29 document:
@@ -53,7 +83,7 @@ and the canonical LaTeX document, regenerated from IR rather than copied ("The g
 
 ## Examples that verify under the pinned toolchain
 
-Every directory under [examples/](examples/) is discovered by the example gate (`EX-08`) and must format, lock, check, build, and verify with real Lean 4.32.1 (`cargo xtask verify-examples`); its platform-independent build outputs and normalized verification records are committed under `expected/` and compared byte for byte (`AR-13`, `EX-06`).
+Every directory under [examples/](examples/) is discovered by the example gate (`EX-08`) and must format, lock, check, build, and verify with real Lean 4.32.1 (`cargo xtask verify-examples`). Its platform-independent build outputs and its normalized verification records are committed under `expected/` and compared byte for byte by the golden gate (§28.3) and the example gate (§29.5); that those bytes are also independent of where the build ran is the separate claim of `AR-13` and `EX-06`.
 
 | Example | What it exercises |
 | --- | --- |
@@ -72,6 +102,8 @@ just release   # vv, then the §30 release criterion; refused until 1.0.0
 ```
 
 All 209 registered conformance IDs are implemented and pass; `just vv` runs clean from a checkout with the pinned toolchain installed.
+
+`just vv` is the Linux x86-64 gate. On the other four supported hosts (§8.3) the crate builds and every test runs, and a case whose assertions need something the host does not have — the pinned toolchain, or a `#!/bin/sh` program for the external-provider cases — runs its platform-independent assertions and prints which ones it skipped. On Linux x86-64 the same gate makes the toolchain mandatory, so nothing there passes vacuously.
 
 ## Capabilities
 

@@ -221,10 +221,4 @@ impl LinkedProject {
                 .find(|declaration| declaration.component == component)
         })
     }
-
-    /// The uses-relation term for later checks: is `term` mentioned?
-    #[must_use]
-    pub fn term_is_prop_sort(term: &Term) -> bool {
-        crate::ir::term::is_prop(term)
-    }
 }

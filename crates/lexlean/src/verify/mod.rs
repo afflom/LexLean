@@ -1391,10 +1391,6 @@ pub fn run(
     })
 }
 
-/// The verified layout keeps oleans under `oleans/`; expose the staging
-/// name for tests.
-pub const OLEAN_DIR: &str = "oleans";
-
 /// A helper for tests: the reserved probe and audit module names for a
 /// semantic ID (§18.8, §18.9).
 #[must_use]
@@ -1405,12 +1401,3 @@ pub fn reserved_module_names(semantic_id: Sha256Digest) -> (String, String) {
         format!("LexLeanAudit.A{hex32}"),
     )
 }
-
-/// Re-exported for the workspace path in child specs.
-pub use crate::verify::child::Normalizer as OutputNormalizer;
-
-/// The lint-visible marker that no stage is optional (VR-01): the stage
-/// driver above has no configuration surface.
-pub const STAGES_ARE_FIXED: bool = true;
-
-fn _assert_workspace_path(_p: &Utf8Path) {}

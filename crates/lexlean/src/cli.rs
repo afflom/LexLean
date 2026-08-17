@@ -152,6 +152,25 @@ const INIT_LIMITS: Limits = Limits {
     child_timeout_ms: 300_000,
 };
 
+/// `"1 module"` or `"3 modules"`: a summary that says "1 modules" reads as a
+/// defect in the tool that printed it, and §24.2 already refuses to treat a
+/// multi-module operation as singular anywhere else.
+fn canonical(count: usize) -> String {
+    if count == 1 {
+        "1 module is".to_owned()
+    } else {
+        format!("{count} modules are")
+    }
+}
+
+fn modules(count: usize) -> String {
+    if count == 1 {
+        "1 module".to_owned()
+    } else {
+        format!("{count} modules")
+    }
+}
+
 fn usage_error(message: impl Into<String>) -> LexLeanError {
     LexLeanError::from_diagnostic(Diagnostic::new(code!("LLC0001"), message))
 }
@@ -517,8 +536,8 @@ pub fn run(
                     outcome.ids.source_id = Some(result.source_id);
                     outcome.ids.semantic_id = Some(result.semantic_id);
                     outcome.summary = format!(
-                        "checked {} modules (source {}, semantic {})\n",
-                        result.units.len(),
+                        "checked {} (source {}, semantic {})\n",
+                        modules(result.units.len()),
                         result.source_id.to_hex(),
                         result.semantic_id.to_hex()
                     );
@@ -539,7 +558,7 @@ pub fn run(
                             id.to_hex()
                         );
                         outcome.summary =
-                            format!("built {} modules at {artifact}\n", result.units.len());
+                            format!("built {} at {artifact}\n", modules(result.units.len()));
                         outcome.artifacts.push(artifact);
                     }
                     Ok(())
@@ -559,8 +578,8 @@ pub fn run(
                         result.attestation_id.to_hex()
                     ));
                     outcome.summary = format!(
-                        "verified {} modules; attestation {}\n",
-                        result.units.len(),
+                        "verified {}; attestation {}\n",
+                        modules(result.units.len()),
                         result.attestation_id.to_hex()
                     );
                     Ok(())
@@ -573,9 +592,9 @@ pub fn run(
                     outcome.modules = result.units.keys().cloned().collect();
                     let rewritten = result.units.values().filter(|already| !**already).count();
                     outcome.summary = if check {
-                        format!("{} modules are canonical\n", result.units.len())
+                        format!("{} canonical\n", canonical(result.units.len()))
                     } else {
-                        format!("formatted {rewritten} modules\n")
+                        format!("formatted {}\n", modules(rewritten))
                     };
                     Ok(())
                 }
