@@ -164,6 +164,51 @@ impl Sink<'_, '_> {
         Ok(())
     }
 
+    /// Emit an identifier-shaped name with every byte TeX would read as
+    /// markup escaped through a registered renderer token, the surrounding
+    /// runs keeping `origin`. Splitting keeps §19.6 output coverage exact
+    /// (each piece is one row) and §13.10 satisfied (the emitted control
+    /// comes from the registry, not from the backend inventing one).
+    ///
+    /// Every name LexLean puts in the document is identifier-shaped:
+    /// display spellings and math identifiers are `[A-Za-z0-9_']` (§12.2),
+    /// module segments `[A-Za-z0-9_]` (§15.1), component, entry, and form
+    /// IDs `[a-z0-9-]`, and a glossary surface is renderer-safe by §13.5.
+    /// `_` is therefore the one TeX special that can reach here --- `'` is
+    /// a legal prime and `-` is ordinary text --- and it must not reach
+    /// the document raw: in math it starts a subscript (`a_b_c` is a
+    /// double-subscript error, a trailing `n_` a missing group), and in
+    /// the text mode `\texttt` enters it is a hard catcode error. Any
+    /// other TeX special would mean the closure that keeps those charsets
+    /// closed has broken, so it is refused rather than emitted.
+    fn escaped(&mut self, text: &str, kind: &str, origin: &Origin) -> Result<(), Diagnostic> {
+        const TEX_SPECIAL: [char; 9] = ['\\', '{', '}', '$', '&', '#', '^', '~', '%'];
+        let mut first = true;
+        for run in text.split('_') {
+            if !first {
+                self.tok("underscore")?;
+            }
+            first = false;
+            if let Some(special) = run.chars().find(|c| TEX_SPECIAL.contains(c)) {
+                return Err(Diagnostic::new(
+                    code!("LLB6002"),
+                    format!(
+                        "`{text}` cannot be rendered: `{special}` has no renderer token and TeX would read it as markup"
+                    ),
+                ));
+            }
+            if run.is_empty() {
+                continue;
+            }
+            let source = self.source.clone();
+            let role = self.role;
+            let node = self.node;
+            self.emitter
+                .piece(run, kind, origin.clone(), source, role, node);
+        }
+        Ok(())
+    }
+
     /// Emit a structural brace covered by the core entries.
     fn brace(&mut self, open: bool) {
         self.emitter.piece(
@@ -234,19 +279,16 @@ impl Sink<'_, '_> {
             })?;
         let surface = form.surface.clone();
         let form_id = form.id.clone();
-        self.emitter.piece(
+        typesettable(&qualified, &form_id, &surface)?;
+        self.escaped(
             &surface,
             "word",
-            Origin::Form {
+            &Origin::Form {
                 package: "lexlean.core".to_owned(),
                 entry: entry_id.to_owned(),
                 form: form_id,
             },
-            self.source.clone(),
-            self.role,
-            self.node,
-        );
-        Ok(())
+        )
     }
 
     /// Emit a glossary form's surface.
@@ -306,19 +348,16 @@ impl Sink<'_, '_> {
         };
         let surface = form.surface.clone();
         let chosen = form.id.clone();
-        self.emitter.piece(
+        typesettable(&qualified, &chosen, &surface)?;
+        self.escaped(
             &surface,
             "word",
-            Origin::Form {
+            &Origin::Form {
                 package: package.to_owned(),
                 entry: entry.to_owned(),
                 form: chosen,
             },
-            self.source.clone(),
-            self.role,
-            self.node,
-        );
-        Ok(())
+        )
     }
 
     /// Emit a local by its display spelling. Every rendered local has a
@@ -332,15 +371,7 @@ impl Sink<'_, '_> {
                 format!("phase latex: local {} has no display spelling", id.0),
             )
         })?;
-        self.emitter.piece(
-            &spelling,
-            "word",
-            Origin::Local(id.0 as usize),
-            self.source.clone(),
-            self.role,
-            self.node,
-        );
-        Ok(())
+        self.escaped(&spelling, "word", &Origin::Local(id.0 as usize))
     }
 
     fn numeral(&mut self, digits: &str) {
@@ -368,23 +399,43 @@ impl Sink<'_, '_> {
     }
 
     /// Emit a document reference `Module::component` (§17.2) under its own
-    /// coverage origin, distinct from structural metadata.
-    fn reference(&mut self, module: &str, component: &str) {
-        self.emitter.piece(
-            &format!("{module}::{component}"),
-            "word",
-            Origin::Reference {
-                module: module.to_owned(),
-                component: component.to_owned(),
-            },
-            self.source.clone(),
-            self.role,
-            self.node,
-        );
+    /// coverage origin, distinct from structural metadata. A module
+    /// segment may legally contain `_` (§15.1), so the reference goes out
+    /// through the escaping path.
+    fn reference(&mut self, module: &str, component: &str) -> Result<(), Diagnostic> {
+        let origin = Origin::Reference {
+            module: module.to_owned(),
+            component: component.to_owned(),
+        };
+        self.escaped(&format!("{module}::{component}"), "word", &origin)
     }
 
     fn ws(&mut self, text: &str) {
         self.emitter.ws(text);
+    }
+}
+
+/// Can the fixed §19.2 preamble typeset this form surface? §13.5 rule 5
+/// admits a non-ASCII scalar in a canonical *source* form, but §19.1
+/// produces every mathematical construct through LRE and the
+/// renderer-token registry, "the single source for trusted LaTeX controls
+/// and mathematical glyphs" (§13.10). A raw scalar copied into the
+/// document is not typeset by the preamble's fonts: TeX drops it with
+/// nothing but a `Missing character` log line, so the glyph silently
+/// disappears from the published document. Every shipped core and
+/// standard entry with such a surface carries a `[render]` template that
+/// names the token instead (`nat` is `(token mathbb)` over
+/// `(token blackboard-n)`, `le` is `(token less-equal)`); an entry
+/// without one is refused here rather than published broken.
+fn typesettable(qualified: &QualifiedId, form: &str, surface: &str) -> Result<(), Diagnostic> {
+    match surface.chars().find(|scalar| !scalar.is_ascii()) {
+        Some(scalar) => Err(Diagnostic::new(
+            code!("LLB6002"),
+            format!(
+                "`{qualified}`: form `{form}` has the non-ASCII surface scalar `{scalar}`, which the canonical preamble cannot typeset; render it through a renderer token"
+            ),
+        )),
+        None => Ok(()),
     }
 }
 
@@ -783,12 +834,11 @@ fn fallback_global(sink: &mut Sink<'_, '_>, global: &GlobalRef) -> Result<(), Di
         GlobalRef::Document(document) => {
             // A declaration no visible entry names renders by its
             // reference `Module::component`, the escape form of qualified
-            // selectors: module names and component IDs (§15.2) contain no
-            // byte TeX must escape, where the Lean name's `_` would be a
-            // subscript in math.
+            // selectors, never by its Lean name (§15.1 joins the module
+            // segments with `.` and the component's `-` becomes `_`).
             sink.tok("texttt")?;
             sink.brace(true);
-            sink.reference(&document.module, &document.component);
+            sink.reference(&document.module, &document.component)?;
             sink.brace(false);
             Ok(())
         }
@@ -800,7 +850,10 @@ fn fallback_global(sink: &mut Sink<'_, '_>, global: &GlobalRef) -> Result<(), Di
 fn fallback_qualified(sink: &mut Sink<'_, '_>, qualified: &QualifiedId) -> Result<(), Diagnostic> {
     sink.tok("texttt")?;
     sink.brace(true);
-    sink.metadata(&qualified.to_string(), &qualified.to_string());
+    let origin = Origin::Metadata {
+        owner: qualified.to_string(),
+    };
+    sink.escaped(&qualified.to_string(), "word", &origin)?;
     sink.brace(false);
     Ok(())
 }
@@ -848,9 +901,14 @@ fn eval_lre(
             sink.tok("right-bracket")?;
         }
         Render::OperatorName(name) => {
+            // §13.9 admits `_` in an operator name, which inside
+            // `\operatorname{...}` is still math mode.
             sink.tok("operatorname")?;
             sink.brace(true);
-            sink.metadata(name, &self_entry.to_string());
+            let origin = Origin::Metadata {
+                owner: self_entry.to_string(),
+            };
+            sink.escaped(name, "word", &origin)?;
             sink.brace(false);
         }
         Render::Sub(base, script) | Render::Sup(base, script) => {
@@ -1720,6 +1778,10 @@ fn env_close(sink: &mut Sink<'_, '_>, env_token: &str) -> Result<(), Diagnostic>
 }
 
 fn label(sink: &mut Sink<'_, '_>, module: &str, component: &str) -> Result<(), Diagnostic> {
+    // The only name that is not escaped, because `\label`'s argument is a
+    // key that TeX writes to the `.aux` file rather than typesetting: a
+    // module segment's `_` is an ordinary key byte there, and escaping it
+    // would change the key without making anything safer.
     sink.tok("label")?;
     sink.brace(true);
     sink.metadata(

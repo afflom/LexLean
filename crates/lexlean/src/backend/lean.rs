@@ -83,12 +83,66 @@ impl Namer {
     }
 }
 
+/// Every document definition of the linked project by `(module,
+/// component)`, so a declaration rendered in one module can read a type
+/// definition declared in another (§17.7: an import exposes all exported
+/// declarations of the imported module).
+pub struct DocumentAliases<'a> {
+    values: BTreeMap<(&'a str, &'a str), &'a Term>,
+}
+
+impl<'a> DocumentAliases<'a> {
+    /// Collect the definitions of every module the build renders.
+    pub fn of_documents(documents: impl IntoIterator<Item = &'a DocumentModule>) -> Self {
+        let mut values = BTreeMap::new();
+        for document in documents {
+            for declaration in document.declarations() {
+                if let DeclBody::Definition { value, .. } = &declaration.body {
+                    values.insert(
+                        (document.name.as_str(), declaration.component.as_str()),
+                        value,
+                    );
+                }
+            }
+        }
+        Self { values }
+    }
+
+    /// The type a numeral's expected type is ascribed at: a document type
+    /// definition is replaced by what it is defined as, in any module of
+    /// the project (README, documented deviations: a numeral is ascribed
+    /// `(0 : Nat)`, never `(0 : count)`). Lean's `OfNat` instances live on
+    /// the underlying type and a generated `def count : Type := Nat` is
+    /// not unfolded during instance synthesis, so an alias ascription
+    /// cannot elaborate --- in the defining module exactly as in an
+    /// importing one. Each step consumes one distinct declaration, whose
+    /// identity bounds the walk; document definitions are acyclic (§15.7
+    /// rule 8) and the `seen` set makes that independent of the check.
+    fn ascription(&self, expected: &'a Term) -> &'a Term {
+        let mut current = expected;
+        let mut seen: BTreeSet<(&str, &str)> = BTreeSet::new();
+        while let Term::Global(GlobalRef::Document(reference), _) = current {
+            let key = (reference.module.as_str(), reference.component.as_str());
+            if !seen.insert(key) {
+                return current;
+            }
+            let Some(value) = self.values.get(&key) else {
+                return current;
+            };
+            current = value;
+        }
+        current
+    }
+}
+
 /// A token sink bound to one origin context.
 struct Sink<'a> {
     emitter: &'a mut Emitter,
     source: EmitSource,
     role: MapRole,
     node: usize,
+    /// The project's document definitions, for numeral ascription.
+    aliases: &'a DocumentAliases<'a>,
 }
 
 impl Sink<'_> {
@@ -843,12 +897,13 @@ fn print_term(
             if bare_numeral {
                 sink.numeral(decimal);
             } else {
+                let ascription = sink.aliases.ascription(expected_type);
                 sink.sym("(");
                 sink.numeral(decimal);
                 sink.ws(" ");
                 sink.sym(":");
                 sink.ws(" ");
-                print_term(sink, expected_type, namer, closure, false, false)?;
+                print_term(sink, ascription, namer, closure, false, false)?;
                 sink.sym(")");
             }
         }
@@ -1609,6 +1664,7 @@ pub fn render_module(
     checked: &CheckedModule,
     closure: &Closure,
     module_prefix: &str,
+    aliases: &DocumentAliases<'_>,
 ) -> Result<Emitter, Diagnostic> {
     let document = &checked.document;
     let mut emitter = Emitter::new();
@@ -1619,6 +1675,7 @@ pub fn render_module(
             source: EmitSource::Synthetic("core:lean-preamble/1".to_owned()),
             role: MapRole::Synthetic,
             node: preamble_node,
+            aliases,
         };
         sink.kw("module");
         sink.ws("\n");
@@ -1667,6 +1724,7 @@ pub fn render_module(
             &binders,
             document,
             closure,
+            aliases,
         )?;
     }
 
@@ -1678,6 +1736,7 @@ pub fn render_module(
             source: EmitSource::Synthetic("core:lean-preamble/1".to_owned()),
             role: MapRole::Synthetic,
             node: end_node,
+            aliases,
         };
         sink.kw("end");
         sink.ws(" ");
@@ -1715,6 +1774,7 @@ fn render_declaration(
     binders: &BTreeMap<LocalId, (usize, usize)>,
     document: &DocumentModule,
     closure: &Closure,
+    aliases: &DocumentAliases<'_>,
 ) -> Result<(), Diagnostic> {
     let node = emitter.node("declaration");
     let mut namer = Namer::default();
@@ -1725,6 +1785,7 @@ fn render_declaration(
                 source: EmitSource::File(origin.whole.0, origin.whole.1),
                 role: MapRole::Declaration,
                 node,
+                aliases,
             };
             // Lean 4.32.1's module system keeps declarations private to
             // their module unless marked `public`; the audit module and
@@ -1817,6 +1878,7 @@ fn render_declaration(
                 source: EmitSource::File(origin.whole.0, origin.whole.1),
                 role: MapRole::Declaration,
                 node,
+                aliases,
             };
             // A document definition is a transparent, nonrecursive `def`
             // (§18.6). Under the Lean 4.32.1 module system a definition's

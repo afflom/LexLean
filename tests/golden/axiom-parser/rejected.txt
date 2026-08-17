@@ -2,4 +2,5 @@
 'Demo.M.empty' depends on axioms: []
 "Demo.M.wrongquote" does not depend on any axioms
 'Demo.M.trailing' does not depend on any axioms extra
+'Demo.M.unterminated' depends on axioms: [propext,
 some unrelated informational text

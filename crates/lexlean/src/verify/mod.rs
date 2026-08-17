@@ -42,6 +42,7 @@ use crate::error::LexLeanError;
 use crate::link::CheckedProject;
 use crate::lock::Lock;
 use crate::project::Project;
+use crate::source::coverage::Origin;
 use crate::verify::child::{run as run_child, ChildRecord, ChildSpec, Normalizer};
 use crate::verify::toolchain::Toolchain;
 
@@ -204,6 +205,73 @@ fn source_span(checked: &CheckedProject, module: &RenderedModule, range: (usize,
         line_end,
         column_end,
     }
+}
+
+/// The source span of one generated declaration (§20.1: the primary
+/// location is the thing that failed). The Lean backend emits a
+/// declaration's name under the `declaration` role and its own reference
+/// origin, mapped to the declaration's whole source range, so the first
+/// coverage row carrying that origin under that role locates it. An
+/// axiom-policy, replay, or audit failure is about that declaration, not
+/// about the project manifest.
+fn declaration_span(
+    checked: &CheckedProject,
+    module: &RenderedModule,
+    document_module: &str,
+    component: &str,
+) -> Option<Span> {
+    let origin = Origin::Reference {
+        module: document_module.to_owned(),
+        component: component.to_owned(),
+    };
+    module
+        .coverage
+        .lean
+        .iter()
+        .filter(|row| row.origin == origin)
+        .find_map(|row| {
+            let mapping = module.map.remap(0, row.byte_start)?;
+            if mapping.role == MapRole::Declaration {
+                mapping.src_range
+            } else {
+                None
+            }
+        })
+        .map(|range| source_span(checked, module, range))
+}
+
+/// Anchor an axiom-audit rejection at the declaration it is about, when
+/// the parser named one (§20.1). The parser reports the full Lean name
+/// `<lean module>.<lean name>`; the declaration owning it is the one whose
+/// generated module is the name's prefix.
+fn audit_diagnostic(
+    checked: &CheckedProject,
+    build: &RenderedBuild,
+    failure: axiom::AuditFailure,
+) -> Diagnostic {
+    let Some(full_name) = failure.declaration else {
+        return failure.diagnostic;
+    };
+    for module in &build.modules {
+        let Some(lean_name) = full_name
+            .strip_prefix(&module.lean_module)
+            .and_then(|rest| rest.strip_prefix('.'))
+        else {
+            continue;
+        };
+        let document = &checked.modules[&module.module].document;
+        for declaration in document.declarations() {
+            if declaration.lean_name != lean_name {
+                continue;
+            }
+            if let Some(span) =
+                declaration_span(checked, module, &document.name, &declaration.component)
+            {
+                return failure.diagnostic.with_span(span);
+            }
+        }
+    }
+    failure.diagnostic
 }
 
 /// The source range of the declaration component enclosing a generated
@@ -735,7 +803,9 @@ pub fn run(
             &limits,
             &normalizer,
         )
-        .map_err(fail)?;
+        // A replay failure is about this module, so it points at the
+        // module's own source rather than at the project manifest (§20.1).
+        .map_err(|diagnostic| fail(diagnostic.with_span(source_span(checked, module, (0, 0)))))?;
         write_staged(
             staging.path(),
             &format!("process/leanchecker/{}.json", module.lean_module),
@@ -795,8 +865,8 @@ pub fn run(
         "audit/process.json",
         &audit_record.to_json().to_file_bytes(),
     )?;
-    let observed =
-        axiom::parse_audit_output(&audit_record.stdout, &declaration_names).map_err(fail)?;
+    let observed = axiom::parse_audit_output(&audit_record.stdout, &declaration_names)
+        .map_err(|failure| fail(audit_diagnostic(checked, build, failure)))?;
     process_records.push(audit_record);
 
     // Stage 11: per-declaration policy enforcement (§22.6).
@@ -807,14 +877,20 @@ pub fn run(
             let full_name = format!("{}.{}", module.lean_module, declaration.lean_name);
             let observed_set = observed.get(&full_name).cloned().unwrap_or_default();
             if !declaration.policy.permits(&observed_set) {
-                return Err(fail(Diagnostic::new(
+                let mut diagnostic = Diagnostic::new(
                     code!("LLV7005"),
                     format!(
                         "`{full_name}` violates its {} axiom policy: observed [{}]",
                         declaration.policy.kind(),
                         observed_set.join(", ")
                     ),
-                )));
+                );
+                if let Some(span) =
+                    declaration_span(checked, module, &document.name, &declaration.component)
+                {
+                    diagnostic = diagnostic.with_span(span);
+                }
+                return Err(fail(diagnostic));
             }
             declaration_rows.push(Json::object(vec![
                 ("name", Json::Str(full_name)),

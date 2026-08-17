@@ -226,6 +226,60 @@ pub(crate) fn run(id: &str) {
                 "Main::zero-add",
                 "the reference row covers exactly `Module::component`"
             );
+
+            // §15.1 admits `_` in a module segment, and a `\texttt`
+            // reference is set in text mode inside a math island, where a
+            // raw `_` is a hard TeX error. Every emitted byte keeps an
+            // origin: the name's runs stay under the reference origin and
+            // the escape is the registered `underscore` token.
+            let underscored = support::underscore_module_project();
+            let build = support::rendered(&underscored);
+            let module = &build.modules[0];
+            assert!(
+                module.tex_text.contains("\\texttt{Main\\_x::zero-add}"),
+                "the module segment's `_` is escaped: {}",
+                module.tex_text
+            );
+            assert!(
+                !module.tex_text.contains("Main_x"),
+                "no raw `_` reaches the document: {}",
+                module.tex_text
+            );
+            lexlean::backend::check_output_closure(&module.tex_text, &module.coverage.latex)
+                .expect("closure");
+            let escaped = "Main\\_x::zero-add";
+            let at = module
+                .tex_text
+                .find(escaped)
+                .expect("the escaped reference");
+            let reference_origin = lexlean::source::coverage::Origin::Reference {
+                module: support::UNDERSCORE_MODULE.to_owned(),
+                component: "zero-add".to_owned(),
+            };
+            let covering: Vec<(String, lexlean::source::coverage::Origin)> = module
+                .coverage
+                .latex
+                .iter()
+                .filter(|row| row.byte_start >= at && row.byte_end <= at + escaped.len())
+                .map(|row| {
+                    (
+                        module.tex_text[row.byte_start..row.byte_end].to_owned(),
+                        row.origin.clone(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                covering,
+                vec![
+                    ("Main".to_owned(), reference_origin.clone()),
+                    (
+                        "\\_".to_owned(),
+                        lexlean::source::coverage::Origin::RendererToken("underscore".to_owned())
+                    ),
+                    ("x::zero-add".to_owned(), reference_origin),
+                ],
+                "each run keeps the reference origin and the escape is a registered token"
+            );
         }
         // §19.5: proof prose from proof IR with fixed core forms: every
         // variant, branches visible, calculations aligned.
@@ -395,6 +449,31 @@ math = "(token write18)"
             project.relock();
             let error = project.check_err();
             support::expect_code(&error, "LLR3004");
+
+            // §13.5 rule 5 admits a non-ASCII glyph in a canonical *source*
+            // form, but §19.1 produces every mathematical construct through
+            // LRE and the registry, and the fixed §19.2 preamble cannot
+            // typeset a raw scalar: TeX drops it with a `Missing character`
+            // log line and the glyph vanishes from the published document.
+            // An entry whose LRE renders its own Unicode surface is
+            // refused, naming the entry, the form, and the scalar.
+            let unicode = support::unicode_surface_project();
+            let error = unicode
+                .engine()
+                .build(lexlean::BuildRequest {
+                    selection: lexlean::Selection::Entrypoints,
+                })
+                .err()
+                .expect("a raw Unicode surface never reaches the document");
+            support::expect_code(&error, "LLB6002");
+            let message = &error.diagnostics[0].message;
+            assert!(
+                message.contains("test.unicode::voidset")
+                    && message.contains("voidset")
+                    && message.contains('\u{2205}')
+                    && message.contains("renderer token"),
+                "the refusal names the entry, the form, the scalar, and the fix: {message}"
+            );
         }
         // §19.1: deterministic LF-terminated bytes.
         "TX-08" => {

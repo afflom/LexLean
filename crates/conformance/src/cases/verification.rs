@@ -297,7 +297,18 @@ pub(crate) fn run(id: &str) {
             let fake_path = broken.path().to_string_lossy().into_owned();
             support::with_env(&[("ELAN_HOME", Some(&fake_path))], || {
                 let project = P::example();
-                project.verify_fails_with("LLV7003");
+                let error = project.verify_fails_with("LLV7003");
+                // A replay failure is about the module it replayed, so it
+                // points at that module's source (§20.1), not at the
+                // project manifest.
+                let primary = error.diagnostics[0]
+                    .primary
+                    .as_ref()
+                    .expect("a replay failure carries a location");
+                assert_eq!(
+                    primary.path, "src/Main.lex.tex",
+                    "the replay failure points at the module source: {primary:?}"
+                );
             });
         }
         // §18.9: the audit prints axioms exactly once per declaration.
@@ -348,6 +359,59 @@ pub(crate) fn run(id: &str) {
                     "rejected vector was accepted: {line}"
                 );
             }
+            // A record is not a line: the pinned toolchain breaks a long
+            // axiom list at its 120-column format width, and the committed
+            // wrapped vectors (blank-line separated, one record each) are
+            // accepted with exactly the axioms of the unwrapped spelling.
+            let wrapped = std::fs::read_to_string(
+                support::repo_root()
+                    .join("tests/golden/axiom-parser/accepted-wrapped.txt")
+                    .as_std_path(),
+            )
+            .expect("wrapped vectors");
+            let records: Vec<&str> = wrapped
+                .split("\n\n")
+                .map(str::trim_end)
+                .filter(|record| !record.is_empty())
+                .collect();
+            assert!(
+                records.iter().any(|record| record.contains('\n')),
+                "the wrapped vectors contain a multi-line record: {wrapped}"
+            );
+            for record in &records {
+                let expected = vec![quoted_name(record)];
+                let observed = lexlean::verify::axiom::parse_audit_output(record, &expected)
+                    .unwrap_or_else(|error| panic!("wrapped vector failed: {record}: {error:?}"));
+                assert_eq!(observed.len(), 1, "one record per vector");
+            }
+            let three = records
+                .iter()
+                .find(|record| record.contains("even_or_not_and_more_words"))
+                .expect("the three-axiom wrapped vector");
+            let observed = lexlean::verify::axiom::parse_audit_output(three, &[quoted_name(three)])
+                .expect("accepted");
+            assert_eq!(
+                observed[&quoted_name(three)],
+                ["Classical.choice", "Quot.sound", "propext"],
+                "a wrapped list yields the same sorted set as an unwrapped one"
+            );
+            // A record whose list never closes is still malformed, and the
+            // rejection names the declaration whose record was expected
+            // (§20.1), so `verify` can anchor it at that declaration.
+            let failure = lexlean::verify::axiom::parse_audit_output(
+                "'Demo.M.cut' depends on axioms: [propext,\n",
+                &["Demo.M.cut".to_owned()],
+            )
+            .expect_err("an unterminated payload is rejected");
+            assert_eq!(failure.diagnostic.code.as_str(), "LLV7004");
+            assert_eq!(failure.declaration.as_deref(), Some("Demo.M.cut"));
+            let mismatch = lexlean::verify::axiom::parse_audit_output(
+                "'Demo.M.other' does not depend on any axioms\n",
+                &["Demo.M.cut".to_owned()],
+            )
+            .expect_err("a record for the wrong declaration is rejected");
+            assert_eq!(mismatch.declaration.as_deref(), Some("Demo.M.cut"));
+
             // The pinned toolchain's live `#print axioms` output, in its own
             // (unsorted) order, is accepted and the observed sets come back
             // sorted; an unknown constant's error line is rejected.
@@ -373,6 +437,47 @@ pub(crate) fn run(id: &str) {
                 assert!(
                     lexlean::verify::axiom::parse_audit_output(&failing, &expected).is_err(),
                     "an unknown-constant error line is not an axiom record: {failing}"
+                );
+
+                // The pinned toolchain really does wrap: the vectors above
+                // are its behavior, not a hand-written shape.
+                let live = support::print_axioms_wrapped_output();
+                let name =
+                    "AVeryLongModulePrefixIndeedYesReallyLong.Main.even_or_not_and_more_words";
+                assert!(
+                    live.lines().count() > 1,
+                    "the pinned toolchain wraps a record wider than its format width: {live:?}"
+                );
+                let observed =
+                    lexlean::verify::axiom::parse_audit_output(&live, &[name.to_owned()])
+                        .unwrap_or_else(|error| {
+                            panic!("live wrapped output rejected: {live}: {error:?}")
+                        });
+                assert_eq!(
+                    observed[name],
+                    ["Classical.choice", "Quot.sound", "propext"]
+                );
+
+                // End to end: a project whose declaration name is long
+                // enough to wrap its audit record verifies under pinned
+                // Lean, through every stage.
+                let _guard = support::env_lock();
+                let long = support::long_named_em_project();
+                let outcome = long
+                    .engine()
+                    .verify(VerifyRequest {
+                        selection: Selection::Entrypoints,
+                    })
+                    .unwrap_or_else(|error| panic!("a long declaration name verifies: {error:#?}"));
+                let audit =
+                    std::fs::read_to_string(outcome.root.join("audit/output.txt").as_std_path())
+                        .expect("the recorded audit output");
+                let lean_name = support::LONG_AXIOM_COMPONENT.replace('-', "_");
+                assert!(
+                    audit.contains(&format!(
+                        "'LexLeanExample.Main.{lean_name}' depends on axioms: [propext,\n"
+                    )),
+                    "the audit record really is wrapped: {audit}"
                 );
             }
         }
@@ -421,6 +526,21 @@ pub(crate) fn run(id: &str) {
                 Some("allow")
             );
             drop(_guard);
+
+            // A policy violation is about the declaration that violated it,
+            // so its primary location is that declaration's source span
+            // (§20.1) rather than the project manifest.
+            let (_, violation) = support::axioms_insufficient();
+            let primary = violation.diagnostics[0]
+                .primary
+                .as_ref()
+                .expect("a policy violation carries a location");
+            assert_eq!(primary.path, "src/Main.lex.tex");
+            assert_eq!(
+                (primary.line_start, primary.column_start),
+                (6, 1),
+                "the span opens at the theorem environment: {primary:?}"
+            );
 
             // `exact`: equality succeeds and records the policy; a superset
             // allow-list is a violation (§22.6), both through the CLI

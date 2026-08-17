@@ -1236,9 +1236,22 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         Some((term, remaining_ty))
     }
 
+    /// Every interpretation of one expression node. `depth` counts this
+    /// walker's own nesting against `max_scope_depth` (§25.5) *before*
+    /// recursing: the math parser's guard counts grouping, call arguments,
+    /// prefix operands, and right-nested infix operands only, so a
+    /// left-associative chain (`0 + 0 + 0 + ...`) parses at depth 1 while
+    /// this walker recurses once per operand. The finished-term check in
+    /// [`ExprElab::elaborate`] runs after that recursion and so cannot
+    /// bound it; without this entry check a long chain overflows the
+    /// compile thread's stack instead of failing with LLS8002 (§6 I14).
     #[allow(clippy::too_many_lines)]
-    fn candidates(&mut self, ast: &MathAst) -> Result<Vec<Cand>, Diagnostic> {
+    fn candidates(&mut self, ast: &MathAst, depth: u64) -> Result<Vec<Cand>, Diagnostic> {
         self.budget.state()?;
+        self.budget
+            .depth(depth, "elaborate (expression nesting)")
+            .map_err(|diagnostic| diagnostic.with_span(self.span_of(ast.atoms())))?;
+        let nested = depth.saturating_add(1);
         let mut out: Vec<Cand> = Vec::new();
         match ast {
             MathAst::Numeral { text, atoms } => {
@@ -1494,7 +1507,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 });
             }
             MathAst::Paren { inner, atoms } => {
-                for mut candidate in self.candidates(inner)? {
+                for mut candidate in self.candidates(inner, nested)? {
                     candidate.rows.push(self.atom_row(
                         atoms.0,
                         Origin::Structural {
@@ -1520,10 +1533,10 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 commas,
                 ..
             } => {
-                let head_cands = self.candidates(head)?;
+                let head_cands = self.candidates(head, nested)?;
                 let mut arg_cands: Vec<Vec<Cand>> = Vec::new();
                 for arg in args {
-                    arg_cands.push(self.candidates(arg)?);
+                    arg_cands.push(self.candidates(arg, nested)?);
                 }
                 // Structural rows for exactly this call's own parentheses and
                 // top-level separators; nested calls and grouped arguments
@@ -1546,7 +1559,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 op_atoms,
                 arg,
             } => {
-                let arg_cands = self.candidates(arg)?;
+                let arg_cands = self.candidates(arg, nested)?;
                 self.operator_application(candidates, *op_atoms, &[arg_cands], &mut out)?;
             }
             MathAst::Postfix {
@@ -1554,7 +1567,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 op_atoms,
                 arg,
             } => {
-                let arg_cands = self.candidates(arg)?;
+                let arg_cands = self.candidates(arg, nested)?;
                 self.operator_application(candidates, *op_atoms, &[arg_cands], &mut out)?;
             }
             MathAst::Infix {
@@ -1563,8 +1576,8 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 lhs,
                 rhs,
             } => {
-                let lhs_cands = self.candidates(lhs)?;
-                let rhs_cands = self.candidates(rhs)?;
+                let lhs_cands = self.candidates(lhs, nested)?;
+                let rhs_cands = self.candidates(rhs, nested)?;
                 self.operator_application(
                     candidates,
                     *op_atoms,
@@ -1777,7 +1790,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         ast: &MathAst,
         expected: Option<&Term>,
     ) -> Result<ElabTerm, Diagnostic> {
-        let candidates = self.candidates(ast)?;
+        let candidates = self.candidates(ast, 1)?;
         let candidate_count = candidates.len();
         let mut survivors: Vec<(String, ElabTerm)> = Vec::new();
         let mut untyped_numeral: Option<String> = None;

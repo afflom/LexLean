@@ -215,6 +215,26 @@ pub(crate) fn run(id: &str) {
                 "numeral ascription"
             );
 
+            // The ascription is what the expected type is *defined as*, in
+            // every module of the project: a document type definition
+            // declared in an imported module unfolds exactly as one
+            // declared here (§17.7). Lean's `OfNat` instances live on the
+            // underlying type, so `(0 : Alias.count)` could never elaborate.
+            let alias = support::imported_alias_project();
+            alias.check_ok();
+            let alias_main = support::lean_text(&support::rendered(&alias), "Main");
+            assert!(
+                alias_main.contains(
+                    "public theorem alias_numeral (llv0 : LexLeanExample.Alias.count) : (Eq llv0 (0 : Nat)) \u{2192} Eq llv0 (0 : Nat) := by\n"
+                ),
+                "an imported alias ascribes at what it is defined as: {alias_main}"
+            );
+            assert!(
+                !alias_main.contains("(0 : LexLeanExample.Alias.count)"),
+                "the alias itself is never the ascription: {alias_main}"
+            );
+            support::verify_ok(&alias);
+
             // A defined value reaching Lean constants inlines them, and its
             // constants are imported and probed.
             let defined = support::ext_project(support::DEFINED_MODULE);

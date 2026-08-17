@@ -199,11 +199,18 @@ pub fn render_build(
     let mut outputs: Vec<FileRow> = Vec::new();
     let mut manifest_modules = Vec::new();
 
+    // Every module's definitions, so a numeral whose expected type is a
+    // document type definition from an imported module is ascribed at what
+    // the definition unfolds to (§17.7).
+    let aliases = crate::backend::lean::DocumentAliases::of_documents(
+        checked.modules.values().map(|module| &module.document),
+    );
     for (name, checked_module) in &checked.modules {
         let lean_emitter = crate::backend::lean::render_module(
             checked_module,
             &checked.closure,
             &project.config.module_prefix,
+            &aliases,
         )
         .map_err(LexLeanError::from_diagnostic)?;
         let tex_emitter = crate::backend::latex::render_module(checked_module, &checked.closure)
@@ -492,7 +499,7 @@ fn publish_build_locked(
                 return Err(LexLeanError::from_diagnostic(Diagnostic::new(
                     code!("LLB6003"),
                     format!(
-                        "existing build directory {target} holds the unexplained extra file `{relative}`; refusing to reuse it"
+                        "existing build directory {target_relative} holds the unexplained extra file `{relative}`; refusing to reuse it"
                     ),
                 )));
             }
