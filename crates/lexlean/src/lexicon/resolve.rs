@@ -160,7 +160,8 @@ impl Closure {
                         diagnostics.push(Diagnostic::new(
                             code!("LLS8002"),
                             format!(
-                                "max_import_depth exceeded: configured {max_import_depth}, package {}",
+                                "max_import_depth exceeded in phase lexicon closure: configured {max_import_depth}, observed import depth {} at package `{}`",
+                                deepest.saturating_add(1),
                                 packages[node].id
                             ),
                         ));
@@ -860,56 +861,47 @@ impl Closure {
 
 /// The token lattice of one module (§14.1): every glossary form beginning
 /// at every source position, computed once per `(position, channel)` and
-/// counted exactly once against `max_token_lattice_edges`. Grammar passes
-/// that revisit a position share the memoized edges instead of re-counting.
+/// counted exactly once against `max_token_lattice_edges`. Every grammar
+/// pass that revisits a position shares the memoized edges instead of
+/// re-counting; the parse budget owns one lattice per module.
 #[derive(Debug)]
-pub struct TokenLattice<'a> {
-    closure: &'a Closure,
-    atoms: &'a [Atom],
-    visible: &'a BTreeSet<String>,
+pub struct TokenLattice {
     memo: BTreeMap<(usize, Channel), Vec<(FormRef, usize)>>,
     edges: u64,
     max_edges: u64,
 }
 
-impl<'a> TokenLattice<'a> {
-    /// A lattice over `atoms` for the visible package set, bounded by the
-    /// configured `max_token_lattice_edges`.
+impl TokenLattice {
+    /// An empty lattice bounded by the configured `max_token_lattice_edges`.
     #[must_use]
-    pub fn new(
-        closure: &'a Closure,
-        atoms: &'a [Atom],
-        visible: &'a BTreeSet<String>,
-        max_token_lattice_edges: u64,
-    ) -> Self {
+    pub fn new(max_token_lattice_edges: u64) -> Self {
         Self {
-            closure,
-            atoms,
-            visible,
             memo: BTreeMap::new(),
             edges: 0,
             max_edges: max_token_lattice_edges,
         }
     }
 
-    /// The edges beginning at `start` in `channel`. The first request for a
-    /// position computes and counts them; later requests are free.
+    /// The edges beginning at `start` in `channel` over the module's atoms
+    /// and visible packages. The first request for a position computes and
+    /// counts them (`LLS8002` past the limit); later requests are free.
     pub fn edges_at(
         &mut self,
+        closure: &Closure,
+        atoms: &[Atom],
+        visible: &BTreeSet<String>,
         start: usize,
         channel: Channel,
     ) -> Result<&[(FormRef, usize)], Diagnostic> {
         if !self.memo.contains_key(&(start, channel)) {
-            let found = self
-                .closure
-                .matches_at(self.atoms, start, channel, self.visible);
+            let found = closure.matches_at(atoms, start, channel, visible);
             self.edges = self.edges.saturating_add(found.len() as u64);
             if self.edges > self.max_edges {
                 return Err(Diagnostic::new(
                     code!("LLS8002"),
                     format!(
-                        "max_token_lattice_edges exceeded: configured {}",
-                        self.max_edges
+                        "max_token_lattice_edges exceeded in phase lexical resolution: configured {}, observed {} distinct lattice edges",
+                        self.max_edges, self.edges
                     ),
                 ));
             }

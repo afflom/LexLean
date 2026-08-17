@@ -7,8 +7,8 @@ use serde::Deserialize;
 use crate::artifact::content_id::{tree_digest, Sha256Digest};
 use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
-use crate::lexicon::entry::{parse_entry, Entry, EntryContext};
-use crate::lexicon::lse::{is_entry_id, is_package_id};
+use crate::lexicon::entry::{parse_entry, Denotation, Entry, EntryContext};
+use crate::lexicon::lse::{self, is_entry_id, is_package_id, ConstInfo, QualifiedId};
 
 /// A package import reference, `package@version`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -356,6 +356,57 @@ pub fn load_package(
                 }
             }
             Err(mut entry_diagnostics) => diagnostics.append(&mut entry_diagnostics),
+        }
+    }
+
+    // Package-local signature check (§13.7, §13.11 "invalid LSE"): a
+    // signature or defined value that is ill-typed on its own — a term where
+    // a type is required, an application over the explicit arity of an
+    // entry of this package, a defined value disagreeing with its
+    // signature — is rejected when the package loads (`lock`), not first
+    // when a build links the closure. Constants of other packages are
+    // opaque here; the closure repeats the check with every reference
+    // resolved.
+    if diagnostics.is_empty() {
+        let lookup = |id: &QualifiedId| -> ConstInfo<'_> {
+            if id.package != manifest.package {
+                return ConstInfo::Opaque;
+            }
+            match entries.get(&id.entry) {
+                Some(entry) => match &entry.signature {
+                    Some(signature) => ConstInfo::Signature {
+                        signature,
+                        defined: matches!(entry.denotation, Denotation::Defined { .. }),
+                    },
+                    None => ConstInfo::NoSignature,
+                },
+                // An unresolved same-package reference is the closure's
+                // `LLR3005`; it is not judged here.
+                None => ConstInfo::Opaque,
+            }
+        };
+        for entry in entries.values() {
+            let shown = display(&entry_path(&entry.id));
+            if let Some(signature) = &entry.signature {
+                if let Err(type_error) = lse::check_signature(signature, &lookup) {
+                    diagnostics.push(file_error(
+                        &shown,
+                        format!(
+                            "signature `{}` is not well-typed: {type_error}",
+                            signature.print(false)
+                        ),
+                    ));
+                }
+            }
+            if let Denotation::Defined { value, .. } = &entry.denotation {
+                if let Err(type_error) = lse::check_value(value, entry.signature.as_ref(), &lookup)
+                {
+                    diagnostics.push(file_error(
+                        &shown,
+                        format!("defined value is not well-typed: {type_error}"),
+                    ));
+                }
+            }
         }
     }
 

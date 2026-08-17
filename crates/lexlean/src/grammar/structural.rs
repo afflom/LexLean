@@ -905,8 +905,9 @@ impl<'a> Parser<'a> {
                         return Err(self.fail(
                             code!("LLS8002"),
                             format!(
-                                "max_scope_depth exceeded: configured {}",
-                                self.max_scope_depth
+                                "max_scope_depth exceeded in phase parse (section nesting): configured {}, nesting depth {}",
+                                self.max_scope_depth,
+                                depth + 1
                             ),
                         ));
                     }

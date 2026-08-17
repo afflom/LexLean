@@ -14,7 +14,7 @@ use crate::grammar::math::{LeafKind, MathAst};
 use crate::grammar::structural::AtomRange;
 use crate::ir::term::{
     Binder, CoreRef, DefinedLexiconRef, DocumentDeclRef, ExternalConstRef, GlobalRef,
-    ImplicitBinderId, LocalId, Term, Universe,
+    ImplicitBinderId, LocalId, Term, Universe, ARROW_CONSTRUCTOR,
 };
 use crate::lexicon::entry::{Denotation, Entry};
 use crate::lexicon::lse::{BinderMode, Lse, QualifiedId};
@@ -37,8 +37,10 @@ impl Metas {
         id
     }
 
-    pub(crate) fn fresh_universe(&mut self) -> String {
-        let name = format!("?u{}", self.universes.len());
+    /// A fresh universe metavariable. Its name is drawn from the local
+    /// allocator so metas of merged candidate stores never collide.
+    pub(crate) fn fresh_universe(&mut self, alloc: &mut LocalAlloc) -> String {
+        let name = format!("?u{}", alloc.fresh().0);
         self.universes.insert(name.clone(), None);
         name
     }
@@ -81,9 +83,51 @@ pub struct ExprElab<'a, 'b> {
     pub alloc: &'b mut LocalAlloc,
     /// The parse budget.
     pub budget: &'b mut Budget,
+    /// Why candidates died on the way: entries whose instantiation failed,
+    /// with the reason. When no interpretation survives, the diagnostic
+    /// carries them as notes (§20.1) instead of a bare rejection.
+    reasons: Vec<String>,
 }
 
-fn substitute(term: &Term, map: &BTreeMap<LocalId, Term>) -> Term {
+impl<'a, 'b> ExprElab<'a, 'b> {
+    /// An elaborator over one module context.
+    pub fn new(
+        shared: &'b Shared<'a>,
+        scopes: &'b ScopeStack,
+        alloc: &'b mut LocalAlloc,
+        budget: &'b mut Budget,
+    ) -> Self {
+        Self {
+            shared,
+            scopes,
+            alloc,
+            budget,
+            reasons: Vec::new(),
+        }
+    }
+
+    /// Record why a candidate could not be instantiated, once.
+    fn reason(&mut self, reason: String) {
+        if !self.reasons.contains(&reason) {
+            self.reasons.push(reason);
+        }
+    }
+
+    /// Attach the recorded reasons to a rejection as notes.
+    fn with_reasons(&self, mut diagnostic: Diagnostic) -> Diagnostic {
+        for reason in &self.reasons {
+            diagnostic = diagnostic.with_note(reason.clone());
+        }
+        diagnostic
+    }
+}
+
+/// Substitute locals by terms throughout `term` (binders are never
+/// captured: every `LocalId` is project-unique, §17.2). The one
+/// substitution used by the expression, definition, and proof elaborators
+/// and the Lean printer.
+#[must_use]
+pub fn subst(term: &Term, map: &BTreeMap<LocalId, Term>) -> Term {
     match term {
         Term::Local(id) => map.get(id).cloned().unwrap_or_else(|| term.clone()),
         Term::Sort(_) | Term::Global(..) => term.clone(),
@@ -92,11 +136,8 @@ fn substitute(term: &Term, map: &BTreeMap<LocalId, Term>) -> Term {
             explicit_args,
             omitted_implicit_binders,
         } => Term::App {
-            function: Box::new(substitute(function, map)),
-            explicit_args: explicit_args
-                .iter()
-                .map(|arg| substitute(arg, map))
-                .collect(),
+            function: Box::new(subst(function, map)),
+            explicit_args: explicit_args.iter().map(|arg| subst(arg, map)).collect(),
             omitted_implicit_binders: omitted_implicit_binders.clone(),
         },
         Term::Pi { binders, body } | Term::Lambda { binders, body } => {
@@ -105,11 +146,11 @@ fn substitute(term: &Term, map: &BTreeMap<LocalId, Term>) -> Term {
                 .map(|binder| Binder {
                     id: binder.id,
                     mode: binder.mode,
-                    ty: substitute(&binder.ty, map),
+                    ty: subst(&binder.ty, map),
                     spelling: binder.spelling.clone(),
                 })
                 .collect();
-            let new_body = Box::new(substitute(body, map));
+            let new_body = Box::new(subst(body, map));
             if matches!(term, Term::Pi { .. }) {
                 Term::Pi {
                     binders: new_binders,
@@ -130,18 +171,18 @@ fn substitute(term: &Term, map: &BTreeMap<LocalId, Term>) -> Term {
             binder: Box::new(Binder {
                 id: binder.id,
                 mode: binder.mode,
-                ty: substitute(&binder.ty, map),
+                ty: subst(&binder.ty, map),
                 spelling: binder.spelling.clone(),
             }),
-            value: Box::new(substitute(value, map)),
-            body: Box::new(substitute(body, map)),
+            value: Box::new(subst(value, map)),
+            body: Box::new(subst(body, map)),
         },
         Term::NatLiteral {
             decimal,
             expected_type,
         } => Term::NatLiteral {
             decimal: decimal.clone(),
-            expected_type: Box::new(substitute(expected_type, map)),
+            expected_type: Box::new(subst(expected_type, map)),
         },
     }
 }
@@ -243,6 +284,21 @@ fn normalize_succ(universe: Universe) -> Universe {
         Universe::Num(n) => Universe::Num(n + 1),
         other => Universe::Succ(Box::new(other)),
     }
+}
+
+/// The universe map of an entry: every declared universe name to the
+/// universe `fresh(index, name)` supplies (a metavariable per use, the
+/// instantiated argument of a global, or the rigid variable itself). The
+/// one construction the elaborators and the unfolder share.
+pub fn universe_map(
+    names: &[String],
+    mut fresh: impl FnMut(usize, &str) -> Universe,
+) -> BTreeMap<String, Universe> {
+    names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| (name.clone(), fresh(index, name)))
+        .collect()
 }
 
 /// Erase universe argument lists that still carry unsolved universe metas:
@@ -423,15 +479,31 @@ fn occurs(id: LocalId, term: &Term) -> bool {
     }
 }
 
+fn universe_occurs(name: &str, universe: &Universe) -> bool {
+    match universe {
+        Universe::Var(other) => other == name,
+        Universe::Num(_) => false,
+        Universe::Succ(inner) => universe_occurs(name, inner),
+        Universe::Max(items) => items.iter().any(|item| universe_occurs(name, item)),
+        Universe::IMax(a, b) => universe_occurs(name, a) || universe_occurs(name, b),
+    }
+}
+
 fn unify_universe(a: &Universe, b: &Universe, metas: &mut Metas) -> bool {
     let a = zonk_universe(a, metas);
     let b = zonk_universe(b, metas);
+    if a == b {
+        return true;
+    }
     match (&a, &b) {
-        (Universe::Var(name), other) if metas.universes.contains_key(name) => {
-            metas.universes.insert(name.clone(), Some(other.clone()));
-            true
-        }
-        (other, Universe::Var(name)) if metas.universes.contains_key(name) => {
+        // A meta never binds to a universe mentioning itself: `zonk_universe`
+        // follows solutions, so a self-solution would never terminate.
+        (Universe::Var(name), other) | (other, Universe::Var(name))
+            if metas.universes.contains_key(name) =>
+        {
+            if universe_occurs(name, other) {
+                return false;
+            }
             metas.universes.insert(name.clone(), Some(other.clone()));
             true
         }
@@ -476,6 +548,28 @@ fn unify(a: &Term, b: &Term, metas: &mut Metas) -> bool {
             }
             metas.terms.insert(*id, Some(other.clone()));
             true
+        }
+        // An application with no explicit arguments (an atom whose implicit
+        // parameters were instantiated) is its head: the glossary conversion
+        // yields the bare global where the source elaboration yields the
+        // instantiated atom.
+        (
+            Term::App {
+                function,
+                explicit_args,
+                ..
+            },
+            other,
+        )
+        | (
+            other,
+            Term::App {
+                function,
+                explicit_args,
+                ..
+            },
+        ) if explicit_args.is_empty() && !matches!(other, Term::App { .. }) => {
+            unify(function, other, metas)
         }
         (Term::Local(x), Term::Local(y)) => x == y,
         (Term::Sort(x), Term::Sort(y)) => unify_universe(x, y, metas),
@@ -546,13 +640,13 @@ fn unify(a: &Term, b: &Term, metas: &mut Metas) -> bool {
                 if x.mode != y.mode {
                     return false;
                 }
-                let y_ty = substitute(&y.ty, &rename);
+                let y_ty = subst(&y.ty, &rename);
                 if !unify(&x.ty, &y_ty, metas) {
                     return false;
                 }
                 rename.insert(y.id, Term::Local(x.id));
             }
-            let vy_renamed = substitute(vy, &rename);
+            let vy_renamed = subst(vy, &rename);
             unify(vx, &vy_renamed, metas)
         }
         (
@@ -679,14 +773,12 @@ impl LseWalk<'_, '_, '_> {
         }
         let entry = self.shared.closure.entry(id)?;
         let signature = entry.signature.as_ref()?.clone();
-        let mut universe_map = BTreeMap::new();
-        for name in &entry.universes {
-            let fresh = match self.metas.as_deref_mut() {
-                Some(metas) => Universe::Var(metas.fresh_universe()),
-                None => Universe::Var(name.clone()),
-            };
-            universe_map.insert(name.clone(), fresh);
-        }
+        let universe_map = universe_map(&entry.universes, |_, name| {
+            match self.metas.as_deref_mut() {
+                Some(metas) => Universe::Var(metas.fresh_universe(self.alloc)),
+                None => Universe::Var(name.to_owned()),
+            }
+        });
         self.visiting.push(id.clone());
         let saved_scope = std::mem::take(&mut self.scope);
         let saved_map = std::mem::replace(self.map_slot(), universe_map);
@@ -772,7 +864,7 @@ impl LseWalk<'_, '_, '_> {
                     let mut argument_index = 0usize;
                     let mut consumed_all = true;
                     for binder in &binders {
-                        let binder_ty = substitute(&binder.ty, &substitution);
+                        let binder_ty = subst(&binder.ty, &substitution);
                         match binder.mode {
                             BinderMode::Implicit | BinderMode::Instance => {
                                 let hole = self.fresh_hole();
@@ -794,7 +886,7 @@ impl LseWalk<'_, '_, '_> {
                         }
                     }
                     if consumed_all {
-                        result_ty = Some(substitute(&conclusion, &substitution));
+                        result_ty = Some(subst(&conclusion, &substitution));
                     }
                     // Explicit placeholders are metas; the converted
                     // arguments unify into them below.
@@ -1055,13 +1147,12 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             .signature
             .as_ref()
             .ok_or_else(|| LseError::Unavailable(format!("`{qualified}` has no signature")))?;
-        let mut universe_map = BTreeMap::new();
         let mut universe_args = Vec::new();
-        for name in &entry.universes {
-            let fresh = self.alloc_universe(metas);
-            universe_map.insert(name.clone(), fresh.clone());
-            universe_args.push(fresh);
-        }
+        let universe_map = universe_map(&entry.universes, |_, _| {
+            let fresh = Universe::Var(metas.fresh_universe(self.alloc));
+            universe_args.push(fresh.clone());
+            fresh
+        });
         let ty = lse_to_term(
             signature,
             self.shared,
@@ -1113,7 +1204,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 omitted.push(ImplicitBinderId(ordinal));
                 ordinal = ordinal.saturating_add(1);
             }
-            current_ty = substitute(body, &map);
+            current_ty = subst(body, &map);
         }
         if omitted.is_empty() {
             return (term, current_ty);
@@ -1128,21 +1219,19 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         )
     }
 
-    fn alloc_universe(&mut self, metas: &mut Metas) -> Universe {
-        Universe::Var(metas.fresh_universe())
-    }
-
-    /// Conservative unification that sees through defined lexicon values
-    /// (§13.6): the terms are compared as written first, then with every
-    /// defined head unfolded on both sides.
+    /// Conservative unification that sees through definitions (§13.6,
+    /// §17.7): the terms are compared as written first, then — zonked, so
+    /// a solved metavariable's solution unfolds too — with every document
+    /// and defined-lexicon head unfolded on both sides.
     fn unify_delta(&mut self, a: &Term, b: &Term, metas: &mut Metas) -> bool {
         if unify(a, b, metas) {
             return true;
         }
         let limit = self.budget.max_depth();
-        let ua = unfold_defined(a, self.shared, self.alloc, limit);
-        let ub = unfold_defined(b, self.shared, self.alloc, limit);
-        (ua != *a || ub != *b) && unify(&ua, &ub, metas)
+        let (a, b) = (zonk(a, metas), zonk(b, metas));
+        let ua = crate::elaborate::delta::unfold(&a, self.shared, self.alloc, limit);
+        let ub = crate::elaborate::delta::unfold(&b, self.shared, self.alloc, limit);
+        (ua != a || ub != b) && unify(&ua, &ub, metas)
     }
 
     /// Apply a function candidate to arguments through its telescope,
@@ -1170,14 +1259,12 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             let mut leftover: Vec<Binder> = Vec::new();
             let mut binder_iter = binders.into_iter();
             for binder in binder_iter.by_ref() {
-                let binder_ty = substitute(&binder.ty, &subst_map);
+                let binder_ty = subst(&binder.ty, &subst_map);
                 match binder.mode {
                     BinderMode::Implicit | BinderMode::Instance => {
+                        // The meta's solution comes from unification with
+                        // the explicit argument types.
                         let meta = metas.fresh_term(self.alloc);
-                        // The meta's expected type is the binder type; the
-                        // solution comes from unification with argument
-                        // types.
-                        let _ = binder_ty;
                         subst_map.insert(binder.id, Term::Local(meta));
                         omitted.push(ImplicitBinderId(ordinal));
                     }
@@ -1211,19 +1298,19 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 ordinal += 1;
             }
             if consumed_all {
-                remaining_ty = zonk(&substitute(&body, &subst_map), metas);
+                remaining_ty = zonk(&subst(&body, &subst_map), metas);
             } else {
                 for binder in binder_iter {
                     leftover.push(Binder {
                         id: binder.id,
                         mode: binder.mode,
-                        ty: substitute(&binder.ty, &subst_map),
+                        ty: subst(&binder.ty, &subst_map),
                         spelling: binder.spelling,
                     });
                 }
                 remaining_ty = Term::Pi {
                     binders: leftover,
-                    body: Box::new(substitute(&body, &subst_map)),
+                    body: Box::new(subst(&body, &subst_map)),
                 };
                 break;
             }
@@ -1282,6 +1369,10 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                             let mut metas = Metas::default();
                             match self.instantiate_entry(reference, &mut metas) {
                                 Err(instantiation_error) => {
+                                    self.reason(format!(
+                                        "`{}::{}` cannot be instantiated: {instantiation_error}",
+                                        reference.package, reference.entry
+                                    ));
                                     let (byte_start, byte_end) = self.bytes_of(*atoms);
                                     let first = &self.shared.atoms[atoms.0];
                                     last_instantiation_error = Some(
@@ -1336,12 +1427,14 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                     }
                     let (byte_start, byte_end) = self.bytes_of(*atoms);
                     let first = &self.shared.atoms[atoms.0];
+                    // The identifier is named whole (§12.2 class 3): a
+                    // composed identifier spans several atoms.
+                    let spelling: String = (atoms.0..atoms.1)
+                        .map(|index| self.shared.atoms[index].text.as_str())
+                        .collect();
                     return Err(Diagnostic::new(
                         code!("LLL1004"),
-                        format!(
-                            "`{}` resolves to no scoped declaration or glossary entry",
-                            self.shared.atoms[atoms.0].text
-                        ),
+                        format!("`{spelling}` resolves to no scoped declaration or glossary entry"),
                     )
                     .with_span(crate::diagnostic::Span {
                         path: self.shared.path.to_owned(),
@@ -1632,9 +1725,20 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         out: &mut Vec<Cand>,
     ) -> Result<(), Diagnostic> {
         for reference in operators {
-            let mut metas = Metas::default();
-            let Ok((function, function_ty)) = self.instantiate_entry(reference, &mut metas) else {
+            if self.is_core_arrow(reference) {
+                self.arrow_application(reference, op_atoms, args, out)?;
                 continue;
+            }
+            let mut metas = Metas::default();
+            let (function, function_ty) = match self.instantiate_entry(reference, &mut metas) {
+                Ok(instantiated) => instantiated,
+                Err(failure) => {
+                    self.reason(format!(
+                        "`{}::{}` cannot be instantiated: {failure}",
+                        reference.package, reference.entry
+                    ));
+                    continue;
+                }
             };
             let op_row = self.row(
                 op_atoms,
@@ -1652,6 +1756,82 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 rows: vec![op_row],
             };
             self.combine_application(&[head], args, &[], out)?;
+        }
+        Ok(())
+    }
+
+    /// Is this reference the core implication arrow (§15.6)? Its
+    /// denotation is the core constructor `logic.arrow`, which has no
+    /// global: an implication is a non-dependent `Pi`.
+    fn is_core_arrow(&self, reference: &FormRef) -> bool {
+        let qualified = QualifiedId {
+            package: reference.package.clone(),
+            entry: reference.entry.clone(),
+        };
+        self.shared.closure.entry(&qualified).is_some_and(|entry| {
+            matches!(
+                &entry.denotation,
+                Denotation::Core { constructor } if constructor == ARROW_CONSTRUCTOR
+            )
+        })
+    }
+
+    /// The core arrow applied to two propositions: every combination of
+    /// operand candidates whose types unify with `Prop` yields the
+    /// non-dependent `Pi` (§15.6), typed `Prop`; the operator's own row
+    /// binds the arrow form.
+    fn arrow_application(
+        &mut self,
+        reference: &FormRef,
+        op_atoms: AtomRange,
+        args: &[Vec<Cand>],
+        out: &mut Vec<Cand>,
+    ) -> Result<(), Diagnostic> {
+        let [antecedents, consequents] = args else {
+            return Err(Diagnostic::new(
+                code!("LLI9001"),
+                "phase elaborate: the arrow is a binary operator",
+            ));
+        };
+        let op_row = self.row(
+            op_atoms,
+            self.shared.atoms[op_atoms.0].class,
+            Origin::Form {
+                package: reference.package.clone(),
+                entry: reference.entry.clone(),
+                form: reference.form.clone(),
+            },
+        );
+        for antecedent in antecedents {
+            for consequent in consequents {
+                self.budget.state()?;
+                let mut metas = antecedent.metas.clone();
+                metas.terms.extend(consequent.metas.terms.clone());
+                metas.universes.extend(consequent.metas.universes.clone());
+                let prop = crate::ir::term::prop();
+                if !self.unify_delta(&antecedent.ty, &prop, &mut metas)
+                    || !self.unify_delta(&consequent.ty, &prop, &mut metas)
+                {
+                    continue;
+                }
+                let mut rows = vec![op_row.clone()];
+                rows.extend(antecedent.rows.iter().cloned());
+                rows.extend(consequent.rows.iter().cloned());
+                out.push(Cand {
+                    term: Term::Pi {
+                        binders: vec![Binder {
+                            id: self.alloc.fresh(),
+                            mode: BinderMode::Explicit,
+                            ty: antecedent.term.clone(),
+                            spelling: String::new(),
+                        }],
+                        body: Box::new(consequent.term.clone()),
+                    },
+                    ty: prop,
+                    metas,
+                    rows,
+                });
+            }
         }
         Ok(())
     }
@@ -1828,23 +2008,29 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                     .map_err(|diagnostic| diagnostic.with_span(self.span_of(ast.atoms())))?;
                 Ok(elaborated)
             }
-            0 if candidate_count > 1 => Err(Diagnostic::new(
-                code!("LLT4002"),
-                "no overloaded candidate satisfies the declared signatures and expected types",
-            )
-            .with_span(self.span_of(ast.atoms()))),
-            0 => Err(Diagnostic::new(
-                code!("LLT4001"),
-                match untyped_numeral {
-                    // §15.5: a numeral has no default type; name it.
-                    Some(decimal) => format!(
-                        "the numeral `{decimal}` receives no expected type from an operator, relation, binder, definition signature, or declaration statement (§15.5)"
-                    ),
-                    None => "no interpretation satisfies the declared signatures and expected types"
-                        .to_owned(),
-                },
-            )
-            .with_span(self.span_of(ast.atoms()))),
+            0 if candidate_count > 1 => Err(self.with_reasons(
+                Diagnostic::new(
+                    code!("LLT4002"),
+                    "no overloaded candidate satisfies the declared signatures and expected types",
+                )
+                .with_span(self.span_of(ast.atoms())),
+            )),
+            0 => Err(self.with_reasons(
+                Diagnostic::new(
+                    code!("LLT4001"),
+                    match untyped_numeral {
+                        // §15.5: a numeral has no default type; name it.
+                        Some(decimal) => format!(
+                            "the numeral `{decimal}` receives no expected type from an operator, relation, binder, definition signature, or declaration statement (§15.5)"
+                        ),
+                        None => {
+                            "no interpretation satisfies the declared signatures and expected types"
+                                .to_owned()
+                        }
+                    },
+                )
+                .with_span(self.span_of(ast.atoms())),
+            )),
             _ => Err(crate::elaborate::ambiguity_diagnostic(
                 survivors.iter().map(|(_, elaborated)| &elaborated.term),
             )
@@ -1937,7 +2123,7 @@ pub fn instantiate_telescope(
     let mut instantiated = Vec::new();
     for binder in binders {
         let meta = metas.fresh_term(alloc);
-        let ty = substitute(&binder.ty, &map);
+        let ty = subst(&binder.ty, &map);
         map.insert(binder.id, Term::Local(meta));
         instantiated.push((
             Binder {
@@ -1949,7 +2135,7 @@ pub fn instantiate_telescope(
             meta,
         ));
     }
-    let conclusion = substitute(&conclusion, &map);
+    let conclusion = subst(&conclusion, &map);
     if let Some(target) = target {
         if !unify(&conclusion, target, &mut metas) {
             return None;
@@ -1979,158 +2165,18 @@ pub fn entry_signature_term(
         .signature
         .as_ref()
         .ok_or_else(|| format!("`{entry_id}` has no signature"))?;
-    let universe_map: BTreeMap<String, Universe> = entry
-        .universes
-        .iter()
-        .map(|name| (name.clone(), Universe::Var(name.clone())))
-        .collect();
+    let universe_map = universe_map(&entry.universes, |_, name| Universe::Var(name.to_owned()));
     let ty = lse_to_term(signature, shared, alloc, &universe_map, None)
         .map_err(|failure| failure.to_string())?;
     let global = global_for(shared, entry_id, entry)?;
     Ok((global, ty))
 }
 
-/// Unfold every application headed by a defined lexicon value (§13.6) into
-/// its instantiated value, recursively, so conservative unification sees
-/// through transparent glossary definitions (a `proposition` type noun
-/// defined as `(sort prop)` is the sort `Prop`; a defined predicate is its
-/// body). Definitions are acyclic and each unfolding consumes one defined
-/// head; the nesting bound is the configured depth limit as a guard.
-pub fn unfold_defined(
-    term: &Term,
-    shared: &Shared<'_>,
-    alloc: &mut LocalAlloc,
-    depth_limit: u64,
-) -> Term {
-    fn go(
-        term: &Term,
-        shared: &Shared<'_>,
-        alloc: &mut LocalAlloc,
-        depth: u64,
-        limit: u64,
-    ) -> Term {
-        if depth > limit {
-            return term.clone();
-        }
-        let (function, args): (&Term, Vec<Term>) = match term {
-            Term::App {
-                function,
-                explicit_args,
-                ..
-            } => (function, explicit_args.clone()),
-            other => (other, Vec::new()),
-        };
-        if let Term::Global(GlobalRef::DefinedLexicon(defined), _) = function {
-            if let Some(entry) = QualifiedId::parse(&defined.entry)
-                .ok()
-                .and_then(|id| shared.closure.entry(&id))
-            {
-                if let Denotation::Defined { value: lse, .. } = &entry.denotation {
-                    let universes: BTreeMap<String, Universe> = entry
-                        .universes
-                        .iter()
-                        .map(|name| (name.clone(), Universe::Var(name.clone())))
-                        .collect();
-                    if let Ok(value) = lse_to_term(lse, shared, alloc, &universes, None) {
-                        let unfolded = match value {
-                            Term::Lambda { binders, body } if binders.len() == args.len() => {
-                                let map: BTreeMap<LocalId, Term> = binders
-                                    .iter()
-                                    .zip(&args)
-                                    .map(|(binder, argument)| (binder.id, argument.clone()))
-                                    .collect();
-                                Some(subst(&body, &map))
-                            }
-                            Term::Lambda { .. } => None,
-                            other if args.is_empty() => Some(other),
-                            _ => None,
-                        };
-                        if let Some(unfolded) = unfolded {
-                            return go(&unfolded, shared, alloc, depth.saturating_add(1), limit);
-                        }
-                    }
-                }
-            }
-        }
-        match term {
-            Term::App {
-                function,
-                explicit_args,
-                omitted_implicit_binders,
-            } => Term::App {
-                function: Box::new(go(function, shared, alloc, depth, limit)),
-                explicit_args: explicit_args
-                    .iter()
-                    .map(|argument| go(argument, shared, alloc, depth, limit))
-                    .collect(),
-                omitted_implicit_binders: omitted_implicit_binders.clone(),
-            },
-            Term::Pi { binders, body } => Term::Pi {
-                binders: binders
-                    .iter()
-                    .map(|binder| Binder {
-                        id: binder.id,
-                        mode: binder.mode,
-                        ty: go(&binder.ty, shared, alloc, depth, limit),
-                        spelling: binder.spelling.clone(),
-                    })
-                    .collect(),
-                body: Box::new(go(body, shared, alloc, depth, limit)),
-            },
-            Term::Lambda { binders, body } => Term::Lambda {
-                binders: binders
-                    .iter()
-                    .map(|binder| Binder {
-                        id: binder.id,
-                        mode: binder.mode,
-                        ty: go(&binder.ty, shared, alloc, depth, limit),
-                        spelling: binder.spelling.clone(),
-                    })
-                    .collect(),
-                body: Box::new(go(body, shared, alloc, depth, limit)),
-            },
-            other => other.clone(),
-        }
-    }
-    go(term, shared, alloc, 0, depth_limit)
-}
-
-/// Beta-reduce one application of a lambda to one argument, for witness
-/// goals (§16.2).
+/// Conservative equality of two closed terms: unification with no
+/// metavariable store, that is, syntactic identity up to alpha-renaming,
+/// universe normalization, and same-constant externals (§17.6). Callers
+/// unfold definitions first when definitional reading is wanted.
 #[must_use]
-pub fn beta1(function: &Term, argument: &Term) -> Term {
-    if let Term::Lambda { binders, body } = function {
-        if let Some((first, rest)) = binders.split_first() {
-            let mut map = BTreeMap::new();
-            map.insert(first.id, argument.clone());
-            let new_body = substitute(body, &map);
-            if rest.is_empty() {
-                return new_body;
-            }
-            return Term::Lambda {
-                binders: rest
-                    .iter()
-                    .map(|binder| Binder {
-                        id: binder.id,
-                        mode: binder.mode,
-                        ty: substitute(&binder.ty, &map),
-                        spelling: binder.spelling.clone(),
-                    })
-                    .collect(),
-                body: Box::new(new_body),
-            };
-        }
-    }
-    Term::App {
-        function: Box::new(function.clone()),
-        explicit_args: vec![argument.clone()],
-        omitted_implicit_binders: Vec::new(),
-    }
-}
-
-/// Substitute a map of locals; public for the definition and proof
-/// elaborators.
-#[must_use]
-pub fn subst(term: &Term, map: &BTreeMap<LocalId, Term>) -> Term {
-    substitute(term, map)
+pub fn unify_closed(a: &Term, b: &Term) -> bool {
+    unify(a, b, &mut Metas::default())
 }

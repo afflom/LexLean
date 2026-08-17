@@ -644,7 +644,10 @@ fn check_project_inline(
         if ir_node_count > limits.max_ir_nodes {
             return Err(err(vec![Diagnostic::new(
                 code!("LLS8002"),
-                format!("max_ir_nodes exceeded: configured {}", limits.max_ir_nodes),
+                format!(
+                    "max_ir_nodes exceeded in phase link: configured {}, observed {ir_node_count} linked IR nodes through module `{module_name}`",
+                    limits.max_ir_nodes
+                ),
             )]));
         }
 

@@ -170,9 +170,36 @@ impl Fmt<'_> {
                 },
                 _ => 256,
             },
+            Term::Pi { binders, body } if Self::is_implication(binders, body) => self
+                .arrow_form()
+                .map_or(256, |(_, precedence)| u16::from(precedence)),
             Term::Pi { .. } | Term::Lambda { .. } => 10,
             _ => 256,
         }
+    }
+
+    /// Is this `Pi` an implication (§15.6): every binder anonymous and
+    /// unused by the body?
+    fn is_implication(binders: &[Binder], body: &Term) -> bool {
+        let mut used = BTreeSet::new();
+        crate::elaborate::collect_term_locals_public(body, &mut used);
+        for binder in binders {
+            crate::elaborate::collect_term_locals_public(&binder.ty, &mut used);
+        }
+        binders
+            .iter()
+            .all(|binder| binder.spelling.is_empty() && !used.contains(&binder.id))
+    }
+
+    /// The core arrow's unique math surface and precedence, when the
+    /// surface resolves uniquely among the visible packages (§14.3).
+    fn arrow_form(&self) -> Option<(String, u8)> {
+        let entry = self.closure.entry(&QualifiedId {
+            package: "lexlean.core".to_owned(),
+            entry: "arrow".to_owned(),
+        })?;
+        let surface = self.unique_surface(entry, Channel::Math)?;
+        Some((surface, entry.precedence?))
     }
 
     /// Canonical source math (§23.5): safe canonical forms, explicit
@@ -295,6 +322,28 @@ impl Fmt<'_> {
                     format!("{head}({})", arguments?.join(", "))
                 }
             },
+            // An implication in math is the core arrow (§15.6), right
+            // associative: `p → q → r`.
+            Term::Pi { binders, body } if Self::is_implication(binders, body) => {
+                let Some((surface, precedence)) = self.arrow_form() else {
+                    return Err(fmt_error(
+                        "an implication inside a mathematical island has no unique source form",
+                    ));
+                };
+                let rest = if binders.len() == 1 {
+                    (**body).clone()
+                } else {
+                    Term::Pi {
+                        binders: binders[1..].to_vec(),
+                        body: body.clone(),
+                    }
+                };
+                format!(
+                    "{} {surface} {}",
+                    self.math(&binders[0].ty, u16::from(precedence) + 1)?,
+                    self.math(&rest, u16::from(precedence))?
+                )
+            }
             Term::Pi { .. } | Term::Lambda { .. } | Term::Let { .. } => {
                 return Err(fmt_error("a binder term has no source math form"));
             }
@@ -989,7 +1038,3 @@ pub fn canonical_source(checked: &CheckedModule, closure: &Closure) -> Result<St
     formatter.line(0, "\\end{lexlean}");
     Ok(formatter.out)
 }
-
-/// The definition entry's document declaration is never consulted while
-/// formatting; this marker keeps the invariant explicit.
-pub const FORMATTER_IS_IR_DRIVEN: bool = true;

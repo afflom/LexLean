@@ -1,8 +1,12 @@
 //! Shared parsing machinery: explicit budgets and the text-token view the
 //! controlled grammars consume (SPEC.md §14.1, §25.5).
 
+use std::collections::BTreeSet;
+
 use crate::code;
 use crate::diagnostic::Diagnostic;
+use crate::lexicon::entry::Channel;
+use crate::lexicon::resolve::{Closure, FormRef, TokenLattice};
 use crate::source::atom::{Atom, AtomClass};
 
 /// Checked parse budgets (§25.5). Exceeding a limit is `LLS8002`, never an
@@ -16,8 +20,9 @@ use crate::source::atom::{Atom, AtomClass};
 /// `max_ir_nodes` bounds the linked IR size.
 #[derive(Debug)]
 pub struct Budget {
-    edges: u64,
-    max_edges: u64,
+    /// The module's memoized token lattice (§14.1): every edge is counted
+    /// once however many grammar passes revisit its position.
+    lattice: TokenLattice,
     states: u64,
     max_states: u64,
     max_depth: u64,
@@ -28,12 +33,26 @@ impl Budget {
     #[must_use]
     pub fn new(max_token_lattice_edges: u64, max_parse_states: u64, max_scope_depth: u64) -> Self {
         Self {
-            edges: 0,
-            max_edges: max_token_lattice_edges,
+            lattice: TokenLattice::new(max_token_lattice_edges),
             states: 0,
             max_states: max_parse_states,
             max_depth: max_scope_depth,
         }
+    }
+
+    /// The glossary forms beginning at atom `start` in `channel` (§14.1),
+    /// through the module's memoized lattice: `(form, exclusive end)`.
+    pub fn edges_at(
+        &mut self,
+        closure: &Closure,
+        atoms: &[Atom],
+        visible: &BTreeSet<String>,
+        start: usize,
+        channel: Channel,
+    ) -> Result<Vec<(FormRef, usize)>, Diagnostic> {
+        self.lattice
+            .edges_at(closure, atoms, visible, start, channel)
+            .map(<[(FormRef, usize)]>::to_vec)
     }
 
     /// The configured nesting limit.
@@ -48,28 +67,16 @@ impl Budget {
         depth_check(depth, self.max_depth, phase)
     }
 
-    /// Count one lattice edge.
-    pub fn edge(&mut self) -> Result<(), Diagnostic> {
-        self.edges = self.edges.saturating_add(1);
-        if self.edges > self.max_edges {
-            return Err(Diagnostic::new(
-                code!("LLS8002"),
-                format!(
-                    "max_token_lattice_edges exceeded: configured {}",
-                    self.max_edges
-                ),
-            ));
-        }
-        Ok(())
-    }
-
     /// Count one parse state.
     pub fn state(&mut self) -> Result<(), Diagnostic> {
         self.states = self.states.saturating_add(1);
         if self.states > self.max_states {
             return Err(Diagnostic::new(
                 code!("LLS8002"),
-                format!("max_parse_states exceeded: configured {}", self.max_states),
+                format!(
+                    "max_parse_states exceeded in phase parse: configured {}, observed {} states",
+                    self.max_states, self.states
+                ),
             ));
         }
         Ok(())

@@ -7,9 +7,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
+use crate::elaborate::delta::{beta, certainly_distinct, is_closed_shape};
 use crate::elaborate::expressions::{
-    beta1, entry_signature_term, flatten_pi, instantiate_telescope, subst, ElabTerm, ExprElab,
-    Instantiated,
+    entry_signature_term, flatten_pi, instantiate_telescope, subst, unify_closed, ElabTerm,
+    ExprElab, Instantiated,
 };
 use crate::elaborate::resolve::{LocalAlloc, ScopeStack};
 use crate::elaborate::{elab_island, elab_proposition_sentence, Shared};
@@ -120,108 +121,12 @@ fn core_head(term: &Term) -> Option<CoreRef> {
     }
 }
 
-/// The application of a core connective to explicit arguments, in the
-/// shape the proposition elaborator produces (§15.6).
-fn core_app(core: CoreRef, args: Vec<Term>, omitted: Vec<ImplicitBinderId>) -> Term {
-    Term::App {
-        function: Box::new(Term::Global(GlobalRef::Core(core), Vec::new())),
-        explicit_args: args,
-        omitted_implicit_binders: omitted,
-    }
-}
-
 impl<'a, 'b> ProofElab<'a, 'b> {
-    /// Unfold a goal headed by a document definition whose value is
-    /// available (§17.7): the value lambda applied to the goal's explicit
-    /// arguments, beta-reduced. Repeated until the head is not such a
-    /// definition; the result is what the shape checks see, exactly as
-    /// pinned Lean unfolds the definition when the tactic needs it.
-    fn unfold_definitions(&mut self, goal: &Term) -> Term {
-        let mut current = goal.clone();
-        let mut steps: u64 = 0;
-        loop {
-            let (function, args) = match &current {
-                Term::App {
-                    function,
-                    explicit_args,
-                    ..
-                } => (&**function, explicit_args.clone()),
-                other => (other, Vec::new()),
-            };
-            // A document definition unfolds through the declaration table; a
-            // defined lexicon value (§13.6) unfolds through its LSE value,
-            // instantiated with fresh binder identities.
-            let owned_value: Term;
-            let value: &Term = match function {
-                Term::Global(GlobalRef::Document(reference), _) => {
-                    let Some(info) = self
-                        .shared
-                        .decls
-                        .get(&reference.module, &reference.component)
-                    else {
-                        return current;
-                    };
-                    match &info.value {
-                        Some(value) => value,
-                        None => return current,
-                    }
-                }
-                Term::Global(GlobalRef::DefinedLexicon(defined), _) => {
-                    let Some(entry) = QualifiedId::parse(&defined.entry)
-                        .ok()
-                        .and_then(|id| self.shared.closure.entry(&id))
-                    else {
-                        return current;
-                    };
-                    let crate::lexicon::entry::Denotation::Defined { value: lse, .. } =
-                        &entry.denotation
-                    else {
-                        return current;
-                    };
-                    let universes: BTreeMap<String, crate::ir::term::Universe> = entry
-                        .universes
-                        .iter()
-                        .map(|name| (name.clone(), crate::ir::term::Universe::Var(name.clone())))
-                        .collect();
-                    match crate::elaborate::expressions::lse_to_term(
-                        lse,
-                        self.shared,
-                        self.alloc,
-                        &universes,
-                        None,
-                    ) {
-                        Ok(term) => {
-                            owned_value = term;
-                            &owned_value
-                        }
-                        Err(_) => return current,
-                    }
-                }
-                _ => return current,
-            };
-            let unfolded = match value {
-                Term::Lambda { binders, body } if binders.len() == args.len() => {
-                    let map: BTreeMap<LocalId, Term> = binders
-                        .iter()
-                        .zip(&args)
-                        .map(|(binder, argument)| (binder.id, argument.clone()))
-                        .collect();
-                    subst(body, &map)
-                }
-                Term::Lambda { .. } => return current,
-                other if args.is_empty() => other.clone(),
-                _ => return current,
-            };
-            // Definitions are acyclic (§15.7 rule 8) and each unfolding
-            // strictly consumes one document head; the depth bound is the
-            // configured nesting limit as a guard against a linked table
-            // deeper than the source could ever be.
-            steps = steps.saturating_add(1);
-            if steps > self.budget.max_depth() {
-                return unfolded;
-            }
-            current = unfolded;
-        }
+    /// Read a term through every definition (§17.7, §13.6): the one delta
+    /// unfolder over this module's declaration table and closure, bounded
+    /// by the configured nesting limit.
+    fn unfold(&mut self, term: &Term) -> Term {
+        crate::elaborate::delta::unfold(term, self.shared, self.alloc, self.budget.max_depth())
     }
 
     fn span_of(&self, range: AtomRange) -> Span {
@@ -324,13 +229,13 @@ impl<'a, 'b> ProofElab<'a, 'b> {
     }
 
     /// Elaborate a proof-term island against a known goal, conservatively:
-    /// first with the goal itself as the expected type, then with the goal
-    /// unfolded through document definitions (Lean's `exact` sees through
-    /// them by delta reduction), and finally without an expected type when
-    /// the term has one interpretation on its own — LexLean's unifier does
-    /// not claim Lean's definitional equality (§17.6), so a term that
-    /// elaborates uniquely is handed to Lean, which is final (§16.1). A term
-    /// with no interpretation at all keeps the first, expected-type-directed
+    /// first with the goal as the expected type (unification sees through
+    /// definitions, §17.7), then without an expected type when the term has
+    /// one interpretation on its own — LexLean's unifier does not claim
+    /// Lean's definitional equality (§17.6), so a term that elaborates
+    /// uniquely is handed to Lean, which is final (§16.1), unless its type
+    /// and the goal are of shapes no unfolding can reconcile. A term with
+    /// no interpretation at all keeps the first, expected-type-directed
     /// diagnostic.
     fn term_against_goal(
         &mut self,
@@ -344,26 +249,24 @@ impl<'a, 'b> ProofElab<'a, 'b> {
             Ok(term) => return Ok(term),
             Err(diagnostic) => diagnostic,
         };
-        let unfolded = self.unfold_definitions(goal_term);
-        if unfolded != *goal_term {
-            if let Ok(term) = self.term_island(token, Some(&unfolded)) {
-                return Ok(term);
-            }
-        }
         // Without an expected type, the term must still have exactly one
         // interpretation, and the mismatch must be one LexLean cannot judge
         // (§17.6): a numeral against a constructor, two entries for one Lean
         // constant, an external definition, ... are all Lean's to decide. A
         // mismatch is certain only between shapes no definitional unfolding
         // can reconcile — two different core connectives, a function type
-        // against a core proposition, a sort against either — and stays
-        // rejected.
+        // against a core proposition other than a negation, a sort against
+        // either — and stays rejected.
+        let goal_unfolded = self.unfold(goal_term);
         match self.term_island(token, None) {
             Ok(term) => {
-                let certain = term
-                    .ty
-                    .as_ref()
-                    .is_some_and(|ty| certainly_distinct(&unfolded, &self.unfold_definitions(ty)));
+                let certain = match term.ty.as_ref() {
+                    Some(ty) => {
+                        let ty_unfolded = self.unfold(ty);
+                        certainly_distinct(&goal_unfolded, &ty_unfolded)
+                    }
+                    None => false,
+                };
                 if certain {
                     Err(first)
                 } else {
@@ -393,12 +296,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
             self.shared.visible,
             self.budget,
         )?;
-        let mut elaborator = ExprElab {
-            shared: self.shared,
-            scopes: self.scopes,
-            alloc: self.alloc,
-            budget: self.budget,
-        };
+        let mut elaborator = ExprElab::new(self.shared, self.scopes, self.alloc, self.budget);
         let result = elaborator.elaborate(&ast, expected)?;
         self.rows.extend(result.rows.clone());
         Ok(result)
@@ -441,7 +339,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 .with_span(self.item_span(item)));
             }
             let step_goal = match goal.for_step() {
-                Goal::Known(term) => Goal::Known(self.unfold_definitions(&term)),
+                Goal::Known(term) => Goal::Known(self.unfold(&term)),
                 other => other,
             };
             match item {
@@ -598,9 +496,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                     let branch_goals: Option<Vec<Goal>> = match step_goal.known() {
                         Some(term) => match self.constructor_fields(term) {
                             Some(fields) => Some(fields),
-                            None if core_head(term).is_some()
-                                || matches!(term, Term::Pi { .. } | Term::Sort(_)) =>
-                            {
+                            None if is_closed_shape(term) => {
                                 // §16.7: a statically known goal headed by a
                                 // core connective must be a constructor
                                 // target with proof fields.
@@ -724,7 +620,15 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         }
         match self.scopes.lookup(&target.text) {
             Some(entry) => {
-                if entry.ty.as_ref().is_some_and(|ty| self.is_data_type(ty)) {
+                let entry = entry.clone();
+                let data = match &entry.ty {
+                    Some(ty) => {
+                        let unfolded = self.unfold(ty);
+                        self.is_data_type(&unfolded)
+                    }
+                    None => false,
+                };
+                if data {
                     return Err(fail(
                         code!("LLF5002"),
                         format!(
@@ -747,20 +651,22 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         }
     }
 
-    fn check_equation_shaped(&self, term: &ElabTerm, arg: &BraceArg) -> Result<(), Diagnostic> {
+    fn check_equation_shaped(&mut self, term: &ElabTerm, arg: &BraceArg) -> Result<(), Diagnostic> {
         // A rule term must prove an equality or equivalence when its type
-        // is statically known (§16.4). Unknown types defer to Lean.
+        // is statically known (§16.4), read through its definitions.
+        // Unknown types defer to Lean.
         let Some(ty) = &term.ty else {
             return Ok(());
         };
-        let (_, conclusion) = flatten_pi(ty);
+        let ty = self.unfold(ty);
+        let (_, conclusion) = flatten_pi(&ty);
         if matches!(core_head(&conclusion), Some(CoreRef::Eq | CoreRef::Iff)) {
             return Ok(());
         }
-        // A conclusion headed by a document or external predicate may
-        // unfold to an equation; only a core connective or a data type is
+        // A conclusion headed by an external predicate may still unfold to
+        // an equation in Lean; only a closed shape or a data type is
         // certainly not one.
-        if core_head(&conclusion).is_none() && !self.is_data_type(&conclusion) {
+        if !is_closed_shape(&conclusion) && !self.is_data_type(&conclusion) {
             return Ok(());
         }
         Err(fail(
@@ -770,14 +676,15 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         .with_span(self.span_of(arg.range)))
     }
 
-    fn check_simp_rule(&self, term: &ElabTerm, arg: &BraceArg) -> Result<(), Diagnostic> {
+    fn check_simp_rule(&mut self, term: &ElabTerm, arg: &BraceArg) -> Result<(), Diagnostic> {
         // A simp rule is a proof of a proposition (an equation, an
         // equivalence, or any proposition read as `= True`); a data term is
         // certainly not one (§16.5).
         let Some(ty) = &term.ty else {
             return Ok(());
         };
-        let (_, conclusion) = flatten_pi(ty);
+        let ty = self.unfold(ty);
+        let (_, conclusion) = flatten_pi(&ty);
         if self.is_data_type(&conclusion) {
             return Err(fail(
                 code!("LLF5002"),
@@ -799,7 +706,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         };
         // A conclusion headed by a definition (document or defined lexicon
         // value) is read through its definition, as Lean's `apply` does.
-        let ty = &self.unfold_definitions(ty);
+        let ty = &self.unfold(ty);
         let (binders, conclusion) = flatten_pi(ty);
         if binders.is_empty() {
             // `Not P` is `P → False`: applying a negation leaves exactly the
@@ -811,7 +718,14 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                     return Residuals::Known(vec![Goal::Known(premise.clone())]);
                 }
             }
-            return Residuals::Known(Vec::new());
+            // A closed shape has no premises; an open head (an external
+            // predicate such as `Ne`, a local) may still reduce to a
+            // function type in Lean, which is final.
+            return if is_closed_shape(&conclusion) {
+                Residuals::Known(Vec::new())
+            } else {
+                Residuals::Unknown
+            };
         }
         let Some(goal_term) = goal.known() else {
             return Residuals::Unknown;
@@ -1035,9 +949,9 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         }
         self.structural_row(sentence.period, "period");
         let sentence_span = self.span_of(sentence.range);
-        // A goal headed by a document definition is seen through its value.
+        // A goal headed by a definition is seen through its value.
         let goal = match goal {
-            Goal::Known(term) => Goal::Known(self.unfold_definitions(&term)),
+            Goal::Known(term) => Goal::Known(self.unfold(&term)),
             other => other,
         };
         match kind {
@@ -1085,10 +999,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                             introduced.push(id);
                             current = Goal::Unknown;
                         }
-                        Goal::Known(ref term)
-                            if core_head(term).is_some()
-                                || matches!(term, Term::Sort(_) | Term::NatLiteral { .. }) =>
-                        {
+                        Goal::Known(ref term) if is_closed_shape(term) => {
                             return Err(fail(
                                 code!("LLF5002"),
                                 "Assume introduces the next leading goal binders, but the goal is not a function type or a negation",
@@ -1151,11 +1062,8 @@ impl<'a, 'b> ProofElab<'a, 'b> {
             }
             SentenceAstKind::CloseByReflexivity => {
                 if let Some(goal_term) = goal.known() {
-                    let rejects = match core_head(goal_term) {
-                        Some(CoreRef::Eq | CoreRef::Iff) => false,
-                        Some(_) => true,
-                        None => matches!(goal_term, Term::Pi { .. } | Term::Sort(_)),
-                    };
+                    let rejects = is_closed_shape(goal_term)
+                        && !matches!(core_head(goal_term), Some(CoreRef::Eq | CoreRef::Iff));
                     if rejects {
                         return Err(fail(
                             code!("LLF5002"),
@@ -1171,89 +1079,41 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                     let witness = self.term_island(&term, None)?;
                     return Ok((Proof::Witness(witness.term), Goal::Unknown, false));
                 };
-                let empty = Vec::new();
-                let (core, explicit_args) = match goal_term {
+                // Unique existence was read through its lowering when the goal
+                // was unfolded (§18.4): the residual after the witness is the
+                // conjunction of the property and the uniqueness clause.
+                match goal_term {
                     Term::App {
                         function,
                         explicit_args,
                         ..
-                    } => match &**function {
-                        Term::Global(GlobalRef::Core(core), _) => (Some(*core), explicit_args),
-                        _ => (None, explicit_args),
-                    },
-                    _ => (None, &empty),
-                };
-                match core {
-                    Some(core @ (CoreRef::Exists | CoreRef::ExistsUnique))
-                        if explicit_args.len() == 1 =>
+                    } if matches!(
+                        &**function,
+                        Term::Global(GlobalRef::Core(CoreRef::Exists), _)
+                    ) && explicit_args.len() == 1 =>
                     {
                         // §16.2: the witness receives the existential binder's
                         // type as its expected type; a numeral witness is
                         // typed.
-                        let (binder_ty, lambda) = match &explicit_args[0] {
-                            Term::Lambda { binders, .. } => (
-                                binders.first().map(|binder| binder.ty.clone()),
-                                explicit_args[0].clone(),
-                            ),
-                            other => (None, other.clone()),
+                        let lambda = explicit_args[0].clone();
+                        let binder_ty = match &lambda {
+                            Term::Lambda { binders, .. } => {
+                                binders.first().map(|binder| binder.ty.clone())
+                            }
+                            _ => None,
                         };
                         let witness = self.term_island(&term, binder_ty.as_ref())?;
-                        let holds = beta1(&lambda, &witness.term);
-                        let next = if core == CoreRef::Exists {
-                            holds
-                        } else {
-                            // `ExistsUnique (fun x => P x)` is lowered to
-                            // `Exists (fun x => And (P x) (∀ y, P y → Eq y x))`
-                            // (§15.6, §18.4); after the witness the residual
-                            // is `And (P w) (∀ (y : T), P y → Eq y w)`.
-                            let Some(binder_ty) = binder_ty else {
-                                return Err(fail(
-                                    code!("LLF5002"),
-                                    "a unique-existence goal has no binder type",
-                                )
-                                .with_span(sentence_span));
-                            };
-                            let y = self.alloc.fresh();
-                            let holds_y = beta1(&lambda, &Term::Local(y));
-                            let equal = core_app(
-                                CoreRef::Eq,
-                                vec![Term::Local(y), witness.term.clone()],
-                                vec![ImplicitBinderId(0)],
-                            );
-                            let uniqueness = Term::Pi {
-                                binders: vec![Binder {
-                                    id: y,
-                                    mode: BinderMode::Explicit,
-                                    ty: binder_ty,
-                                    spelling: "y".to_owned(),
-                                }],
-                                body: Box::new(Term::Pi {
-                                    binders: vec![Binder {
-                                        id: self.alloc.fresh(),
-                                        mode: BinderMode::Explicit,
-                                        ty: holds_y,
-                                        spelling: String::new(),
-                                    }],
-                                    body: Box::new(equal),
-                                }),
-                            };
-                            core_app(CoreRef::And, vec![holds, uniqueness], Vec::new())
-                        };
+                        let next = beta(&lambda, std::slice::from_ref(&witness.term));
                         Ok((Proof::Witness(witness.term), Goal::Known(next), false))
                     }
-                    Some(_) => Err(fail(
-                        code!("LLF5002"),
-                        "the goal is not an existential; a witness supplies the next existential witness",
-                    )
-                    .with_span(sentence_span)),
-                    None if matches!(goal_term, Term::Pi { .. } | Term::Sort(_)) => Err(fail(
+                    term if is_closed_shape(term) => Err(fail(
                         code!("LLF5002"),
                         "the goal is not an existential; a witness supplies the next existential witness",
                     )
                     .with_span(sentence_span)),
                     // A goal headed by a predicate that may unfold to an
                     // existential: Lean is final.
-                    None => {
+                    _ => {
                         let witness = self.term_island(&term, None)?;
                         Ok((Proof::Witness(witness.term), Goal::Unknown, false))
                     }
@@ -1280,15 +1140,11 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                         let next = explicit_args[usize::from(!left)].clone();
                         Ok((step, Goal::Known(next), false))
                     }
-                    term if core_head(term).is_some()
-                        || matches!(term, Term::Pi { .. } | Term::Sort(_)) =>
-                    {
-                        Err(fail(
-                            code!("LLF5002"),
-                            "the goal is not a disjunction; selecting an alternative chooses `Or.inl` or `Or.inr`",
-                        )
-                        .with_span(sentence_span))
-                    }
+                    term if is_closed_shape(term) => Err(fail(
+                        code!("LLF5002"),
+                        "the goal is not a disjunction; selecting an alternative chooses `Or.inl` or `Or.inr`",
+                    )
+                    .with_span(sentence_span)),
                     // A goal headed by a predicate that may unfold to a
                     // disjunction: Lean is final.
                     _ => Ok((step, Goal::Unknown, false)),
@@ -1311,7 +1167,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         // eliminated through its definition (as Lean's `cases` unfolds it):
         // the descriptor is looked up on the unfolded head.
         if let Some(ty) = scrutinee_term.ty.take() {
-            scrutinee_term.ty = Some(self.unfold_definitions(&ty));
+            scrutinee_term.ty = Some(self.unfold(&ty));
         }
         // The scrutinee type must carry a validated eliminator descriptor
         // (§16.8, GL-14).
@@ -1417,9 +1273,13 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                     for (ordinal, (binder, meta)) in instantiated.binders.iter().enumerate() {
                         match binder.mode {
                             BinderMode::Explicit => {
+                                // The field type read through its definitions
+                                // and beta-reduced (a proof field typed by an
+                                // instantiated predicate `p w` with `p := fun
+                                // x => P x` is `P w`).
                                 let ty = instantiated
                                     .binder_type(ordinal)
-                                    .map(|ty| beta_head(&subst(&ty, &map)));
+                                    .map(|ty| self.unfold(&subst(&ty, &map)));
                                 field_types[field_index] = ty;
                                 map.insert(*meta, Term::Local(field_ids[field_index]));
                                 field_index += 1;
@@ -1529,6 +1389,16 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         })
     }
 
+    /// Do a goal endpoint and a chain term denote one term up to
+    /// alpha-renaming and definition unfolding (§16.10)?
+    fn endpoints_match(&mut self, goal_side: &Term, chain_side: &Term) -> bool {
+        if goal_side.eq_key() == chain_side.eq_key() {
+            return true;
+        }
+        let (goal_side, chain_side) = (self.unfold(goal_side), self.unfold(chain_side));
+        unify_closed(&goal_side, &chain_side)
+    }
+
     fn calculate(
         &mut self,
         start: &BraceArg,
@@ -1594,10 +1464,14 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 (Term::Global(g, _), r) if g == r
             );
             if goal_relation_matches && explicit_args.len() == 2 {
-                let left_ok = explicit_args[0].eq_key() == start_term.term.eq_key();
-                let right_ok = ir_steps
-                    .last()
-                    .is_some_and(|step| explicit_args[1].eq_key() == step.term.eq_key());
+                // Endpoints match up to alpha-renaming and definition
+                // unfolding (§16.10): a term spelled through a noun-of entry
+                // and its math form, or a definition and its body, are one
+                // endpoint; distinct free locals are not.
+                let (goal_left, goal_right) = (explicit_args[0].clone(), explicit_args[1].clone());
+                let last = ir_steps.last().map(|step| step.term.clone());
+                let left_ok = self.endpoints_match(&goal_left, &start_term.term);
+                let right_ok = last.is_some_and(|last| self.endpoints_match(&goal_right, &last));
                 if !left_ok || !right_ok {
                     return Err(fail(
                         code!("LLF5002"),
@@ -1613,70 +1487,4 @@ impl<'a, 'b> ProofElab<'a, 'b> {
             steps: ir_steps,
         })
     }
-}
-
-/// Beta-reduce a head application of a lambda (a constructor field typed
-/// by an instantiated predicate, e.g. `Exists.intro`'s proof field
-/// `p w` with `p := fun x => P x`), so branch locals see `P w`.
-fn beta_head(term: &Term) -> Term {
-    let mut current = term.clone();
-    loop {
-        let Term::App {
-            function,
-            explicit_args,
-            ..
-        } = &current
-        else {
-            return current;
-        };
-        if !matches!(&**function, Term::Lambda { .. }) || explicit_args.is_empty() {
-            return current;
-        }
-        let mut reduced = (**function).clone();
-        for argument in explicit_args {
-            reduced = beta1(&reduced, argument);
-        }
-        current = reduced;
-    }
-}
-
-/// A minimal substitution shim used when goals specialize.
-#[must_use]
-pub fn substitute_map(term: &Term, map: &BTreeMap<LocalId, Term>) -> Term {
-    subst(term, map)
-}
-
-/// The coarse shape of a type for certain-mismatch detection: only shapes
-/// that no definitional unfolding can turn into one another are compared.
-#[derive(Debug, PartialEq, Eq)]
-enum TypeShape {
-    /// A function type.
-    Pi,
-    /// A sort.
-    Sort,
-    /// An application of a core connective or `Eq`.
-    Core(CoreRef),
-    /// Anything else (a local, an external, a definition, a numeral, ...).
-    Open,
-}
-
-fn type_shape(term: &Term) -> TypeShape {
-    match term {
-        Term::Pi { .. } => TypeShape::Pi,
-        Term::Sort(_) => TypeShape::Sort,
-        Term::App { function, .. } => match &**function {
-            Term::Global(GlobalRef::Core(core), _) => TypeShape::Core(*core),
-            _ => TypeShape::Open,
-        },
-        Term::Global(GlobalRef::Core(core), _) => TypeShape::Core(*core),
-        _ => TypeShape::Open,
-    }
-}
-
-/// Are two types certainly distinct: both of a closed shape (function type,
-/// sort, core connective) and different? Anything involving an open shape
-/// may still be definitionally equal in Lean.
-fn certainly_distinct(a: &Term, b: &Term) -> bool {
-    let (sa, sb) = (type_shape(a), type_shape(b));
-    sa != TypeShape::Open && sb != TypeShape::Open && sa != sb
 }
