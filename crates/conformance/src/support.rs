@@ -2295,6 +2295,37 @@ pub fn frames_project() -> P {
     project
 }
 
+// ---- WS-F2 helpers (planted Lean messages) ----
+
+/// A `lake` wrapper that replaces the compilation of a generated module
+/// with one printed message on stdout — where Lean itself writes messages
+/// under `lake env lean` — and the given exit code. Unlike
+/// [`lake_wrapper`], the real `lake` never runs for that file, so the
+/// planted message is the whole output of the stage and a nonzero code
+/// plants a rejection.
+#[must_use]
+pub fn lake_message_wrapper(message: &str, exit_code: i32) -> String {
+    format!(
+        "#!/bin/sh\nreal=\"$(dirname \"$(readlink -f \"$(dirname \"$0\")/lean\")\")/lake\"\nif [ \"$1\" = \"env\" ] && [ \"$2\" = \"lean\" ]; then\n  for argument in \"$@\"; do\n    case \"$argument\" in\n      */lean-src/*.lean)\n        printf '%s\\n' '{message}'\n        exit {exit_code}\n        ;;\n    esac\n  done\nfi\nexec \"$real\" \"$@\"\n"
+    )
+}
+
+/// The one-based line and zero-based Unicode-scalar column of the first
+/// occurrence of `needle` in generated Lean text: the position Lean itself
+/// would report for that token (§20.1).
+#[must_use]
+pub fn lean_position_of(text: &str, needle: &str) -> (usize, usize) {
+    let offset = text
+        .find(needle)
+        .unwrap_or_else(|| panic!("`{needle}` occurs in the generated module:\n{text}"));
+    let line = text[..offset].matches('\n').count() + 1;
+    let column = text[..offset]
+        .rsplit('\n')
+        .next()
+        .map_or(0, |prefix| prefix.chars().count());
+    (line, column)
+}
+
 /// The one shared Lean-verified run of the frames module: its statements
 /// are Lean-facing, so the canonical prose is asserted over a module the
 /// pinned toolchain accepts.

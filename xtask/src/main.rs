@@ -211,8 +211,10 @@ fn normalized_verify_records(verified: &Path) -> Result<Vec<(String, Vec<u8>)>, 
 }
 
 /// Replace the platform-bound fields of a process record: the executable
-/// digest, and any argv token still naming a host path outside the
-/// normalized roots.
+/// digest, and the host prefix of any argv token naming a toolchain path.
+/// The toolchain-relative path is kept: a record whose argv collapsed to a
+/// bare `$TOOLCHAIN` no longer says which binary ran, and which binary ran
+/// is the point of the record (§22.3).
 fn normalize_process_record(mut value: serde_json::Value) -> serde_json::Value {
     if let Some(object) = value.as_object_mut() {
         if object.contains_key("executable_sha256") {
@@ -224,14 +226,46 @@ fn normalize_process_record(mut value: serde_json::Value) -> serde_json::Value {
         if let Some(serde_json::Value::Array(argv)) = object.get_mut("argv") {
             for token in argv.iter_mut() {
                 if let serde_json::Value::String(text) = token {
-                    if text.contains("$TOOLCHAIN") {
-                        *text = "$TOOLCHAIN".to_owned();
+                    if let Some(at) = text.find("$TOOLCHAIN") {
+                        *text = text[at..].to_owned();
                     }
                 }
             }
         }
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_process_record;
+
+    /// RP-15: a committed process record keeps the toolchain-relative path
+    /// of the executable it ran, and only the host prefix is dropped.
+    #[test]
+    fn toolchain_argv_keeps_the_relative_path() {
+        let record = serde_json::json!({
+            "argv": ["env", "/home/someone/.elan/toolchains/x/bin/leanchecker", "M"],
+            "executable_sha256": "00",
+        });
+        let normalized = normalize_process_record(serde_json::json!({
+            "argv": ["env", "$TOOLCHAIN/bin/leanchecker", "M"],
+            "executable_sha256": "00",
+        }));
+        assert_eq!(
+            normalized["argv"],
+            serde_json::json!(["env", "$TOOLCHAIN/bin/leanchecker", "M"]),
+            "which binary ran survives normalization"
+        );
+        assert_eq!(normalized["executable_sha256"], "$EXECUTABLE_SHA256");
+        // A token the verification normalizer did not rewrite is left
+        // exactly as recorded; nothing here invents a placeholder.
+        let untouched = normalize_process_record(record);
+        assert_eq!(
+            untouched["argv"][1],
+            "/home/someone/.elan/toolchains/x/bin/leanchecker"
+        );
+    }
 }
 
 /// Compare a generated `(relative, bytes)` set with a committed tree, both

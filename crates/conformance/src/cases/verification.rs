@@ -269,6 +269,67 @@ pub(crate) fn run(id: &str) {
                     "nothing is published after a warning"
                 );
             });
+
+            // §20.4: a warning is remapped exactly like an error. Lean
+            // 4.32.1 prints the unused-variable warning of a lifted
+            // universal binder in the named form
+            // `path:line:col: warning(name): message`, so the planted
+            // message uses that form at the generated binder's own
+            // position: the diagnostic must carry the source span of the
+            // binder, the generated location as a note, and a note reading
+            // the generated name back to its source spelling (§17.8).
+            let lean_text = support::lean_text(&support::rendered(&P::example()), "Main");
+            let (line, column) = support::lean_position_of(&lean_text, "llv0");
+            let located = support::fake_toolchain(&[(
+                "lake",
+                &support::lake_message_wrapper(
+                    &format!(
+                        "$STAGING/lean-src/LexLeanExample/Main.lean:{line}:{column}: warning(lean.unusedVariables): Variable name `llv0` is not explicitly referenced."
+                    ),
+                    0,
+                ),
+            )]);
+            let fake_path = located.path().to_string_lossy().into_owned();
+            support::with_env(&[("ELAN_HOME", Some(&fake_path))], || {
+                let project = P::example();
+                let error = project.verify_fails_with("LLV7006");
+                let diagnostic = error
+                    .diagnostics
+                    .iter()
+                    .find(|diagnostic| diagnostic.code.as_str() == "LLV7006")
+                    .expect("the warning");
+                assert!(
+                    diagnostic.message.contains("warning lean.unusedVariables"),
+                    "the named severity form is kept: {}",
+                    diagnostic.message
+                );
+                let span = diagnostic
+                    .primary
+                    .as_ref()
+                    .expect("a warning carries a source span, exactly like an error");
+                let source = project.read("src/Main.lex.tex");
+                assert_eq!(
+                    &source[span.byte_start..span.byte_end],
+                    "n",
+                    "the warning points at the binder in the source"
+                );
+                assert!(
+                    diagnostic
+                        .notes
+                        .iter()
+                        .any(|note| note.message.starts_with("generated location: ")),
+                    "the generated location is a note: {diagnostic:?}"
+                );
+                assert!(
+                    diagnostic.notes.iter().any(|note| note.message
+                        == "generated name `llv0` is the source binder `n`"),
+                    "the generated name is read back to its source spelling: {diagnostic:?}"
+                );
+                assert!(
+                    support::file_set(&project.root.join(".lexlean/verified")).is_empty(),
+                    "nothing is published after a warning"
+                );
+            });
         }
         // §22.4: separate-process replay for every module, and a replay
         // failure fails verification.
@@ -662,6 +723,53 @@ pub(crate) fn run(id: &str) {
                     "{stage} failure left {residue:?} under .lexlean/verified"
                 );
             }
+
+            // §20.4: a rejection Lean reports in its named form
+            // (`error(lean.unknownIdentifier)`, the shape Lean 4.32.1
+            // prints) is remapped like any other, not lost to a bare
+            // whole-output diagnostic: the failure carries the source span
+            // of the token it names and keeps the error name.
+            let lean_text = support::lean_text(&support::rendered(&P::example()), "Main");
+            let (line, column) = support::lean_position_of(&lean_text, "Nat.add");
+            let named = support::fake_toolchain(&[(
+                "lake",
+                &support::lake_message_wrapper(
+                    &format!(
+                        "$STAGING/lean-src/LexLeanExample/Main.lean:{line}:{column}: error(lean.unknownIdentifier): Unknown identifier `Nat.add`"
+                    ),
+                    1,
+                ),
+            )]);
+            let fake_path = named.path().to_string_lossy().into_owned();
+            support::with_env(&[("ELAN_HOME", Some(&fake_path))], || {
+                let project = P::example();
+                let error = project.verify_fails_with("LLV7002");
+                let diagnostic = error
+                    .diagnostics
+                    .iter()
+                    .find(|diagnostic| diagnostic.code.as_str() == "LLV7002")
+                    .expect("the rejection");
+                assert!(
+                    diagnostic.message.contains("error lean.unknownIdentifier")
+                        && diagnostic.message.contains("Unknown identifier"),
+                    "the named severity form is kept: {}",
+                    diagnostic.message
+                );
+                let span = diagnostic
+                    .primary
+                    .as_ref()
+                    .expect("a named error is remapped to its source span");
+                let source = project.read("src/Main.lex.tex");
+                let spanned = &source[span.byte_start..span.byte_end];
+                assert!(
+                    spanned.contains('+') && spanned.len() < source.len(),
+                    "the span covers the source the applied operator came from, not the whole file: {spanned:?}"
+                );
+                assert!(
+                    support::file_set(&project.root.join(".lexlean/verified")).is_empty(),
+                    "nothing is published after a rejection"
+                );
+            });
         }
         // §5.4: imported-theorem axioms stay subject to the policy.
         "VR-16" => {
