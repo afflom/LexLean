@@ -17,11 +17,11 @@
 \label{ll:order:positivity}
 \begin{definition}
 \label{ll:order:positive}
-For every natural number \(n\), \(\texttt{peano.arith::positive}\) holds exactly when \(0 < n\).
+For every natural number \(n\), \(n\) is positive holds exactly when \(0 < n\).
 \end{definition}
 \begin{theorem}
 \label{ll:order:successor-positive}
-For every natural number \(n\), \(\operatorname{positive}(\texttt{peano.arith::successor}(n))\).
+For every natural number \(n\), the successor of \(n\) is positive.
 \end{theorem}
 \begin{proof}
 The goal follows from \(\operatorname{zeroltsucc}(n)\).
@@ -36,7 +36,7 @@ For every natural number \(n\), \(0 \le n\).
 Proceed by induction on \(n\).
 Case zero:
 The goal follows from \(\operatorname{lerefl}(0)\).
-Case \(succ\) with \(m\), \(ih\):
+Case \(\operatorname{succ}\) with \(m\), \(ih\):
 The goal follows from \(\operatorname{letrans}(ih, \operatorname{lesucc}(m))\).
 \end{proof}
 \begin{theorem}
@@ -58,7 +58,7 @@ Consider the cases of \(n\).
 Case zero:
 Select the left alternative.
 The goal follows by reflexivity.
-Case \(succ\) with \(k\):
+Case \(\operatorname{succ}\) with \(k\):
 Select the right alternative.
 Use \(k\) as the witness.
 The goal follows by reflexivity.

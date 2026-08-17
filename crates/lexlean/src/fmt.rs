@@ -332,7 +332,20 @@ impl Fmt<'_> {
                 },
             });
         }
-        Ok(parts.join(" "))
+        // Phrase punctuation is spaced as it is written: no space before
+        // `:` or `)`, none after `(`; a hyphen joins its neighbours (the
+        // canonical LaTeX renderer spaces phrases the same way).
+        let mut text = String::new();
+        for (index, part) in parts.iter().enumerate() {
+            let tight = index == 0
+                || matches!(part.as_str(), ":" | ")" | "-")
+                || matches!(parts[index - 1].as_str(), "(" | "-");
+            if !tight {
+                text.push(' ');
+            }
+            text.push_str(part);
+        }
+        Ok(text)
     }
 
     fn binder(&self, binder: &Binder) -> Result<String, Diagnostic> {

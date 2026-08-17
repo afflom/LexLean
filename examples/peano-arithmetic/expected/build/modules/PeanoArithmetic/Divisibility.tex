@@ -17,13 +17,13 @@
 \label{ll:divisibility:definition}
 \begin{definition}
 \label{ll:divisibility:divides}
-For every natural number \(n\) and natural number \(m\), \(\texttt{peano.arith::divides}\) holds exactly when there exists a natural number \(k\) such that \(m = n \cdot k\).
+For every natural number \(n\) and natural number \(m\), \(n\) divides \(m\) holds exactly when there exists a natural number \(k\) such that \(m = n \cdot k\).
 \end{definition}
-\section{Divisibility : order}
+\section{Divisibility: order}
 \label{ll:divisibility:properties}
 \begin{theorem}
 \label{ll:divisibility:divides-refl}
-For every natural number \(n\), \(\operatorname{divides}(n, n)\).
+For every natural number \(n\), \(n\) divides \(n\).
 \end{theorem}
 \begin{proof}
 Use \(1\) as the witness.
@@ -31,7 +31,7 @@ The goal follows from \(\operatorname{eqsymm}(\operatorname{mulone}(n))\).
 \end{proof}
 \begin{theorem}
 \label{ll:divisibility:one-divides}
-For every natural number \(n\), \(\operatorname{divides}(1, n)\).
+For every natural number \(n\), \(1\) divides \(n\).
 \end{theorem}
 \begin{proof}
 Use \(n\) as the witness.
@@ -39,16 +39,16 @@ The goal follows from \(\operatorname{eqsymm}(\operatorname{onemul}(n))\).
 \end{proof}
 \begin{theorem}
 \label{ll:divisibility:divides-trans}
-For every natural number \(a\) and natural number \(b\) and natural number \(c\), if \(\operatorname{divides}(a, b)\) and \(\operatorname{divides}(b, c)\), then \(\operatorname{divides}(a, c)\).
+For every natural number \(a\) and natural number \(b\) and natural number \(c\), if \(a\) divides \(b\) and \(b\) divides \(c\), then \(a\) divides \(c\).
 \end{theorem}
 \begin{proof}
 Assume \(h\).
 Consider the cases of \(h\).
-Case \(andintro\) with \(hab\), \(hbc\):
+Case \(\operatorname{andintro}\) with \(hab\), \(hbc\):
 Consider the cases of \(hab\).
-Case \(existsintro\) with \(k\), \(hk\):
+Case \(\operatorname{existsintro}\) with \(k\), \(hk\):
 Consider the cases of \(hbc\).
-Case \(existsintro\) with \(l\), \(hl\):
+Case \(\operatorname{existsintro}\) with \(l\), \(hl\):
 Use \(k \cdot l\) as the witness.
 Rewrite the goal using \(\rightarrow hl\), \(\rightarrow hk\).
 The goal follows from \(\operatorname{mulassoc}(a, k, l)\).

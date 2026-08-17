@@ -222,7 +222,7 @@ pub(crate) fn run(id: &str) {
                 lexlean::fmt::canonical_source(&checked.modules["Main"], &checked.closure)
                     .expect("formats");
             assert!(
-                canonical.contains("\\heading{Natural number addition : the double of \\(0\\)}"),
+                canonical.contains("\\heading{Natural number addition: the double of \\(0\\)}"),
                 "the noun-of phrase item round-trips: {canonical}"
             );
             project.edit(

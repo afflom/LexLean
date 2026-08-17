@@ -11,7 +11,7 @@
 \newtheorem{definition}[theorem]{Definition}
 \begin{document}
 \begin{center}
-{\LARGE Lists : concatenation}
+{\LARGE Lists: concatenation}
 \end{center}
 \section{Structural recursion}
 \label{ll:main:recursion}
@@ -55,7 +55,7 @@ For every \(\operatorname{list}(T)\) \(xs\), \(xs ++ \operatorname{nil} = xs\).
 Proceed by induction on \(xs\).
 Case \(nil\):
 The goal follows by reflexivity.
-Case \(cons\) with \(x\), \(rest\), \(ih\):
+Case \(\operatorname{cons}\) with \(x\), \(rest\), \(ih\):
 Rewrite the goal using \(\rightarrow \operatorname{cons_append}(T, x, rest, \operatorname{nil})\), \(\rightarrow ih\).
 \end{proof}
 \begin{theorem}
@@ -67,7 +67,7 @@ The goal follows from \(\operatorname{succadd}(n, m)\).
 \end{proof}
 \begin{theorem}
 \label{ll:main:length-append}
-For every \(\operatorname{list}(T)\) \(xs\) and \(\operatorname{list}(T)\) \(ys\), \(\texttt{example.list::equals}(\texttt{example.list::length}(xs ++ ys), \texttt{example.list::sum}(\texttt{example.list::length}(xs), \texttt{example.list::length}(ys)))\).
+For every \(\operatorname{list}(T)\) \(xs\) and \(\operatorname{list}(T)\) \(ys\), the length of \(xs ++ ys\) equals the sum of the length of \(xs\) and the length of \(ys\).
 \end{theorem}
 \begin{proof}
 The goal follows from \(\operatorname{lengthappend}\).

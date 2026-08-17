@@ -22,7 +22,7 @@ For every proposition \(p\) and proposition \(q\), if \(p\) and \(q\), then \(q\
 \begin{proof}
 Assume \(h\).
 Consider the cases of \(h\).
-Case \(andintro\) with \(hp\), \(hq\):
+Case \(\operatorname{andintro}\) with \(hp\), \(hq\):
 Branch \(1\):
 The goal follows from \(hq\).
 Branch \(2\):
@@ -36,9 +36,9 @@ For every proposition \(p\) and proposition \(q\) and proposition \(r\), \(p\) a
 Branch \(1\):
 Assume \(h\).
 Consider the cases of \(h\).
-Case \(andintro\) with \(hpq\), \(hr\):
+Case \(\operatorname{andintro}\) with \(hpq\), \(hr\):
 Consider the cases of \(hpq\).
-Case \(andintro\) with \(hp\), \(hq\):
+Case \(\operatorname{andintro}\) with \(hp\), \(hq\):
 Branch \(1\):
 The goal follows from \(hp\).
 Branch \(2\):
@@ -49,9 +49,9 @@ The goal follows from \(hr\).
 Branch \(2\):
 Assume \(h\).
 Consider the cases of \(h\).
-Case \(andintro\) with \(hp\), \(hqr\):
+Case \(\operatorname{andintro}\) with \(hp\), \(hqr\):
 Consider the cases of \(hqr\).
-Case \(andintro\) with \(hq\), \(hr\):
+Case \(\operatorname{andintro}\) with \(hq\), \(hr\):
 Branch \(1\):
 Branch \(1\):
 The goal follows from \(hp\).
@@ -69,10 +69,10 @@ For every proposition \(p\) and proposition \(q\), if \(p\) or \(q\), then \(q\)
 \begin{proof}
 Assume \(h\).
 Consider the cases of \(h\).
-Case \(orinl\) with \(hp\):
+Case \(\operatorname{orinl}\) with \(hp\):
 Select the right alternative.
 The goal follows from \(hp\).
-Case \(orinr\) with \(hq\):
+Case \(\operatorname{orinr}\) with \(hq\):
 Select the left alternative.
 The goal follows from \(hq\).
 \end{proof}
@@ -83,10 +83,10 @@ For every proposition \(p\) and proposition \(q\) and proposition \(r\), if \(p\
 \begin{proof}
 Assume \(hpq\), \(hpr\), \(hqr\).
 Consider the cases of \(hpq\).
-Case \(orinl\) with \(hp\):
+Case \(\operatorname{orinl}\) with \(hp\):
 Apply \(hpr\).
 The goal follows from \(hp\).
-Case \(orinr\) with \(hq\):
+Case \(\operatorname{orinr}\) with \(hq\):
 Apply \(hqr\).
 The goal follows from \(hq\).
 \end{proof}
@@ -126,7 +126,7 @@ For every proposition \(p\) and proposition \(q\), if \(p\) and not \(p\), then 
 \begin{proof}
 Assume \(h\).
 Consider the cases of \(h\).
-Case \(andintro\) with \(hp\), \(hn\):
+Case \(\operatorname{andintro}\) with \(hp\), \(hn\):
 The goal follows from \(\operatorname{absurd}(hp, hn)\).
 \end{proof}
 \section{Equivalence}
@@ -150,7 +150,7 @@ For every proposition \(p\) and proposition \(q\), if \(p\) if and only if \(q\)
 \begin{proof}
 Assume \(h\).
 Consider the cases of \(h\).
-Case \(iffintro\) with \(mp\), \(mpr\):
+Case \(\operatorname{iffintro}\) with \(mp\), \(mpr\):
 Branch \(1\):
 The goal follows from \(mpr\).
 Branch \(2\):
@@ -165,9 +165,9 @@ For every proposition \(p\), if not not \(p\), then \(p\).
 \begin{proof}
 Assume \(hnn\).
 Consider the cases of \(\operatorname{em}(p)\).
-Case \(orinl\) with \(hp\):
+Case \(\operatorname{orinl}\) with \(hp\):
 The goal follows from \(hp\).
-Case \(orinr\) with \(hn\):
+Case \(\operatorname{orinr}\) with \(hn\):
 The goal follows from \(\operatorname{absurd}(hn, hnn)\).
 \end{proof}
 \end{document}

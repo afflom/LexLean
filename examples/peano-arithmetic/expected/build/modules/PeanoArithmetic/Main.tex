@@ -11,9 +11,9 @@
 \newtheorem{definition}[theorem]{Definition}
 \begin{document}
 \begin{center}
-{\LARGE Natural number addition : consequences}
+{\LARGE Natural number addition: consequences}
 \end{center}
-\section{Commutativity : consequences}
+\section{Commutativity: consequences}
 \label{ll:main:consequences}
 \begin{theorem}
 \label{ll:main:comm-under-hypothesis}
@@ -33,7 +33,7 @@ Rewrite the goal using \(\rightarrow h\).
 \end{proof}
 \begin{theorem}
 \label{ll:main:double-divides}
-For every natural number \(n\), \(\operatorname{divides}(2, \operatorname{double}(n))\).
+For every natural number \(n\), \(2\) divides \(\operatorname{double}(n)\).
 \end{theorem}
 \begin{proof}
 Use \(n\) as the witness.
@@ -41,12 +41,12 @@ The goal follows from \(\operatorname{eqsymm}(\operatorname{twomul}(n))\).
 \end{proof}
 \begin{theorem}
 \label{ll:main:even-divides}
-For every natural number \(n\), if \(\operatorname{even}(n)\), then \(\operatorname{divides}(2, n)\).
+For every natural number \(n\), if \(n\) is even, then \(2\) divides \(n\).
 \end{theorem}
 \begin{proof}
 Assume \(h\).
 Consider the cases of \(h\).
-Case \(existsintro\) with \(k\), \(hk\):
+Case \(\operatorname{existsintro}\) with \(k\), \(hk\):
 Use \(k\) as the witness.
 Rewrite the goal using \(\rightarrow hk\).
 The goal follows from \(\operatorname{eqsymm}(\operatorname{twomul}(k))\).
@@ -55,21 +55,21 @@ The goal follows from \(\operatorname{eqsymm}(\operatorname{twomul}(k))\).
 \label{ll:main:excluded-middle}
 \begin{theorem}
 \label{ll:main:even-or-not}
-For every natural number \(n\), \(\operatorname{even}(n)\) or not \(\operatorname{even}(n)\).
+For every natural number \(n\), \(n\) is even or not \(n\) is even.
 \end{theorem}
 \begin{proof}
 The goal follows from \(\operatorname{em}(\operatorname{even}(n))\).
 \end{proof}
 \begin{theorem}
 \label{ll:main:positive-or-zero}
-For every natural number \(n\), \(\operatorname{positive}(n)\) or \(n = 0\).
+For every natural number \(n\), \(n\) is positive or \(n = 0\).
 \end{theorem}
 \begin{proof}
 Consider the cases of \(n\).
 Case zero:
 Select the right alternative.
 The goal follows by reflexivity.
-Case \(succ\) with \(m\):
+Case \(\operatorname{succ}\) with \(m\):
 Select the left alternative.
 The goal follows from \(\operatorname{successor_positive}(m)\).
 \end{proof}

@@ -25,13 +25,13 @@ For every natural number \(n\), \(\operatorname{double}(n)\) is defined as \(n +
 \end{definition}
 \begin{definition}
 \label{ll:doubling:even}
-For every natural number \(n\), \(\texttt{peano.arith::even}\) holds exactly when there exists a natural number \(k\) such that \(n = k + k\).
+For every natural number \(n\), \(n\) is even holds exactly when there exists a natural number \(k\) such that \(n = k + k\).
 \end{definition}
 \section{Parity}
 \label{ll:doubling:parity}
 \begin{theorem}
 \label{ll:doubling:double-even}
-For every natural number \(n\), \(\operatorname{even}(\operatorname{double}(n))\).
+For every natural number \(n\), \(\operatorname{double}(n)\) is even.
 \end{theorem}
 \begin{proof}
 Use \(n\) as the witness.
@@ -39,7 +39,7 @@ The goal follows by reflexivity.
 \end{proof}
 \begin{theorem}
 \label{ll:doubling:sum-even}
-For every natural number \(n\), \(\operatorname{even}(\texttt{peano.arith::sum}(n, n))\).
+For every natural number \(n\), the sum of \(n\) and \(n\) is even.
 \end{theorem}
 \begin{proof}
 Use \(n\) as the witness.
@@ -47,7 +47,7 @@ The goal follows by reflexivity.
 \end{proof}
 \begin{theorem}
 \label{ll:doubling:zero-even}
-\(\operatorname{even}(0)\).
+\(0\) is even.
 \end{theorem}
 \begin{proof}
 Use \(0\) as the witness.
@@ -55,12 +55,12 @@ The goal follows by reflexivity.
 \end{proof}
 \begin{theorem}
 \label{ll:doubling:even-succ-succ}
-For every natural number \(n\), if \(\operatorname{even}(n)\), then \(\operatorname{even}(\operatorname{succ}(\operatorname{succ}(n)))\).
+For every natural number \(n\), if \(n\) is even, then \(\operatorname{succ}(\operatorname{succ}(n))\) is even.
 \end{theorem}
 \begin{proof}
 Assume \(h\).
 Consider the cases of \(h\).
-Case \(existsintro\) with \(k\), \(hk\):
+Case \(\operatorname{existsintro}\) with \(k\), \(hk\):
 Use \(\operatorname{succ}(k)\) as the witness.
 Rewrite the goal using \(\rightarrow hk\), \(\leftarrow \operatorname{succ_add}(k, k)\).
 The goal follows by reflexivity.
