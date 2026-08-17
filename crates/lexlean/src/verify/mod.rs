@@ -44,7 +44,7 @@ use crate::link::CheckedProject;
 use crate::lock::Lock;
 use crate::project::Project;
 use crate::source::coverage::Origin;
-use crate::verify::child::{run as run_child, ChildRecord, ChildSpec, Normalizer};
+use crate::verify::child::{run as run_child, ChildHome, ChildRecord, ChildSpec, Normalizer};
 use crate::verify::toolchain::Toolchain;
 
 /// The outcome of a successful verification.
@@ -620,7 +620,7 @@ pub fn run(
     let limits = project.config.limits;
 
     // Stage 4: toolchain preflight (§22.2).
-    let mut toolchain: Toolchain = toolchain::preflight().map_err(fail)?;
+    let mut toolchain: Toolchain = toolchain::preflight(&limits).map_err(fail)?;
     let toolchain_bin = toolchain.root.join("bin");
 
     // Stage 5: Lake workspace preflight (§10.4) and module-name conflicts
@@ -796,7 +796,9 @@ pub fn run(
             ],
             cwd: &workspace_root,
             extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
-            toolchain_bin: &toolchain_bin,
+            home: ChildHome::Toolchain {
+                toolchain_bin: &toolchain_bin,
+            },
         },
         &limits,
         &normalizer,
@@ -889,7 +891,9 @@ pub fn run(
                 ],
                 cwd: &workspace_root,
                 extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
+                home: ChildHome::Toolchain {
                 toolchain_bin: &toolchain_bin,
+            },
             },
             &limits,
             &normalizer,
@@ -977,7 +981,9 @@ pub fn run(
             ],
             cwd: &workspace_root,
             extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
-            toolchain_bin: &toolchain_bin,
+            home: ChildHome::Toolchain {
+                toolchain_bin: &toolchain_bin,
+            },
         },
         &limits,
         &normalizer,
@@ -1067,6 +1073,7 @@ pub fn run(
                 module.tex_text.as_bytes(),
                 &module.lean_module,
                 &staging_utf8,
+                &normalizer,
             )
             .map_err(fail)?;
             write_staged(
@@ -1074,12 +1081,8 @@ pub fn run(
                 &format!("pdf/{}.pdf", module.lean_module),
                 &result.pdf_bytes,
             )?;
-            let version_record = result
-                .version
-                .to_child_record(&module.lean_module, &normalizer);
-            let compile_record = result
-                .compile
-                .to_child_record(&module.lean_module, &normalizer);
+            let version_record = result.version;
+            let compile_record = result.compile;
             write_staged(
                 staging.path(),
                 &format!("pdf/{}.version.json", module.lean_module),

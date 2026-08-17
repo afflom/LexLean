@@ -27,12 +27,23 @@ fn stub_provider(project: &P, body: &str, exit_code: i32) -> PdfProvider {
         "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\nname=$(basename \"$3\" .tex)\n{body}exit {exit_code}\n"
     );
     project.write("tools/fakepdf", &script);
-    let script_path = project.root.join("tools/fakepdf");
-    let mut permissions = std::fs::metadata(script_path.as_std_path())
-        .expect("stat")
-        .permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-    std::fs::set_permissions(script_path.as_std_path(), permissions).expect("chmod");
+    // The stub provider is a `#!/bin/sh` script: the executable bit exists
+    // only on unix hosts, and `PermissionsExt` does not compile elsewhere.
+    // A host without a POSIX shell cannot run these cases at all, and says
+    // so rather than passing vacuously (§8.3, R2).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let script_path = project.root.join("tools/fakepdf");
+        let mut permissions = std::fs::metadata(script_path.as_std_path())
+            .expect("stat")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(script_path.as_std_path(), permissions).expect("chmod");
+    }
+    #[cfg(not(unix))]
+    panic!("the PDF-provider cases require a POSIX shell host (§8.3)");
+    #[cfg(unix)]
     PdfProvider {
         program: "tools/fakepdf".to_owned(),
         program_sha256: Sha256Digest::of(script.as_bytes()),
@@ -66,6 +77,7 @@ fn run_fake_provider(
         build.modules[0].tex_text.as_bytes(),
         &build.modules[0].lean_module,
         &staging,
+        &lexlean::verify::child::Normalizer::default(),
     )
 }
 

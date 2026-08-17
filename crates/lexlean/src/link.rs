@@ -327,15 +327,12 @@ struct ModuleLoad {
     ast: ModuleAst,
 }
 
-/// The stack reserved for the compile pipeline: every recursion is bounded
-/// by `max_scope_depth` (§25.5), and running the pipeline on its own thread
-/// with a large stack is defense in depth against a configured limit that
-/// exceeds what the caller's thread could otherwise host.
-const COMPILE_STACK_BYTES: usize = 256 * 1024 * 1024;
-
-/// Run the complete check pipeline for a selection on a dedicated
-/// large-stack thread (§25.5). When the thread cannot be spawned the
-/// pipeline runs inline.
+/// Run the complete check pipeline for a selection on a dedicated thread
+/// whose stack is sized from the configured `max_scope_depth` with checked
+/// arithmetic (§25.5, `Limits::compile_stack_plan`). Every recursion is
+/// bounded by `max_scope_depth`, and a configured depth larger than the
+/// stack can host is enforced at the depth the stack does host, so deep
+/// input is `LLS8002` and never a stack overflow.
 pub fn check_project(
     project: &Project,
     selection: &Selection,
@@ -345,7 +342,7 @@ pub fn check_project(
     std::thread::scope(|scope| {
         let handle = std::thread::Builder::new()
             .name("lexlean-compile".to_owned())
-            .stack_size(COMPILE_STACK_BYTES)
+            .stack_size(project.config.limits.compile_stack_plan().stack_bytes)
             .spawn_scoped(scope, || {
                 check_project_inline(project, selection, lock, packages)
             });
@@ -373,7 +370,7 @@ fn check_project_inline(
     lock: &Lock,
     packages: Vec<LexiconPackage>,
 ) -> Result<CheckedProject, LexLeanError> {
-    let limits = project.config.limits;
+    let limits = project.config.limits.within_compile_stack();
     let registry =
         crate::lexicon::load_token_registry().map_err(|diagnostic| err(vec![diagnostic]))?;
     let bootstrap = crate::lexicon::load_bootstrap().map_err(|diagnostic| err(vec![diagnostic]))?;

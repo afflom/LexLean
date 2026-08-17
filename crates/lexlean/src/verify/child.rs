@@ -223,6 +223,23 @@ impl ChildRecord {
     }
 }
 
+/// The home a child sees (§25.4).
+#[derive(Debug, Clone, Copy)]
+pub enum ChildHome<'a> {
+    /// The toolchain children: the platform home and `ELAN_HOME` are
+    /// retained so `lake` and `lean` locate the pinned toolchain.
+    Toolchain {
+        /// The toolchain bin directory, prepended to `PATH`.
+        toolchain_bin: &'a Utf8Path,
+    },
+    /// The PDF provider: an isolated temporary home, no `ELAN_HOME`, and
+    /// the inherited `PATH` unchanged.
+    Isolated {
+        /// The temporary home directory.
+        home: &'a Utf8Path,
+    },
+}
+
 /// One child invocation.
 pub struct ChildSpec<'a> {
     /// The tool label for records.
@@ -239,8 +256,8 @@ pub struct ChildSpec<'a> {
     pub cwd: &'a Utf8Path,
     /// Extra environment rows (`LEAN_PATH` and friends).
     pub extra_env: Vec<(String, String)>,
-    /// The toolchain bin directory, prepended to `PATH`.
-    pub toolchain_bin: &'a Utf8Path,
+    /// The home and `PATH` shape.
+    pub home: ChildHome<'a>,
 }
 
 /// Locate an executable by name on the current `PATH` (§25.2): the
@@ -290,17 +307,12 @@ pub fn run(
     limits: &Limits,
     normalizer: &Normalizer,
 ) -> Result<ChildRecord, Diagnostic> {
-    let existing_path = std::env::var("PATH").unwrap_or_default();
+    let existing_path = std::env::var_os("PATH").unwrap_or_default();
     let mut command = Command::new(spec.program.as_std_path());
     command
         .args(&spec.argv)
         .current_dir(spec.cwd.as_std_path())
         .env_clear()
-        .env("PATH", format!("{}:{existing_path}", spec.toolchain_bin))
-        .env(
-            "HOME",
-            std::env::var_os("HOME").unwrap_or_else(|| "/".into()),
-        )
         .env("NO_COLOR", "1")
         .env("LANG", "C.UTF-8")
         .env("LC_ALL", "C.UTF-8")
@@ -308,8 +320,23 @@ pub fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(elan_home) = std::env::var_os("ELAN_HOME") {
-        command.env("ELAN_HOME", elan_home);
+    match spec.home {
+        ChildHome::Toolchain { toolchain_bin } => {
+            let mut path = std::ffi::OsString::from(format!("{toolchain_bin}:"));
+            path.push(&existing_path);
+            command.env("PATH", path).env(
+                "HOME",
+                std::env::var_os("HOME").unwrap_or_else(|| "/".into()),
+            );
+            if let Some(elan_home) = std::env::var_os("ELAN_HOME") {
+                command.env("ELAN_HOME", elan_home);
+            }
+        }
+        ChildHome::Isolated { home } => {
+            command
+                .env("PATH", existing_path)
+                .env("HOME", home.as_std_path());
+        }
     }
     for (key, value) in &spec.extra_env {
         command.env(key, value);

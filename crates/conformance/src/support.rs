@@ -1585,12 +1585,13 @@ pub fn probe_lean(
     let probe = lexlean::backend::lean::probe_module(&hex32, &externals, &checked.closure)
         .expect("probe renders");
     let _guard = env_lock();
-    let toolchain = lexlean::verify::toolchain::preflight().expect("the pinned toolchain");
+    let inner = lexlean::project::Project::load(&project.root.join("lexlean.toml")).expect("load");
+    let toolchain =
+        lexlean::verify::toolchain::preflight(&inner.config.limits).expect("the pinned toolchain");
     let scratch = project.root.join(".lexlean/probe-scratch");
     std::fs::create_dir_all(scratch.as_std_path()).expect("scratch");
     let source = scratch.join(format!("{}.lean", probe.name));
     std::fs::write(source.as_std_path(), &probe.text).expect("write probe");
-    let inner = lexlean::project::Project::load(&project.root.join("lexlean.toml")).expect("load");
     let normalizer = lexlean::verify::child::Normalizer::new(
         &scratch,
         &project.root,
@@ -1607,7 +1608,9 @@ pub fn probe_lean(
             argv: vec!["env".to_owned(), "lean".to_owned(), source.to_string()],
             cwd: &project.root,
             extra_env: vec![("LEAN_PATH".to_owned(), scratch.to_string())],
-            toolchain_bin: &bin,
+            home: lexlean::verify::child::ChildHome::Toolchain {
+                toolchain_bin: &bin,
+            },
         },
         &inner.config.limits,
         &normalizer,

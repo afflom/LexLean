@@ -15,58 +15,15 @@
 //! - after compilation `{out_dir}` must contain exactly the configured
 //!   output regular file; every extra entry is named in the failure.
 
-use std::io::Read;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
-
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::artifact::canonical_json::Json;
 use crate::artifact::content_id::{pdf_recipe_id, Sha256Digest};
 use crate::code;
-use crate::config::{Limits, PdfProvider};
+use crate::config::PdfProvider;
 use crate::diagnostic::Diagnostic;
 use crate::project::Project;
-
-/// One recorded provider process.
-#[derive(Debug, Clone)]
-pub struct PdfProcess {
-    /// The argv as configured, placeholders unexpanded for the version
-    /// probe and expanded for the compile step.
-    pub argv: Vec<String>,
-    /// The exit code.
-    pub exit_code: i32,
-    /// Normalized stdout.
-    pub stdout: String,
-    /// Normalized stderr.
-    pub stderr: String,
-    /// SHA-256 of the executable bytes.
-    pub executable_sha256: Sha256Digest,
-}
-
-impl PdfProcess {
-    /// The attestation process record (tool `pdf`), argv normalized.
-    #[must_use]
-    pub fn to_child_record(
-        &self,
-        module: &str,
-        normalizer: &crate::verify::child::Normalizer,
-    ) -> crate::verify::child::ChildRecord {
-        crate::verify::child::ChildRecord {
-            tool: "pdf".to_owned(),
-            module: Some(module.to_owned()),
-            argv: self
-                .argv
-                .iter()
-                .map(|argument| normalizer.normalize_arg(argument))
-                .collect(),
-            exit_code: self.exit_code,
-            stdout: normalizer.normalize(self.stdout.as_bytes()),
-            stderr: normalizer.normalize(self.stderr.as_bytes()),
-            executable_sha256: self.executable_sha256,
-        }
-    }
-}
+use crate::verify::child::{run as run_child, ChildHome, ChildRecord, ChildSpec, Normalizer};
 
 /// Is a configured output pattern a bare file name?
 #[must_use]
@@ -88,10 +45,11 @@ pub struct PdfResult {
     pub pdf_bytes: Vec<u8>,
     /// SHA-256 of the PDF bytes.
     pub pdf_sha256: Sha256Digest,
-    /// The version probe record.
-    pub version: PdfProcess,
-    /// The compile record.
-    pub compile: PdfProcess,
+    /// The version probe record (tool `pdf`, argv as configured, output
+    /// normalized by the verification normalizer).
+    pub version: ChildRecord,
+    /// The compile record (argv after placeholder expansion).
+    pub compile: ChildRecord,
 }
 
 fn protocol(message: impl Into<String>) -> Diagnostic {
@@ -102,115 +60,41 @@ fn policy(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(code!("LLS8004"), message)
 }
 
-fn normalize_output(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\r' {
-            if chars.peek() == Some(&'\n') {
-                chars.next();
-            }
-            out.push('\n');
-        } else {
-            out.push(c);
-        }
-    }
-    let mut lines: Vec<&str> = out.split('\n').map(str::trim_end).collect();
-    while lines.last() == Some(&"") {
-        lines.pop();
-    }
-    let mut result = lines.join("\n");
-    result.push('\n');
-    result
-}
-
-/// Run one child with the isolated environment (§25.4): a temporary home,
-/// no inherited proxy variables, and no shell (§25.2). Enforces the child
-/// timeout and output caps with checked arithmetic (§25.5).
-fn run_child(
-    program: &Utf8PathBuf,
+/// Run one provider process through the shared child runner (§25.2,
+/// §25.4, §25.5): the isolated temporary home, no inherited proxy
+/// variables, no shell, and the configured timeout and output caps with
+/// checked arithmetic. A provider that cannot be started is a protocol
+/// failure (LLB6004), not a toolchain mismatch.
+fn run_provider_process(
+    project: &Project,
+    program: &Utf8Path,
     argv: &[String],
-    workdir: &std::path::Path,
-    home: &std::path::Path,
-    limits: &Limits,
+    workdir: &Utf8Path,
+    home: &Utf8Path,
+    stem: &str,
     executable_sha256: Sha256Digest,
-) -> Result<PdfProcess, Diagnostic> {
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let mut child = Command::new(program.as_std_path())
-        .args(argv)
-        .current_dir(workdir)
-        .env_clear()
-        .env("PATH", path_var)
-        .env("HOME", home)
-        .env("NO_COLOR", "1")
-        .env("LANG", "C.UTF-8")
-        .env("LC_ALL", "C.UTF-8")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|io_error| protocol(format!("{program}: {io_error}")))?;
-
-    let cap = usize::try_from(limits.max_child_output_bytes).unwrap_or(usize::MAX);
-    let mut stdout_pipe = child.stdout.take().expect("stdout piped");
-    let mut stderr_pipe = child.stderr.take().expect("stderr piped");
-    let stdout_reader = std::thread::spawn(move || {
-        let mut buffer = Vec::new();
-        let _ = stdout_pipe
-            .by_ref()
-            .take(cap as u64 + 1)
-            .read_to_end(&mut buffer);
-        buffer
-    });
-    let stderr_reader = std::thread::spawn(move || {
-        let mut buffer = Vec::new();
-        let _ = stderr_pipe
-            .by_ref()
-            .take(cap as u64 + 1)
-            .read_to_end(&mut buffer);
-        buffer
-    });
-
-    let deadline = Instant::now() + Duration::from_millis(limits.child_timeout_ms);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(Diagnostic::new(
-                        code!("LLS8002"),
-                        format!(
-                            "child_timeout_ms exceeded: configured {}",
-                            limits.child_timeout_ms
-                        ),
-                    ));
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(io_error) => return Err(protocol(format!("waiting for {program}: {io_error}"))),
+    normalizer: &Normalizer,
+) -> Result<ChildRecord, Diagnostic> {
+    run_child(
+        &ChildSpec {
+            tool: "pdf",
+            module: Some(stem.to_owned()),
+            program,
+            executable_sha256,
+            argv: argv.to_vec(),
+            cwd: workdir,
+            extra_env: Vec::new(),
+            home: ChildHome::Isolated { home },
+        },
+        &project.config.limits,
+        normalizer,
+    )
+    .map_err(|diagnostic| {
+        if diagnostic.code.as_str() == "LLV7001" {
+            protocol(diagnostic.message)
+        } else {
+            diagnostic
         }
-    };
-    let stdout_bytes = stdout_reader.join().unwrap_or_default();
-    let stderr_bytes = stderr_reader.join().unwrap_or_default();
-    if stdout_bytes.len() > cap || stderr_bytes.len() > cap {
-        return Err(Diagnostic::new(
-            code!("LLS8002"),
-            format!(
-                "max_child_output_bytes exceeded: configured {}",
-                limits.max_child_output_bytes
-            ),
-        ));
-    }
-    Ok(PdfProcess {
-        argv: argv.to_vec(),
-        exit_code: status.code().unwrap_or(-1),
-        stdout: normalize_output(&stdout_bytes),
-        stderr: normalize_output(&stderr_bytes),
-        executable_sha256,
     })
 }
 
@@ -222,6 +106,7 @@ pub fn run_provider(
     tex_bytes: &[u8],
     stem: &str,
     staging_parent: &Utf8PathBuf,
+    normalizer: &Normalizer,
 ) -> Result<PdfResult, Diagnostic> {
     let limits = &project.config.limits;
 
@@ -241,11 +126,13 @@ pub fn run_provider(
     // canonical `.tex` and the declared regular resources.
     let workspace = tempfile::tempdir_in(staging_parent.as_std_path())
         .map_err(|io_error| protocol(format!("pdf staging: {io_error}")))?;
-    let workdir = workspace.path().join("work");
-    let out_dir = workspace.path().join("out");
-    let home = workspace.path().join("home");
+    let workspace_root = Utf8PathBuf::from_path_buf(workspace.path().to_path_buf())
+        .map_err(|bad| crate::project::non_utf8_path(&bad))?;
+    let workdir = workspace_root.join("work");
+    let out_dir = workspace_root.join("out");
+    let home = workspace_root.join("home");
     for directory in [&workdir, &out_dir, &home] {
-        std::fs::create_dir_all(directory)
+        std::fs::create_dir_all(directory.as_std_path())
             .map_err(|io_error| protocol(format!("pdf staging: {io_error}")))?;
     }
     let tex_name = format!("{stem}.tex");
@@ -261,7 +148,7 @@ pub fn run_provider(
             "pdf output `{output_name}` is not a bare file name"
         )));
     }
-    std::fs::write(workdir.join(&tex_name), tex_bytes)
+    std::fs::write(workdir.join(&tex_name).as_std_path(), tex_bytes)
         .map_err(|io_error| protocol(format!("pdf staging: {io_error}")))?;
     let mut resource_rows: Vec<(String, Sha256Digest)> = Vec::new();
     let mut staged_names: std::collections::BTreeMap<String, String> =
@@ -277,20 +164,22 @@ pub fn run_provider(
                 "pdf resource `{resource}` collides with {previous} at the staged name `{name}`"
             )));
         }
-        std::fs::write(workdir.join(name), &bytes)
+        std::fs::write(workdir.join(name).as_std_path(), &bytes)
             .map_err(|io_error| protocol(format!("pdf staging: {io_error}")))?;
         resource_rows.push((resource.clone(), Sha256Digest::of(&bytes)));
     }
     resource_rows.sort_by(|a, b| a.0.cmp(&b.0));
 
     // 2–3. The version probe with no shell, stdout normalized and checked.
-    let version = run_child(
+    let version = run_provider_process(
+        project,
         &program_path,
         &provider.version_argv,
         &workdir,
         &home,
-        limits,
+        stem,
         program_sha256,
+        normalizer,
     )?;
     let observed_version = Sha256Digest::of(version.stdout.as_bytes());
     if observed_version != provider.version_stdout_sha256 {
@@ -306,18 +195,20 @@ pub fn run_provider(
         .iter()
         .map(|argument| match argument.as_str() {
             "{input}" => tex_name.clone(),
-            "{out_dir}" => out_dir.to_string_lossy().into_owned(),
+            "{out_dir}" => out_dir.to_string(),
             "{stem}" => stem.to_owned(),
             other => other.to_owned(),
         })
         .collect();
-    let compile = run_child(
+    let compile = run_provider_process(
+        project,
         &program_path,
         &expanded,
         &workdir,
         &home,
-        limits,
+        stem,
         program_sha256,
+        normalizer,
     )?;
     if compile.exit_code != 0 {
         return Err(protocol(format!(
@@ -330,7 +221,7 @@ pub fn run_provider(
     // 9–10. Exactly the configured output regular file, beginning `%PDF-`,
     // within the child output cap; nothing else in the output directory.
     let mut extras: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(&out_dir)
+    for entry in std::fs::read_dir(out_dir.as_std_path())
         .map_err(|io_error| protocol(format!("pdf output directory: {io_error}")))?
     {
         let entry =
@@ -348,7 +239,7 @@ pub fn run_provider(
         )));
     }
     let output_path = out_dir.join(&output_name);
-    let metadata = std::fs::symlink_metadata(&output_path)
+    let metadata = std::fs::symlink_metadata(output_path.as_std_path())
         .map_err(|io_error| protocol(format!("{output_name}: {io_error}")))?;
     if !metadata.is_file() {
         return Err(protocol(format!("{output_name} is not a regular file")));
@@ -363,9 +254,9 @@ pub fn run_provider(
             ),
         ));
     }
-    let pdf_bytes = std::fs::read(&output_path)
+    let pdf_bytes = std::fs::read(output_path.as_std_path())
         .map_err(|io_error| protocol(format!("{output_name}: {io_error}")))?;
-    if pdf_bytes.len() as u64 > limits.max_child_output_bytes {
+    if u64::try_from(pdf_bytes.len()).unwrap_or(u64::MAX) > limits.max_child_output_bytes {
         return Err(Diagnostic::new(
             code!("LLS8002"),
             format!(

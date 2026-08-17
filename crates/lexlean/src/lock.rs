@@ -828,7 +828,9 @@ fn acquire_git_package(
                     argv: arguments.iter().map(|a| (*a).to_owned()).collect(),
                     cwd: &checkout,
                     extra_env: vec![("GIT_ASKPASS".to_owned(), String::new())],
-                    toolchain_bin: &git_bin,
+                    home: crate::verify::child::ChildHome::Toolchain {
+                        toolchain_bin: &git_bin,
+                    },
                 },
                 &limits,
                 &normalizer,

@@ -9,7 +9,7 @@ use camino::Utf8Path;
 use crate::code;
 use crate::config::Limits;
 use crate::diagnostic::Diagnostic;
-use crate::verify::child::{run, ChildRecord, ChildSpec, Normalizer};
+use crate::verify::child::{run, ChildHome, ChildRecord, ChildSpec, Normalizer};
 use crate::verify::toolchain::Toolchain;
 
 /// Run `lake env <leanchecker> <module>` (the preflighted executable by
@@ -39,7 +39,9 @@ pub fn run_leanchecker(
             ],
             cwd: workspace,
             extra_env: vec![("LEAN_PATH".to_owned(), lean_path.to_owned())],
-            toolchain_bin: &bin_dir,
+            home: ChildHome::Toolchain {
+                toolchain_bin: &bin_dir,
+            },
         },
         limits,
         normalizer,

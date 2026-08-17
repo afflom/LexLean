@@ -28,7 +28,70 @@ pub struct Limits {
     pub child_timeout_ms: u64,
 }
 
+/// How the compile pipeline's thread stack is sized from the configured
+/// nesting limit (§25.5): the depth-independent needs of the pipeline plus
+/// one measured budget per nesting level, and the deepest nesting that
+/// stack can actually host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompileStackPlan {
+    /// The stack to request for the compile thread.
+    pub stack_bytes: usize,
+    /// The deepest nesting the pipeline may accept on that stack.
+    pub effective_max_scope_depth: u64,
+}
+
+/// The stack the pipeline needs regardless of nesting: the phases' own
+/// frames, buffers, and the non-recursive work between them.
+const BASE_COMPILE_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+/// The stack budget for one level of source nesting. One source level
+/// recurses through the structural parser, the token-lattice chart, the
+/// elaborator, the printers, and canonical serialization; measured at
+/// roughly 32 KiB per level for the deepest of those paths (nested
+/// mathematical grouping) in an unoptimized build, and doubled here so an
+/// unoptimized build keeps a full level of margin.
+const COMPILE_STACK_BYTES_PER_SCOPE: usize = 64 * 1024;
+
+/// The largest stack LexLean will request for one compile thread. This is
+/// a resource reservation, not a language limit: nesting beyond what it
+/// hosts is refused as `LLS8002` naming both the configured and the
+/// effective bound, never by exhausting the stack.
+const MAX_COMPILE_STACK_BYTES: usize = 1024 * 1024 * 1024;
+
 impl Limits {
+    /// Size the compile thread's stack from `max_scope_depth` with checked
+    /// arithmetic, and report the nesting depth that stack hosts. A
+    /// configured depth too large to host is not an error here: the
+    /// pipeline enforces the effective bound and reports `LLS8002` if the
+    /// input actually nests that deep.
+    #[must_use]
+    pub fn compile_stack_plan(&self) -> CompileStackPlan {
+        let requested = usize::try_from(self.max_scope_depth)
+            .ok()
+            .and_then(|depth| depth.checked_mul(COMPILE_STACK_BYTES_PER_SCOPE))
+            .and_then(|scoped| scoped.checked_add(BASE_COMPILE_STACK_BYTES))
+            .unwrap_or(usize::MAX);
+        let stack_bytes = requested.min(MAX_COMPILE_STACK_BYTES);
+        let hosted = (stack_bytes - BASE_COMPILE_STACK_BYTES) / COMPILE_STACK_BYTES_PER_SCOPE;
+        CompileStackPlan {
+            stack_bytes,
+            effective_max_scope_depth: u64::try_from(hosted)
+                .unwrap_or(u64::MAX)
+                .min(self.max_scope_depth),
+        }
+    }
+
+    /// These limits as the pipeline may enforce them on the stack it runs
+    /// on: `max_scope_depth` is lowered to the depth that stack hosts when
+    /// the configured value exceeds it. Every other limit is unchanged.
+    #[must_use]
+    pub fn within_compile_stack(self) -> Self {
+        Self {
+            max_scope_depth: self.compile_stack_plan().effective_max_scope_depth,
+            ..self
+        }
+    }
+
     fn rows(&self) -> [(&'static str, u64); 11] {
         [
             ("max_file_bytes", self.max_file_bytes),
@@ -633,6 +696,20 @@ pub fn parse_project(path: &str, bytes: &[u8]) -> Result<ProjectConfig, Vec<Diag
                 diagnostics.push(config_error(
                     path,
                     "pdf output must use `{stem}` exactly once and no other placeholder",
+                ));
+            }
+            // §19.7: the provider may only ever satisfy the protocol inside
+            // `{out_dir}`, so the output names one file there. A pattern
+            // carrying a separator or a `..` segment is refused at load,
+            // not at the provider run: a configuration that can never
+            // succeed is a configuration error (LLC0101).
+            if !crate::backend::pdf::is_bare_file_name(&raw_pdf.output) {
+                diagnostics.push(config_error(
+                    path,
+                    format!(
+                        "pdf output `{}` is not a bare file name: it must contain no `/`, `\\`, or `..` segment",
+                        raw_pdf.output
+                    ),
                 ));
             }
             for resource in &raw_pdf.resources {
