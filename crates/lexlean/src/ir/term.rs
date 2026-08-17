@@ -435,6 +435,47 @@ impl Term {
         Self::strip_spellings(&self.to_json(&mut Renumber::keeping_free())).to_canonical_string()
     }
 
+    /// The number of IR nodes in a term, computed without recursion and
+    /// with checked arithmetic so a large term can be measured before any
+    /// recursive walker touches it (§25.5). A leaf is one node; a binder
+    /// contributes its type but not its identity. This is the unit
+    /// `max_ir_nodes` counts, at link time and while the elaborator builds
+    /// terms.
+    #[must_use]
+    pub fn node_count(&self) -> u64 {
+        let mut total: u64 = 0;
+        let mut stack: Vec<&Term> = vec![self];
+        while let Some(term) = stack.pop() {
+            total = total.saturating_add(1);
+            match term {
+                Self::Sort(_) | Self::Local(_) | Self::Global(..) => {}
+                Self::App {
+                    function,
+                    explicit_args,
+                    ..
+                } => {
+                    stack.push(function);
+                    stack.extend(explicit_args.iter());
+                }
+                Self::Pi { binders, body } | Self::Lambda { binders, body } => {
+                    stack.extend(binders.iter().map(|binder| &binder.ty));
+                    stack.push(body);
+                }
+                Self::Let {
+                    binder,
+                    value,
+                    body,
+                } => {
+                    stack.push(&binder.ty);
+                    stack.push(value);
+                    stack.push(body);
+                }
+                Self::NatLiteral { expected_type, .. } => stack.push(expected_type),
+            }
+        }
+        total
+    }
+
     /// The nesting depth of a term, computed without recursion so a deep
     /// term can be measured before any recursive walker touches it
     /// (§25.5). A leaf has depth 1.

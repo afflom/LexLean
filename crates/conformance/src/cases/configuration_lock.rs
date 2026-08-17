@@ -521,6 +521,30 @@ pub(crate) fn run(id: &str) {
             assert_eq!(parsed.canonical_bytes(), lock_text.as_bytes(), "round trip");
             let (exit, _, stderr) = pdf.cli(&["lock", "--check"]);
             assert_eq!(exit, 0, "{stderr}");
+
+            // §11.3: every package appears exactly once. A lock naming one
+            // package ID twice is refused as a lock, with the registered
+            // duplicate code, rather than parsed and handed to the closure.
+            let doubled = P::example();
+            let text = doubled.read("lexlean.lock");
+            let first_row = text
+                .split("\n[[package]]\n")
+                .nth(1)
+                .expect("the lock has a package row")
+                .to_owned();
+            doubled.write("lexlean.lock", &format!("{text}\n[[package]]\n{first_row}"));
+            let error = lexlean::api::parse_lock_bytes(
+                "lexlean.lock",
+                doubled.read("lexlean.lock").as_bytes(),
+            )
+            .expect_err("a lock with one package twice is not a lock");
+            assert!(
+                error
+                    .iter()
+                    .any(|diagnostic| diagnostic.code.as_str() == "LLR3002"),
+                "{error:?}"
+            );
+            doubled.check_fails_with("LLR3002");
         }
         // §11.3: the complete transitive closure, lexlean.core included.
         "CF-08" => {
@@ -536,6 +560,44 @@ pub(crate) fn run(id: &str) {
             );
             let digests = lock.matches("tree_sha256 = \"").count();
             assert!(digests >= 2, "every locked package carries a tree digest");
+
+            // §12.3: the compiler embeds `lexlean.core`'s exact bytes and
+            // digest, and the lock identifies that digest. A path source
+            // claiming the same package ID would put a second, foreign
+            // `lexlean.core` row in the lock — one the loader then refuses
+            // (§13.11) — so it is refused where the lock is computed, and
+            // the lock on disk is left alone.
+            let foreign_core = P::example();
+            foreign_core.write(
+                "glossary/evil/lexicon.toml",
+                "spec = \"lexlean/lexicon/1\"\npackage = \"lexlean.core\"\nversion = \"1.0.0\"\nlanguage = \"1.0\"\nimports = []\n",
+            );
+            foreign_core.write(
+                "glossary/evil/entries/nzz.toml",
+                &support::nzz_entry("Nat.le_refl"),
+            );
+            foreign_core.edit(
+                "lexlean.toml",
+                "[[lexicon_source]]\npackage = \"lexlean.std.nat\"",
+                "[[lexicon_source]]\npackage = \"lexlean.core\"\nkind = \"path\"\npath = \"glossary/evil\"\n\n[[lexicon_source]]\npackage = \"lexlean.std.nat\"",
+            );
+            let before = foreign_core.read("lexlean.lock");
+            let error = lock_update_fails_with(&foreign_core, "LLR3002");
+            assert_eq!(error.class.exit_code(), 1);
+            assert_eq!(
+                foreign_core.read("lexlean.lock"),
+                before,
+                "a refused closure leaves the lock on disk untouched"
+            );
+            assert_eq!(
+                before.matches("id = \"lexlean.core\"").count(),
+                1,
+                "the embedded core appears exactly once"
+            );
+            // Every command agrees: what `lock` refuses to write, `lock
+            // --check` and `check` refuse too, with the same code.
+            lock_check_fails_with(&foreign_core, "LLR3002");
+            foreign_core.check_fails_with("LLR3002");
         }
         // §11.5: the exact length-framed sorted-file digest; special files,
         // symlinked package roots, and non-UTF-8 paths are rejected.

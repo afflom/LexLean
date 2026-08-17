@@ -148,7 +148,7 @@ pub fn elab_island(
             "phase elaborate: elab_island received a non-island token",
         ));
     };
-    let ast = parse_math(
+    let covers = parse_math(
         shared.path,
         shared.atoms,
         (*inner_start, *inner_end),
@@ -157,7 +157,7 @@ pub fn elab_island(
         budget,
     )?;
     let mut elaborator = ExprElab::new(shared, scopes, alloc, budget);
-    let mut result = elaborator.elaborate(&ast, expected)?;
+    let mut result = elaborator.elaborate_covers(&covers, expected)?;
     island_delim_rows(shared, token, &mut result.rows);
     Ok(result)
 }
@@ -372,7 +372,11 @@ pub fn elab_binder(
             let island_ty = result
                 .ty
                 .as_ref()
-                .map(|ty| crate::elaborate::delta::unfold(ty, shared, alloc, budget.max_depth()));
+                .map(|ty| crate::elaborate::delta::unfold(ty, shared, alloc, budget))
+                .transpose()
+                .map_err(|diagnostic| {
+                    diagnostic.with_span(shared.atoms[island.first_atom()].span(shared.path))
+                })?;
             match &island_ty {
                 Some(Term::Sort(_)) => {}
                 _ => {

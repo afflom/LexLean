@@ -17,7 +17,11 @@ use crate::source::atom::{Atom, AtomClass};
 /// nesting, proposition connective nesting, nested proof environments ---
 /// and, through the elaborator, the nesting depth of every linked IR term,
 /// so that every recursive IR walker runs on a term of bounded depth.
-/// `max_ir_nodes` bounds the linked IR size.
+/// `max_ir_nodes` bounds IR size wherever IR is constructed: every node the
+/// elaborator builds --- including the intermediate terms delta unfolding
+/// allocates --- is charged against it before it is allocated, so a nest of
+/// definitions can never turn into unbounded allocation, and the linker
+/// charges the finished document again against the same limit.
 #[derive(Debug)]
 pub struct Budget {
     /// The module's memoized token lattice (§14.1): every edge is counted
@@ -26,17 +30,26 @@ pub struct Budget {
     states: u64,
     max_states: u64,
     max_depth: u64,
+    ir_nodes: u64,
+    max_ir_nodes: u64,
 }
 
 impl Budget {
     /// A budget from the explicit resource policy.
     #[must_use]
-    pub fn new(max_token_lattice_edges: u64, max_parse_states: u64, max_scope_depth: u64) -> Self {
+    pub fn new(
+        max_token_lattice_edges: u64,
+        max_parse_states: u64,
+        max_scope_depth: u64,
+        max_ir_nodes: u64,
+    ) -> Self {
         Self {
             lattice: TokenLattice::new(max_token_lattice_edges),
             states: 0,
             max_states: max_parse_states,
             max_depth: max_scope_depth,
+            ir_nodes: 0,
+            max_ir_nodes,
         }
     }
 
@@ -65,6 +78,24 @@ impl Budget {
     /// nesting kind in the diagnostic.
     pub fn depth(&self, depth: u64, phase: &str) -> Result<(), Diagnostic> {
         depth_check(depth, self.max_depth, phase)
+    }
+
+    /// Charge `nodes` IR nodes the elaborator is about to construct against
+    /// `max_ir_nodes` (§25.5). Nodes are charged before they are allocated,
+    /// so the limit bounds the allocation rather than reporting it after the
+    /// fact; `phase` names the construction the diagnostic is about.
+    pub fn ir_nodes(&mut self, nodes: u64, phase: &str) -> Result<(), Diagnostic> {
+        self.ir_nodes = self.ir_nodes.saturating_add(nodes);
+        if self.ir_nodes > self.max_ir_nodes {
+            return Err(Diagnostic::new(
+                code!("LLS8002"),
+                format!(
+                    "max_ir_nodes exceeded in phase {phase}: configured {}, observed {} IR nodes constructed",
+                    self.max_ir_nodes, self.ir_nodes
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Count one parse state.

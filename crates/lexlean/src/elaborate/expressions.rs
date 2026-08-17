@@ -87,6 +87,9 @@ pub struct ExprElab<'a, 'b> {
     /// with the reason. When no interpretation survives, the diagnostic
     /// carries them as notes (§20.1) instead of a bare rejection.
     reasons: Vec<String>,
+    /// The expression currently being elaborated, so a resource failure
+    /// raised deep inside unification still points at source (§20.1).
+    span: Option<crate::diagnostic::Span>,
 }
 
 impl<'a, 'b> ExprElab<'a, 'b> {
@@ -103,6 +106,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             alloc,
             budget,
             reasons: Vec::new(),
+            span: None,
         }
     }
 
@@ -1233,15 +1237,26 @@ impl<'a, 'b> ExprElab<'a, 'b> {
     /// §17.7): the terms are compared as written first, then — zonked, so
     /// a solved metavariable's solution unfolds too — with every document
     /// and defined-lexicon head unfolded on both sides.
-    fn unify_delta(&mut self, a: &Term, b: &Term, metas: &mut Metas) -> bool {
+    fn unify_delta(&mut self, a: &Term, b: &Term, metas: &mut Metas) -> Result<bool, Diagnostic> {
         if unify(a, b, metas) {
-            return true;
+            return Ok(true);
         }
-        let limit = self.budget.max_depth();
         let (a, b) = (zonk(a, metas), zonk(b, metas));
-        let ua = crate::elaborate::delta::unfold(&a, self.shared, self.alloc, limit);
-        let ub = crate::elaborate::delta::unfold(&b, self.shared, self.alloc, limit);
-        (ua != a || ub != b) && unify(&ua, &ub, metas)
+        let ua = self.unfold(&a)?;
+        let ub = self.unfold(&b)?;
+        Ok((ua != a || ub != b) && unify(&ua, &ub, metas))
+    }
+
+    /// Read a term through every definition (§13.6, §17.7), reporting a
+    /// limit failure at the expression the elaborator is working on.
+    fn unfold(&mut self, term: &Term) -> Result<Term, Diagnostic> {
+        let span = self.span.clone();
+        crate::elaborate::delta::unfold(term, self.shared, self.alloc, self.budget).map_err(
+            |diagnostic| match span {
+                Some(span) => diagnostic.with_span(span),
+                None => diagnostic,
+            },
+        )
     }
 
     /// Apply a function candidate to arguments through its telescope,
@@ -1253,7 +1268,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         function_ty: Term,
         args: &[Cand],
         metas: &mut Metas,
-    ) -> Option<(Term, Term)> {
+    ) -> Result<Option<(Term, Term)>, Diagnostic> {
         let mut remaining_ty = zonk(&function_ty, metas);
         let mut ordinal: u32 = 0;
         let mut omitted = Vec::new();
@@ -1262,7 +1277,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         let mut pending: Option<&Cand> = args_iter.next();
         while pending.is_some() {
             let Term::Pi { binders, body } = remaining_ty else {
-                return None;
+                return Ok(None);
             };
             let mut subst_map: BTreeMap<LocalId, Term> = BTreeMap::new();
             let mut consumed_all = true;
@@ -1281,11 +1296,11 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                     BinderMode::Explicit => match pending {
                         Some(argument) => {
                             if let Some(arg_ty) = argument.ty_known(metas) {
-                                if !self.unify_delta(&arg_ty, &binder_ty, metas) {
-                                    return None;
+                                if !self.unify_delta(&arg_ty, &binder_ty, metas)? {
+                                    return Ok(None);
                                 }
-                            } else if !self.unify_delta(&argument.ty.clone(), &binder_ty, metas) {
-                                return None;
+                            } else if !self.unify_delta(&argument.ty.clone(), &binder_ty, metas)? {
+                                return Ok(None);
                             }
                             subst_map.insert(binder.id, argument.term.clone());
                             explicit_terms.push(argument.term.clone());
@@ -1330,12 +1345,13 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             explicit_args: explicit_terms,
             omitted_implicit_binders: omitted,
         };
-        Some((term, remaining_ty))
+        Ok(Some((term, remaining_ty)))
     }
 
     #[allow(clippy::too_many_lines)]
     fn candidates(&mut self, ast: &MathAst) -> Result<Vec<Cand>, Diagnostic> {
         self.budget.state()?;
+        self.span = Some(self.span_of(ast.atoms()));
         let mut out: Vec<Cand> = Vec::new();
         match ast {
             MathAst::Numeral { text, atoms } => {
@@ -1709,7 +1725,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 metas.universes.extend(argument.metas.universes.clone());
             }
             if let Some((term, ty)) =
-                self.apply(head.term.clone(), head.ty.clone(), &chosen, &mut metas)
+                self.apply(head.term.clone(), head.ty.clone(), &chosen, &mut metas)?
             {
                 let mut rows = head.rows.clone();
                 for argument in &chosen {
@@ -1819,8 +1835,8 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 metas.terms.extend(consequent.metas.terms.clone());
                 metas.universes.extend(consequent.metas.universes.clone());
                 let prop = crate::ir::term::prop();
-                if !self.unify_delta(&antecedent.ty, &prop, &mut metas)
-                    || !self.unify_delta(&consequent.ty, &prop, &mut metas)
+                if !self.unify_delta(&antecedent.ty, &prop, &mut metas)?
+                    || !self.unify_delta(&consequent.ty, &prop, &mut metas)?
                 {
                     continue;
                 }
@@ -1918,7 +1934,8 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 }
             })
             .collect();
-        let Some((term, ty)) = self.apply(function, function_ty, &arg_cands, &mut metas) else {
+        self.span = Some(self.span_of(surface_atoms));
+        let Some((term, ty)) = self.apply(function, function_ty, &arg_cands, &mut metas)? else {
             return Err(Diagnostic::new(
                 code!("LLT4001"),
                 "the arguments do not satisfy the declared signature",
@@ -1926,7 +1943,7 @@ impl<'a, 'b> ExprElab<'a, 'b> {
             .with_span(self.span_of(surface_atoms)));
         };
         if let Some(expected_ty) = expected {
-            if !self.unify_delta(&ty, expected_ty, &mut metas) {
+            if !self.unify_delta(&ty, expected_ty, &mut metas)? {
                 return Err(Diagnostic::new(
                     code!("LLT4001"),
                     "the applied entry does not produce the expected type",
@@ -1960,6 +1977,60 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         Ok(ElabTerm { term, ty, rows })
     }
 
+    /// Elaborate every complete cover the token lattice found for one
+    /// island (§14.1) and keep the distinct linked terms. A cover that does
+    /// not link is a dead lattice path and is dropped; covers that link to
+    /// one term collapse; `LLP2002` is reported only when more than one
+    /// distinct linked IR survives (§14.4, I5). A cover whose own
+    /// interpretations are already ambiguous leaves more than one distinct
+    /// linked IR whatever the other covers do, so its ambiguity is final.
+    pub fn elaborate_covers(
+        &mut self,
+        covers: &[MathAst],
+        expected: Option<&Term>,
+    ) -> Result<ElabTerm, Diagnostic> {
+        if let [only] = covers {
+            return self.elaborate(only, expected);
+        }
+        let mut survivors: Vec<(String, ElabTerm)> = Vec::new();
+        let mut failure: Option<Diagnostic> = None;
+        for cover in covers {
+            match self.elaborate(cover, expected) {
+                Ok(elaborated) => {
+                    let key = elaborated.term.eq_key();
+                    if !survivors.iter().any(|(existing, _)| *existing == key) {
+                        survivors.push((key, elaborated));
+                    }
+                }
+                Err(diagnostic) if diagnostic.code.as_str() == "LLP2002" => return Err(diagnostic),
+                Err(diagnostic) => {
+                    if failure.is_none() {
+                        failure = Some(diagnostic);
+                    }
+                }
+            }
+        }
+        match survivors.len() {
+            1 => Ok(survivors.into_iter().next().expect("one survivor").1),
+            0 => Err(failure.unwrap_or_else(|| {
+                Diagnostic::new(
+                    code!("LLI9001"),
+                    "phase elaborate: no cover of the island linked and none failed",
+                )
+            })),
+            _ => {
+                let span = covers
+                    .first()
+                    .map(|cover| self.span_of(cover.atoms()))
+                    .unwrap_or_else(|| crate::diagnostic::Span::whole_file(self.shared.path));
+                Err(crate::elaborate::ambiguity_diagnostic(
+                    survivors.iter().map(|(_, elaborated)| &elaborated.term),
+                )
+                .with_span(span))
+            }
+        }
+    }
+
     /// Elaborate one mathematical expression to a unique interpretation
     /// (I5): exactly one distinct linked IR survives, or elaboration fails.
     pub fn elaborate(
@@ -1971,9 +2042,10 @@ impl<'a, 'b> ExprElab<'a, 'b> {
         let candidate_count = candidates.len();
         let mut survivors: Vec<(String, ElabTerm)> = Vec::new();
         let mut untyped_numeral: Option<String> = None;
+        self.span = Some(self.span_of(ast.atoms()));
         for mut candidate in candidates {
             if let Some(expected_ty) = expected {
-                if !self.unify_delta(&candidate.ty, expected_ty, &mut candidate.metas) {
+                if !self.unify_delta(&candidate.ty, expected_ty, &mut candidate.metas)? {
                     continue;
                 }
             }
@@ -2012,9 +2084,17 @@ impl<'a, 'b> ExprElab<'a, 'b> {
                 // The linked term's nesting is bounded by `max_scope_depth`
                 // (§25.5) so every later IR walker recurses within the
                 // limit; the parsers bound source nesting, and application
-                // through signatures adds a bounded constant.
+                // through signatures adds a bounded constant. Its size is
+                // bounded by `max_ir_nodes`, the same limit the linker
+                // charges the finished document against, so an expression
+                // that grows through signature instantiation is a named
+                // limit failure and not an allocation the linker only
+                // notices once it is built.
                 self.budget
                     .depth(elaborated.term.depth(), "elaborate (term nesting)")
+                    .map_err(|diagnostic| diagnostic.with_span(self.span_of(ast.atoms())))?;
+                self.budget
+                    .ir_nodes(elaborated.term.node_count(), "elaborate (term size)")
                     .map_err(|diagnostic| diagnostic.with_span(self.span_of(ast.atoms())))?;
                 Ok(elaborated)
             }

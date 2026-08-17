@@ -5,7 +5,7 @@
 //! candidate sets; conservative elaboration selects uniquely or rejects
 //! (§14.4).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
@@ -131,13 +131,27 @@ impl MathAst {
     }
 }
 
-struct MathParser<'a> {
+struct MathParser<'a, 'b> {
     path: &'a str,
     atoms: &'a [Atom],
     end: usize,
     at: usize,
     closure: &'a Closure,
     visible: &'a BTreeSet<String>,
+    segmentation: &'b mut Segmentation,
+}
+
+/// The token-lattice branch record of one parse pass (§14.1). A leaf
+/// position whose glossary forms and composed identifier disagree on the
+/// covered extent is a lattice branch, not a decision: this pass takes the
+/// extent `chosen` names for it, or the shortest one, and records the
+/// position with every extent available there. The caller re-parses under
+/// each recorded alternative, so the covers are chosen by which of them
+/// link (§14.4) and never by which form the lattice happened to list first.
+#[derive(Debug, Default)]
+struct Segmentation {
+    chosen: BTreeMap<usize, usize>,
+    met: Vec<(usize, Vec<usize>)>,
 }
 
 type MResult<T> = Result<T, Diagnostic>;
@@ -154,7 +168,7 @@ struct OpMatch {
     frame: Frame,
 }
 
-impl<'a> MathParser<'a> {
+impl<'a> MathParser<'a, '_> {
     fn skip_ws(&mut self) {
         while self.at < self.end && self.atoms[self.at].class == AtomClass::Whitespace {
             self.at += 1;
@@ -376,52 +390,43 @@ impl<'a> MathParser<'a> {
                     )
                     .with_span(atom.span(self.path)));
                 }
-                let mut kinds: Vec<LeafKind> = Vec::new();
-                let mut leaf_end = None;
-                for (reference, match_end) in leaf {
-                    match leaf_end {
-                        None => leaf_end = Some(match_end),
-                        Some(existing) if existing == match_end => {}
-                        Some(_) => {
-                            // Different-length leaf matches at one position:
-                            // segmentation stays open; the lattice keeps
-                            // both only if the parse can continue, which a
-                            // single-token leaf grammar cannot. Reject as
-                            // ambiguity rather than guess.
-                            return Err(Diagnostic::new(
-                                code!("LLP2002"),
-                                "ambiguous lexical segmentation in a mathematical island",
-                            )
-                            .with_span(atom.span(self.path)));
-                        }
-                    }
-                    kinds.push(LeafKind::Form(reference));
-                }
-                if atom.class == AtomClass::Word {
-                    if let Some((text, end_atom)) = compose_identifier(self.atoms, self.at) {
-                        if end_atom <= self.end {
-                            match leaf_end {
-                                Some(existing) if existing != end_atom => {
-                                    return Err(Diagnostic::new(
-                                        code!("LLP2002"),
-                                        "ambiguous lexical segmentation in a mathematical island",
-                                    )
-                                    .with_span(atom.span(self.path)));
-                                }
-                                _ => {}
-                            }
-                            leaf_end = Some(leaf_end.unwrap_or(end_atom));
-                            kinds.push(LeafKind::Ident(text));
-                        }
-                    }
-                }
-                let Some(end_atom) = leaf_end else {
+                // Different-length leaf matches at one position are
+                // lattice alternatives, not a decision to make here
+                // (§14.1): this pass covers one extent and records the
+                // rest for the enclosing enumeration.
+                let identifier = if atom.class == AtomClass::Word {
+                    compose_identifier(self.atoms, self.at).filter(|(_, end)| *end <= self.end)
+                } else {
+                    None
+                };
+                let mut ends: Vec<usize> = leaf.iter().map(|(_, end)| *end).collect();
+                ends.extend(identifier.iter().map(|(_, end)| *end));
+                ends.sort_unstable();
+                ends.dedup();
+                let Some(&shortest) = ends.first() else {
                     return Err(Diagnostic::new(
                         code!("LLL1004"),
                         format!("unknown atom `{}` in a mathematical island", atom.text),
                     )
                     .with_span(atom.span(self.path)));
                 };
+                let end_atom = match self.segmentation.chosen.get(&start) {
+                    Some(chosen) if ends.contains(chosen) => *chosen,
+                    _ => shortest,
+                };
+                if ends.len() > 1 {
+                    self.segmentation.met.push((start, ends));
+                }
+                let mut kinds: Vec<LeafKind> = leaf
+                    .into_iter()
+                    .filter(|(_, end)| *end == end_atom)
+                    .map(|(reference, _)| LeafKind::Form(reference))
+                    .collect();
+                if let Some((text, end)) = identifier {
+                    if end == end_atom {
+                        kinds.push(LeafKind::Ident(text));
+                    }
+                }
                 self.at = end_atom;
                 MathAst::Leaf {
                     kinds,
@@ -578,7 +583,14 @@ impl<'a> MathParser<'a> {
     }
 }
 
-/// Parse one mathematical island's inner atom range.
+/// Parse one mathematical island's inner atom range under every
+/// segmentation the token lattice admits (§14.1): the returned parses are
+/// the distinct complete covers of the range, in a deterministic order, and
+/// the caller decides between them by linking (§14.4). Enumeration is a
+/// worklist over the branch points one pass met, and every pass is charged
+/// against `max_parse_states` and the module's shared lattice-edge budget
+/// (§25.5), so an island with many branch points is a named limit failure
+/// and never unbounded work.
 pub fn parse_math(
     path: &str,
     atoms: &[Atom],
@@ -586,6 +598,75 @@ pub fn parse_math(
     closure: &Closure,
     visible: &BTreeSet<String>,
     budget: &mut Budget,
+) -> Result<Vec<MathAst>, Diagnostic> {
+    let mut queue: Vec<BTreeMap<usize, usize>> = vec![BTreeMap::new()];
+    let mut enqueued: BTreeSet<Vec<(usize, usize)>> = BTreeSet::new();
+    enqueued.insert(Vec::new());
+    let mut covers: Vec<MathAst> = Vec::new();
+    // The first pass is the one every unambiguous island takes, so its
+    // failure is the one an unambiguous island reports.
+    let mut failure: Option<Diagnostic> = None;
+    while let Some(chosen) = queue.pop() {
+        let mut segmentation = Segmentation {
+            chosen,
+            met: Vec::new(),
+        };
+        match parse_cover(
+            path,
+            atoms,
+            range,
+            closure,
+            visible,
+            budget,
+            &mut segmentation,
+        ) {
+            Ok(cover) => {
+                if !covers.contains(&cover) {
+                    covers.push(cover);
+                }
+            }
+            Err(diagnostic) => {
+                if failure.is_none() {
+                    failure = Some(diagnostic);
+                }
+            }
+        }
+        for (position, ends) in &segmentation.met {
+            if segmentation.chosen.contains_key(position) {
+                continue;
+            }
+            // The pass above took the shortest extent; each other extent is
+            // one more cover to try.
+            for end in ends.iter().skip(1) {
+                let mut next = segmentation.chosen.clone();
+                next.insert(*position, *end);
+                let key: Vec<(usize, usize)> = next.iter().map(|(at, end)| (*at, *end)).collect();
+                if enqueued.insert(key) {
+                    queue.push(next);
+                }
+            }
+        }
+    }
+    match failure {
+        Some(diagnostic) if covers.is_empty() => Err(diagnostic),
+        _ if covers.is_empty() => Err(Diagnostic::new(
+            code!("LLI9001"),
+            "phase parse: the token lattice produced neither a cover nor a failure",
+        )
+        .with_span(crate::diagnostic::Span::whole_file(path))),
+        _ => Ok(covers),
+    }
+}
+
+/// One complete cover of `range` under the given segmentation choices.
+fn parse_cover(
+    path: &str,
+    atoms: &[Atom],
+    range: AtomRange,
+    closure: &Closure,
+    visible: &BTreeSet<String>,
+    budget: &mut Budget,
+    segmentation: &mut Segmentation,
 ) -> Result<MathAst, Diagnostic> {
     let mut parser = MathParser {
         path,
@@ -594,6 +675,7 @@ pub fn parse_math(
         at: range.0,
         closure,
         visible,
+        segmentation,
     };
     let expression = parser.expression(budget, 0, 1)?;
     parser.skip_ws();

@@ -11,12 +11,19 @@
 
 use std::collections::BTreeMap;
 
+use crate::diagnostic::{Diagnostic, Span};
 use crate::elaborate::expressions::{lse_to_term, subst, universe_map};
 use crate::elaborate::resolve::LocalAlloc;
 use crate::elaborate::Shared;
+use crate::grammar::chart::Budget;
 use crate::ir::term::{Binder, CoreRef, GlobalRef, ImplicitBinderId, LocalId, Term, Universe};
 use crate::lexicon::entry::Denotation;
 use crate::lexicon::lse::{BinderMode, QualifiedId};
+
+/// The phase every unfolding limit failure names (§25.5). Unfolding is the
+/// one elaboration step whose output can be larger than its input, so it is
+/// the phase a `max_ir_nodes` failure most often reports.
+const PHASE: &str = "elaborate (definition unfolding)";
 
 /// Unfold every definition in `term`: a document declaration whose value
 /// is available, or a defined lexicon value, applied to at least its
@@ -24,25 +31,60 @@ use crate::lexicon::lse::{BinderMode, QualifiedId};
 /// beta-reduced; unique existence is expanded to its lowering. The walk is
 /// recursive so definitions inside arguments and binder types unfold too.
 /// Definitions are acyclic (§13.6, §15.7 rule 8) and every unfolding
-/// consumes one head; `limit` (the configured nesting limit) guards the
-/// head loop against a linked table deeper than any source could be.
-#[must_use]
-pub fn unfold(term: &Term, shared: &Shared<'_>, alloc: &mut LocalAlloc, limit: u64) -> Term {
-    let mut current = term.clone();
+/// consumes one head.
+///
+/// Nested definitions multiply: unfolding a definition whose value mentions
+/// another definition several times is exponential in the nesting, so size
+/// is a resource and not a property of the source's length. Every node this
+/// function is about to allocate --- each head step, each rebuilt node ---
+/// is therefore charged against `max_ir_nodes` *before* it is allocated
+/// (§25.5), and the depth of the walk is charged against `max_scope_depth`,
+/// so a nest of definitions is `LLS8002` naming the limit rather than an
+/// allocation abort or an overflowed stack (§6 I14).
+pub fn unfold(
+    term: &Term,
+    shared: &Shared<'_>,
+    alloc: &mut LocalAlloc,
+    budget: &mut Budget,
+) -> Result<Term, Diagnostic> {
+    unfold_at(term, shared, alloc, budget, 1).map_err(|mut diagnostic| {
+        // The limit concerns the module being elaborated; a caller with a
+        // finer span replaces this one.
+        if diagnostic.primary.is_none() {
+            diagnostic.primary = Some(Span::whole_file(shared.path));
+        }
+        diagnostic
+    })
+}
+
+fn unfold_at(
+    term: &Term,
+    shared: &Shared<'_>,
+    alloc: &mut LocalAlloc,
+    budget: &mut Budget,
+    depth: u64,
+) -> Result<Term, Diagnostic> {
+    budget.depth(depth, PHASE)?;
+    let limit = budget.max_depth();
+    // The head loop: unfold or beta-reduce the head until it is rigid. The
+    // term is copied only once a step actually fires, so reading a rigid
+    // head --- by far the common case, and every leaf of the walk below ---
+    // allocates nothing.
+    let mut reduced: Option<Term> = None;
     let mut steps: u64 = 0;
-    // The head loop: unfold or beta-reduce the head until it is rigid.
     while steps <= limit {
-        let Some(next) = unfold_head(&current, shared, alloc) else {
+        let head = reduced.as_ref().unwrap_or(term);
+        let Some(next) = unfold_head(head, shared, alloc, budget)? else {
             break;
         };
-        current = next;
+        reduced = Some(next);
         steps = steps.saturating_add(1);
     }
     if let Term::App {
         function,
         explicit_args,
         ..
-    } = &current
+    } = reduced.as_ref().unwrap_or(term)
     {
         if let (
             Term::Global(GlobalRef::Core(CoreRef::ExistsUnique), _),
@@ -50,34 +92,41 @@ pub fn unfold(term: &Term, shared: &Shared<'_>, alloc: &mut LocalAlloc, limit: u
         ) = (&**function, explicit_args.as_slice())
         {
             if let [binder] = binders.as_slice() {
-                current = expand_exists_unique(binder, body, alloc);
+                budget.ir_nodes(exists_unique_size(binder, body), PHASE)?;
+                let expanded = expand_exists_unique(binder, body, alloc);
+                reduced = Some(expanded);
             }
         }
     }
-    match &current {
+    let current = reduced.as_ref().unwrap_or(term);
+    let next = depth.saturating_add(1);
+    budget.ir_nodes(1, PHASE)?;
+    Ok(match current {
         Term::App {
             function,
             explicit_args,
             omitted_implicit_binders,
         } => Term::App {
-            function: Box::new(unfold(function, shared, alloc, limit)),
+            function: Box::new(unfold_at(function, shared, alloc, budget, next)?),
             explicit_args: explicit_args
                 .iter()
-                .map(|argument| unfold(argument, shared, alloc, limit))
-                .collect(),
+                .map(|argument| unfold_at(argument, shared, alloc, budget, next))
+                .collect::<Result<Vec<Term>, Diagnostic>>()?,
             omitted_implicit_binders: omitted_implicit_binders.clone(),
         },
         Term::Pi { binders, body } | Term::Lambda { binders, body } => {
             let new_binders = binders
                 .iter()
-                .map(|binder| Binder {
-                    id: binder.id,
-                    mode: binder.mode,
-                    ty: unfold(&binder.ty, shared, alloc, limit),
-                    spelling: binder.spelling.clone(),
+                .map(|binder| {
+                    Ok(Binder {
+                        id: binder.id,
+                        mode: binder.mode,
+                        ty: unfold_at(&binder.ty, shared, alloc, budget, next)?,
+                        spelling: binder.spelling.clone(),
+                    })
                 })
-                .collect();
-            let new_body = Box::new(unfold(body, shared, alloc, limit));
+                .collect::<Result<Vec<Binder>, Diagnostic>>()?;
+            let new_body = Box::new(unfold_at(body, shared, alloc, budget, next)?);
             if matches!(current, Term::Pi { .. }) {
                 Term::Pi {
                     binders: new_binders,
@@ -98,28 +147,33 @@ pub fn unfold(term: &Term, shared: &Shared<'_>, alloc: &mut LocalAlloc, limit: u
             binder: Box::new(Binder {
                 id: binder.id,
                 mode: binder.mode,
-                ty: unfold(&binder.ty, shared, alloc, limit),
+                ty: unfold_at(&binder.ty, shared, alloc, budget, next)?,
                 spelling: binder.spelling.clone(),
             }),
-            value: Box::new(unfold(value, shared, alloc, limit)),
-            body: Box::new(unfold(body, shared, alloc, limit)),
+            value: Box::new(unfold_at(value, shared, alloc, budget, next)?),
+            body: Box::new(unfold_at(body, shared, alloc, budget, next)?),
         },
         Term::NatLiteral {
             decimal,
             expected_type,
         } => Term::NatLiteral {
             decimal: decimal.clone(),
-            expected_type: Box::new(unfold(expected_type, shared, alloc, limit)),
+            expected_type: Box::new(unfold_at(expected_type, shared, alloc, budget, next)?),
         },
-        Term::Sort(_) | Term::Local(_) | Term::Global(..) => current,
-    }
+        Term::Sort(_) | Term::Local(_) | Term::Global(..) => current.clone(),
+    })
 }
 
 /// One head step: the definition value applied to the explicit arguments,
 /// or a lambda head beta-reduced. `None` when the head is rigid (a local,
 /// a core connective, an external constant, a theorem, a sort, a numeral)
 /// or the definition is applied to fewer arguments than its binders.
-fn unfold_head(term: &Term, shared: &Shared<'_>, alloc: &mut LocalAlloc) -> Option<Term> {
+fn unfold_head(
+    term: &Term,
+    shared: &Shared<'_>,
+    alloc: &mut LocalAlloc,
+    budget: &mut Budget,
+) -> Result<Option<Term>, Diagnostic> {
     let (function, args): (&Term, &[Term]) = match term {
         Term::App {
             function,
@@ -129,16 +183,29 @@ fn unfold_head(term: &Term, shared: &Shared<'_>, alloc: &mut LocalAlloc) -> Opti
         other => (other, &[]),
     };
     let value = match function {
-        Term::Lambda { .. } if !args.is_empty() => return Some(beta(function, args)),
+        Term::Lambda { .. } if !args.is_empty() => {
+            return beta(function, args, budget).map(Some);
+        }
         Term::Global(GlobalRef::Document(reference), _) => {
-            let info = shared.decls.get(&reference.module, &reference.component)?;
-            fresh_binders(info.value.as_ref()?, alloc)
+            let Some(info) = shared.decls.get(&reference.module, &reference.component) else {
+                return Ok(None);
+            };
+            let Some(value) = info.value.as_ref() else {
+                return Ok(None);
+            };
+            // `fresh_binders` copies the declaration value node for node.
+            budget.ir_nodes(value.node_count(), PHASE)?;
+            fresh_binders(value, alloc)
         }
         Term::Global(GlobalRef::DefinedLexicon(defined), universes) => {
-            let id = QualifiedId::parse(&defined.entry).ok()?;
-            let entry = shared.closure.entry(&id)?;
+            let Ok(id) = QualifiedId::parse(&defined.entry) else {
+                return Ok(None);
+            };
+            let Some(entry) = shared.closure.entry(&id) else {
+                return Ok(None);
+            };
             let Denotation::Defined { value: lse, .. } = &entry.denotation else {
-                return None;
+                return Ok(None);
             };
             let map = universe_map(&entry.universes, |index, name| {
                 universes
@@ -146,31 +213,62 @@ fn unfold_head(term: &Term, shared: &Shared<'_>, alloc: &mut LocalAlloc) -> Opti
                     .cloned()
                     .unwrap_or_else(|| Universe::Var(name.to_owned()))
             });
-            lse_to_term(lse, shared, alloc, &map, None).ok()?
+            let Ok(value) = lse_to_term(lse, shared, alloc, &map, None) else {
+                return Ok(None);
+            };
+            // A lexicon value's size is bounded by the loaded entry rather
+            // than by the term being unfolded, so it is charged once built.
+            budget.ir_nodes(value.node_count(), PHASE)?;
+            value
         }
-        _ => return None,
+        _ => return Ok(None),
     };
-    Some(match value {
+    Ok(Some(match value {
         Term::Lambda { binders, body } => {
             if args.len() < binders.len() {
-                return None;
+                return Ok(None);
             }
-            beta(&Term::Lambda { binders, body }, args)
+            beta(&Term::Lambda { binders, body }, args, budget)?
         }
-        other => apply(other, args),
-    })
+        other => {
+            budget.ir_nodes(apply_size(args), PHASE)?;
+            apply(other, args)
+        }
+    }))
 }
 
 /// Beta-reduce a lambda applied to explicit arguments: the binders are
 /// substituted by the arguments in order; leftover binders stay a lambda,
 /// leftover arguments stay applied (§16.2 witness goals, §16.8 constructor
-/// fields, definition unfolding).
-#[must_use]
-pub fn beta(function: &Term, args: &[Term]) -> Term {
+/// fields, definition unfolding). Substitution copies each argument once per
+/// occurrence of its binder, so the result is charged against `max_ir_nodes`
+/// before it is built (§25.5).
+pub fn beta(function: &Term, args: &[Term], budget: &mut Budget) -> Result<Term, Diagnostic> {
     let Term::Lambda { binders, body } = function else {
-        return apply(function.clone(), args);
+        budget.ir_nodes(
+            function.node_count().saturating_add(apply_size(args)),
+            PHASE,
+        )?;
+        return Ok(apply(function.clone(), args));
     };
     let consumed = binders.len().min(args.len());
+    let sizes: BTreeMap<LocalId, u64> = binders
+        .iter()
+        .zip(args)
+        .map(|(binder, argument)| (binder.id, argument.node_count()))
+        .collect();
+    let mut produced = subst_size(body, &sizes);
+    if consumed < binders.len() {
+        produced = binders[consumed..]
+            .iter()
+            .fold(produced.saturating_add(1), |total, binder| {
+                total.saturating_add(subst_size(&binder.ty, &sizes))
+            });
+    }
+    budget.ir_nodes(
+        produced.saturating_add(apply_size(&args[consumed..])),
+        PHASE,
+    )?;
     let map: BTreeMap<LocalId, Term> = binders
         .iter()
         .zip(args)
@@ -193,7 +291,76 @@ pub fn beta(function: &Term, args: &[Term]) -> Term {
             body: Box::new(new_body),
         }
     };
-    apply(reduced, &args[consumed..])
+    Ok(apply(reduced, &args[consumed..]))
+}
+
+/// The node count [`subst`] would produce for `term` under a substitution
+/// whose replacements have the given sizes: the same walk `subst` performs,
+/// counting instead of allocating, so a substitution is charged before it
+/// runs. Iterative, so measuring never costs stack the walk itself would
+/// not.
+fn subst_size(term: &Term, sizes: &BTreeMap<LocalId, u64>) -> u64 {
+    let mut total: u64 = 0;
+    let mut stack: Vec<&Term> = vec![term];
+    while let Some(term) = stack.pop() {
+        match term {
+            Term::Local(id) => {
+                total = total.saturating_add(sizes.get(id).copied().unwrap_or(1));
+            }
+            Term::Sort(_) | Term::Global(..) => total = total.saturating_add(1),
+            Term::App {
+                function,
+                explicit_args,
+                ..
+            } => {
+                total = total.saturating_add(1);
+                stack.push(function);
+                stack.extend(explicit_args.iter());
+            }
+            Term::Pi { binders, body } | Term::Lambda { binders, body } => {
+                total = total.saturating_add(1);
+                stack.extend(binders.iter().map(|binder| &binder.ty));
+                stack.push(body);
+            }
+            Term::Let {
+                binder,
+                value,
+                body,
+            } => {
+                total = total.saturating_add(1);
+                stack.push(&binder.ty);
+                stack.push(value);
+                stack.push(body);
+            }
+            Term::NatLiteral { expected_type, .. } => {
+                total = total.saturating_add(1);
+                stack.push(expected_type);
+            }
+        }
+    }
+    total
+}
+
+/// The nodes [`apply`] allocates: the application node and one copy of each
+/// argument. Applying nothing allocates nothing.
+fn apply_size(args: &[Term]) -> u64 {
+    if args.is_empty() {
+        return 0;
+    }
+    args.iter()
+        .map(Term::node_count)
+        .fold(1, u64::saturating_add)
+}
+
+/// The nodes [`expand_exists_unique`] allocates for a binder of type `ty`
+/// and body `body`: the body twice (the conjunct and the renamed
+/// hypothesis), the binder type twice (the existential binder and the
+/// uniqueness binder), and the eleven fixed nodes of the lowering.
+fn exists_unique_size(binder: &Binder, body: &Term) -> u64 {
+    body.node_count()
+        .saturating_mul(2)
+        .saturating_add(binder.ty.node_count().saturating_mul(2))
+        .saturating_add(11)
 }
 
 fn apply(function: Term, args: &[Term]) -> Term {
