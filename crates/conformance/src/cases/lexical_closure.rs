@@ -381,6 +381,53 @@ pub(crate) fn run(id: &str) {
                     && !forms.iter().any(|entry| entry == "even-and"),
                 "the non-greedy path is selected: {forms:?}"
             );
+
+            // The lattice is memoized per module and every distinct edge is
+            // counted once against `max_token_lattice_edges`, however many
+            // grammar passes revisit a position: a connective-rich sentence
+            // whose grammar walk revisits its positions repeatedly parses
+            // under a budget of its distinct edges (15 here, 18 with slack;
+            // counting every revisit needed 23), and a tighter budget fails
+            // with `LLS8002` naming the configured value and the observed
+            // count.
+            let sentence = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{main-goal}\n\\noaxioms\nFor every natural number \\(n\\) and natural number \\(m\\), \\(n + 0 = n\\) and \\(m + 0 = m\\) and \\(n = n\\) or \\(m = m\\) and not \\(n = m\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+            let budgeted = |limit: u64| -> P {
+                let project = P::example();
+                project.write("src/Main.lex.tex", sentence);
+                project.edit(
+                    "lexlean.toml",
+                    "max_token_lattice_edges = 4000000",
+                    &format!("max_token_lattice_edges = {limit}"),
+                );
+                project.relock();
+                project
+            };
+            // The statement is what is measured; its proof shape is not
+            // under test here, so only the budget diagnostic is asserted.
+            if let Err(error) = budgeted(18).engine().check(lexlean::CheckRequest {
+                selection: lexlean::Selection::Entrypoints,
+            }) {
+                assert!(
+                    !error
+                        .diagnostics
+                        .iter()
+                        .any(|d| d.code.as_str() == "LLS8002"),
+                    "distinct edges fit the budget: {error}"
+                );
+            }
+            let error = budgeted(8).check_fails_with("LLS8002");
+            let limit = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLS8002")
+                .expect("LLS8002");
+            assert!(
+                limit.message.contains("max_token_lattice_edges")
+                    && limit.message.contains("configured 8")
+                    && limit.message.contains("observed"),
+                "the limit diagnostic names the limit, its value, and the observation: {}",
+                limit.message
+            );
         }
         // I1: every accepted non-whitespace atom is covered exactly once.
         "LX-09" => {

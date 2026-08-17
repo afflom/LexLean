@@ -18,10 +18,18 @@ fn lock_fails_with(project: &P, code: &str) -> lexlean::error::LexLeanError {
     error
 }
 
-/// Package-closure problems surface when the closure is built: lock the
-/// mutated project, then expect `code` from check.
+/// A package problem is rejected with `code`: at lock when the package on
+/// its own shows it (§13.11, the package-local check), otherwise when the
+/// closure is built — lock the mutated project, then expect `code` from
+/// check.
 fn closure_fails_with(project: &P, code: &str) -> lexlean::error::LexLeanError {
-    project.relock();
+    if let Err(error) = project.engine().lock(LockRequest {
+        check_only: false,
+        allow_network: false,
+    }) {
+        support::expect_code(&error, code);
+        return error;
+    }
     project.check_fails_with(code)
 }
 
@@ -461,6 +469,71 @@ pub(crate) fn run(id: &str) {
                 &mutated_entry("signature = \"(const lexlean.std.nat::nat)\"\n", ""),
             )]);
             lock_fails_with(&no_signature, "LLR3004");
+            // A signature ill-typed on its own — a numeral where a type is
+            // required, an application over the explicit arity of an entry
+            // of the same package, a defined value disagreeing with its
+            // signature — is rejected when the package loads (§13.11), not
+            // first when a build links the closure.
+            let numeral_type = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    "signature = \"(pi ((explicit x (nat 1))) (const lexlean.std.nat::nat))\"",
+                ),
+            )]);
+            lock_fails_with(&numeral_type, "LLR3004");
+            let over_applied = with_entries(&[
+                (
+                    "probe.toml",
+                    &atom_entry("probe")
+                        .replace(
+                            "signature = \"(const lexlean.std.nat::nat)\"",
+                            "signature = \"(sort prop)\"",
+                        )
+                        .replace("category = \"term-constant\"", "category = \"predicate-constant\"")
+                        .replace("channel = \"both\"", "channel = \"math\""),
+                ),
+                (
+                    "other.toml",
+                    &atom_entry("other").replace(
+                        "signature = \"(const lexlean.std.nat::nat)\"",
+                        "signature = \"(app (const test.pkg::probe) (const lexlean.std.nat::nat))\"",
+                    ),
+                ),
+            ]);
+            let error = lock_fails_with(&over_applied, "LLR3004");
+            assert!(
+                error
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.message.contains("test.pkg::probe") && d.message.contains("accepts 0")),
+                "the load-time diagnostic names the over-applied entry: {error}"
+            );
+            let value_mismatch = with_entries(&[(
+                "probe.toml",
+                &atom_entry("probe")
+                    .replace(
+                        "signature = \"(const lexlean.std.nat::nat)\"",
+                        "signature = \"(sort prop)\"",
+                    )
+                    .replace("category = \"term-constant\"", "category = \"predicate-constant\"")
+                    .replace("channel = \"both\"", "channel = \"math\"")
+                    .replace(
+                        "[denotation]\nkind = \"lean\"\nmodule = \"Init\"\nname = \"Nat.zero\"",
+                        "[denotation]\nkind = \"defined\"\nvalue = \"(sort prop)\"",
+                    ),
+            )]);
+            lock_fails_with(&value_mismatch, "LLR3004");
+            // A signature that only the closure can judge (a reference into
+            // another package) still loads and is judged there.
+            let cross_package = with_entries(&[(
+                "probe.toml",
+                &mutated_entry(
+                    "signature = \"(const lexlean.std.nat::nat)\"",
+                    "signature = \"(app (const lexlean.std.nat::nat) (const lexlean.std.nat::nat))\"",
+                ),
+            )]);
+            closure_fails_with(&cross_package, "LLR3004");
 
             // Every grammar production parses and canonicalizes; alpha-
             // equivalent signatures hash identically.
@@ -535,7 +608,8 @@ pub(crate) fn run(id: &str) {
                 "alpha-equivalent signatures hash identically"
             );
 
-            // A signature must be type-shaped.
+            // A signature must be type-shaped; a numeral is not, on its own,
+            // so the package is rejected as it loads.
             let not_a_type = with_entries(&[(
                 "probe.toml",
                 &mutated_entry(
@@ -543,7 +617,7 @@ pub(crate) fn run(id: &str) {
                     "signature = \"(nat 3)\"",
                 ),
             )]);
-            closure_fails_with(&not_a_type, "LLR3004");
+            lock_fails_with(&not_a_type, "LLR3004");
             let term_not_type = with_entries(&[(
                 "probe.toml",
                 &mutated_entry(
@@ -697,6 +771,43 @@ pub(crate) fn run(id: &str) {
                 &call("(seq (raw \\\\relax) (slot 0) (slot 1))"),
             )]);
             lock_fails_with(&raw, "LLR3004");
+            // A text render that uses a mathematical construct (`sub`,
+            // `sup`, `frac`, `operator-name`) can never be emitted in the
+            // text channel: it is rejected at load, not at the first build
+            // that renders the entry.
+            let text_script = with_entries(&[(
+                "probe.toml",
+                r#"spec = "lexlean/entry/1"
+id = "probe"
+category = "noun-function"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))"
+surface_arity = 1
+frame = "noun-of"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.succ"
+
+[[form]]
+id = "probe"
+channel = "text"
+surface = "probe"
+canonical_source = true
+features = ["lower-case", "singular"]
+
+[render]
+text = "(sub (slot 0) (operator-name probe))"
+"#,
+            )]);
+            let error = lock_fails_with(&text_script, "LLR3004");
+            assert!(
+                error
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.message.contains("text render uses `sub`")),
+                "the load-time diagnostic names the construct: {error}"
+            );
             let bad_operator = with_entries(&[(
                 "probe.toml",
                 &call("(seq (operator-name pr-obe) (paren (seq (slot 0) (token comma) (slot 1))))"),
