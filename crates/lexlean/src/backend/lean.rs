@@ -661,9 +661,28 @@ fn is_atomic(term: &Term) -> bool {
     }
 }
 
+/// Does a monomorphic constant parameter type admit a bare numeral in the
+/// generated Lean? Only a constant Lean itself knows: Lean elaborates the
+/// numeral against the parameter type it sees, and `OfNat` instances are
+/// found for `Nat`, not for a name that merely unfolds to it. A document
+/// declaration and a defined lexicon value are both printed as (or under)
+/// an alias Lean has no instance for — `def count : Type := Nat` makes
+/// `f 2` a `synthInstanceFailed` — so those positions ascribe the unfolded
+/// type instead (§18.4).
+fn const_admits_bare_numeral(ty: &Lse, closure: &Closure) -> bool {
+    let Lse::Const(id, universes) = ty else {
+        return false;
+    };
+    universes.is_empty()
+        && matches!(
+            closure.entry(id).map(|entry| &entry.denotation),
+            Some(Denotation::Lean { .. })
+        )
+}
+
 /// Which explicit arguments of an application may carry a bare numeral
 /// (§18.4): those whose applied signature binder is a monomorphic constant
-/// type. Everything else ascribes.
+/// type Lean knows. Everything else ascribes.
 fn bare_numeral_positions(function: &Term, closure: &Closure, arity: usize) -> Vec<bool> {
     let mut out = vec![false; arity];
     let Term::Global(global, _) = function else {
@@ -710,10 +729,62 @@ fn bare_numeral_positions(function: &Term, closure: &Closure, arity: usize) -> V
         .collect();
     for (index, slot) in out.iter_mut().enumerate() {
         if let Some(binder) = explicit.get(index) {
-            *slot = matches!(&binder.ty, Lse::Const(_, universes) if universes.is_empty());
+            *slot = const_admits_bare_numeral(&binder.ty, closure);
         }
     }
     out
+}
+
+/// What printing a document term needs beyond the term: the glossary
+/// closure, and the module whose declarations a document reference may
+/// have to be unfolded through (a numeral's expected type, §18.4).
+#[derive(Clone, Copy)]
+struct TermCtx<'a> {
+    closure: &'a Closure,
+    document: &'a DocumentModule,
+}
+
+/// Unfold a type that is a document type definition of this module into
+/// the type it defines, repeatedly, and `None` when it is not one.
+///
+/// A document type definition emits `def <name> : Type := <value>`, which
+/// Lean unfolds for definitional equality but not for instance synthesis:
+/// a numeral ascribed to the alias has no `OfNat` instance and fails to
+/// elaborate. Every other use of the alias is left exactly as the IR spells
+/// it — only the numeral ascription needs the unfolded spelling (§18.4).
+/// A type definition is nonrecursive (§18.6), so the walk terminates; the
+/// visited set makes that independent of the IR's own guarantees.
+fn unfold_alias_type(ty: &Term, ctx: TermCtx<'_>) -> Option<Term> {
+    let mut current = ty.clone();
+    let mut unfolded = None;
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    loop {
+        let Term::Global(GlobalRef::Document(reference), _) = &current else {
+            return unfolded;
+        };
+        if reference.module != ctx.document.name || !seen.insert(reference.component.clone()) {
+            return unfolded;
+        }
+        let declaration = ctx
+            .document
+            .declarations()
+            .into_iter()
+            .find(|declaration| declaration.component == reference.component)?;
+        if declaration.kind != crate::ir::declaration::DeclKind::TypeDefinition {
+            return unfolded;
+        }
+        // A type definition with parameters is a family, not an alias: its
+        // value is only a type once applied, and a numeral's expected type
+        // is never the unapplied family.
+        if !declaration.params.is_empty() {
+            return unfolded;
+        }
+        let DeclBody::Definition { value, .. } = &declaration.body else {
+            return unfolded;
+        };
+        current = value.clone();
+        unfolded = Some(current.clone());
+    }
 }
 
 fn print_binder_open(sink: &mut Sink<'_>, mode: BinderMode) {
@@ -740,7 +811,7 @@ fn print_exists_unique(
     binder: &Binder,
     body: &Term,
     namer: &mut Namer,
-    closure: &Closure,
+    ctx: TermCtx<'_>,
     parens: bool,
 ) -> Result<(), Diagnostic> {
     if parens {
@@ -757,7 +828,7 @@ fn print_exists_unique(
     sink.ws(" ");
     sink.sym(":");
     sink.ws(" ");
-    print_term(sink, &binder.ty, namer, closure, false, false)?;
+    print_term(sink, &binder.ty, namer, ctx, false, false)?;
     sink.sym(")");
     sink.ws(" ");
     sink.sym("=>");
@@ -765,7 +836,7 @@ fn print_exists_unique(
     sink.ident("And", core_origin(CoreRef::And));
     sink.ws(" ");
     sink.sym("(");
-    print_term(sink, body, namer, closure, false, false)?;
+    print_term(sink, body, namer, ctx, false, false)?;
     sink.sym(")");
     sink.ws(" ");
     // The uniqueness binder is a renamed copy of the source binder; it
@@ -781,12 +852,12 @@ fn print_exists_unique(
     sink.ws(" ");
     sink.sym(":");
     sink.ws(" ");
-    print_term(sink, &binder.ty, namer, closure, false, false)?;
+    print_term(sink, &binder.ty, namer, ctx, false, false)?;
     sink.sym(")");
     sink.ws(" ");
     sink.sym("→");
     sink.ws(" ");
-    print_term(sink, &renamed, namer, closure, !is_atomic(&renamed), false)?;
+    print_term(sink, &renamed, namer, ctx, !is_atomic(&renamed), false)?;
     sink.ws(" ");
     sink.sym("→");
     sink.ws(" ");
@@ -808,7 +879,7 @@ fn print_term(
     sink: &mut Sink<'_>,
     term: &Term,
     namer: &mut Namer,
-    closure: &Closure,
+    ctx: TermCtx<'_>,
     parens: bool,
     bare_numeral: bool,
 ) -> Result<(), Diagnostic> {
@@ -818,7 +889,7 @@ fn print_term(
             sink.ident(&name, Origin::Local(id.0 as usize));
         }
         Term::Global(global, _) => {
-            let name = global_lean_name(global, closure)?;
+            let name = global_lean_name(global, ctx.closure)?;
             sink.ident(&name, global_origin(global));
         }
         Term::Sort(universe) => match universe {
@@ -843,12 +914,18 @@ fn print_term(
             if bare_numeral {
                 sink.numeral(decimal);
             } else {
+                // Lean resolves the numeral's `OfNat` instance against the
+                // ascribed type as written, so a document type alias must
+                // be ascribed unfolded (§18.4): `(2 : Nat)`, never
+                // `(2 : count)` for `def count : Type := Nat`.
+                let unfolded = unfold_alias_type(expected_type, ctx);
+                let ascribed = unfolded.as_ref().unwrap_or(expected_type);
                 sink.sym("(");
                 sink.numeral(decimal);
                 sink.ws(" ");
                 sink.sym(":");
                 sink.ws(" ");
-                print_term(sink, expected_type, namer, closure, false, false)?;
+                print_term(sink, ascribed, namer, ctx, false, false)?;
                 sink.sym(")");
             }
         }
@@ -863,26 +940,26 @@ fn print_term(
             ) = (&**function, explicit_args.as_slice())
             {
                 if let [binder] = binders.as_slice() {
-                    return print_exists_unique(sink, binder, body, namer, closure, parens);
+                    return print_exists_unique(sink, binder, body, namer, ctx, parens);
                 }
             }
             // An application with no explicit arguments (an atom whose
             // implicit parameters Lean infers) prints as its head.
             if explicit_args.is_empty() {
-                return print_term(sink, function, namer, closure, parens, false);
+                return print_term(sink, function, namer, ctx, parens, false);
             }
             if parens {
                 sink.sym("(");
             }
-            print_term(sink, function, namer, closure, !is_atomic(function), false)?;
-            let bare = bare_numeral_positions(function, closure, explicit_args.len());
+            print_term(sink, function, namer, ctx, !is_atomic(function), false)?;
+            let bare = bare_numeral_positions(function, ctx.closure, explicit_args.len());
             for (index, argument) in explicit_args.iter().enumerate() {
                 sink.ws(" ");
                 print_term(
                     sink,
                     argument,
                     namer,
-                    closure,
+                    ctx,
                     !is_atomic(argument),
                     bare.get(index).copied().unwrap_or(false),
                 )?;
@@ -897,14 +974,7 @@ fn print_term(
             }
             for binder in binders {
                 if binder.spelling.is_empty() && !body_uses(body, binder.id) {
-                    print_term(
-                        sink,
-                        &binder.ty,
-                        namer,
-                        closure,
-                        !is_atomic(&binder.ty),
-                        false,
-                    )?;
+                    print_term(sink, &binder.ty, namer, ctx, !is_atomic(&binder.ty), false)?;
                     sink.ws(" ");
                     sink.sym("→");
                     sink.ws(" ");
@@ -915,14 +985,14 @@ fn print_term(
                     sink.ws(" ");
                     sink.sym(":");
                     sink.ws(" ");
-                    print_term(sink, &binder.ty, namer, closure, false, false)?;
+                    print_term(sink, &binder.ty, namer, ctx, false, false)?;
                     print_binder_close(sink, binder.mode);
                     sink.ws(" ");
                     sink.sym("→");
                     sink.ws(" ");
                 }
             }
-            print_term(sink, body, namer, closure, false, false)?;
+            print_term(sink, body, namer, ctx, false, false)?;
             if parens {
                 sink.sym(")");
             }
@@ -942,13 +1012,13 @@ fn print_term(
                 sink.ws(" ");
                 sink.sym(":");
                 sink.ws(" ");
-                print_term(sink, &binder.ty, namer, closure, false, false)?;
+                print_term(sink, &binder.ty, namer, ctx, false, false)?;
                 print_binder_close(sink, binder.mode);
             }
             sink.ws(" ");
             sink.sym("=>");
             sink.ws(" ");
-            print_term(sink, body, namer, closure, false, false)?;
+            print_term(sink, body, namer, ctx, false, false)?;
             if parens {
                 sink.sym(")");
             }
@@ -968,14 +1038,14 @@ fn print_term(
             sink.ws(" ");
             sink.sym(":");
             sink.ws(" ");
-            print_term(sink, &binder.ty, namer, closure, false, false)?;
+            print_term(sink, &binder.ty, namer, ctx, false, false)?;
             sink.ws(" ");
             sink.sym(":=");
             sink.ws(" ");
-            print_term(sink, value, namer, closure, false, false)?;
+            print_term(sink, value, namer, ctx, false, false)?;
             sink.sym(";");
             sink.ws(" ");
-            print_term(sink, body, namer, closure, false, false)?;
+            print_term(sink, body, namer, ctx, false, false)?;
             if parens {
                 sink.sym(")");
             }
@@ -1052,9 +1122,9 @@ fn print_term_expr(
     sink: &mut Sink<'_>,
     term: &Term,
     namer: &mut Namer,
-    closure: &Closure,
+    ctx: TermCtx<'_>,
 ) -> Result<(), Diagnostic> {
-    print_term(sink, term, namer, closure, false, false)
+    print_term(sink, term, namer, ctx, false, false)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1062,7 +1132,7 @@ fn print_proof(
     sink: &mut Sink<'_>,
     proof: &Proof,
     namer: &mut Namer,
-    closure: &Closure,
+    ctx: TermCtx<'_>,
     indent: usize,
     steps: &mut StepCursor<'_>,
 ) -> Result<(), Diagnostic> {
@@ -1074,7 +1144,7 @@ fn print_proof(
     match proof {
         Proof::Sequence(inner) => {
             for step in inner {
-                print_proof(sink, step, namer, closure, indent, steps)?;
+                print_proof(sink, step, namer, ctx, indent, steps)?;
             }
         }
         Proof::Intro(locals) => {
@@ -1095,26 +1165,26 @@ fn print_proof(
             sink.ws(&pad);
             sink.kw("exact");
             sink.ws(" ");
-            print_term_expr(sink, term, namer, closure)?;
+            print_term_expr(sink, term, namer, ctx)?;
             sink.ws("\n");
         }
         Proof::ApplyOne(term) => {
             sink.ws(&pad);
             sink.kw("apply");
             sink.ws(" ");
-            print_term_expr(sink, term, namer, closure)?;
+            print_term_expr(sink, term, namer, ctx)?;
             sink.ws("\n");
         }
         Proof::Apply { function, premises } => {
             sink.ws(&pad);
             sink.kw("apply");
             sink.ws(" ");
-            print_term_expr(sink, function, namer, closure)?;
+            print_term_expr(sink, function, namer, ctx)?;
             sink.ws("\n");
             // Each premise proof closes its goal, so the sequences follow
             // in premise order on consecutive goals (§16.6).
             for premise in premises {
-                print_proof(sink, premise, namer, closure, indent, steps)?;
+                print_proof(sink, premise, namer, ctx, indent, steps)?;
             }
         }
         Proof::Reflexivity => {
@@ -1127,7 +1197,7 @@ fn print_proof(
             sink.kw("refine");
             sink.ws(" ");
             sink.sym("⟨");
-            print_term_expr(sink, term, namer, closure)?;
+            print_term_expr(sink, term, namer, ctx)?;
             sink.sym(",");
             sink.ws(" ");
             sink.sym("?_");
@@ -1157,13 +1227,13 @@ fn print_proof(
             sink.ws(" ");
             sink.sym(":");
             sink.ws(" ");
-            print_term_expr(sink, proposition, namer, closure)?;
+            print_term_expr(sink, proposition, namer, ctx)?;
             sink.ws(" ");
             sink.sym(":=");
             sink.ws(" ");
             sink.kw("by");
             sink.ws("\n");
-            print_proof(sink, proof, namer, closure, indent + 1, steps)?;
+            print_proof(sink, proof, namer, ctx, indent + 1, steps)?;
         }
         Proof::Rewrite { target, rules } => {
             sink.ws(&pad);
@@ -1179,7 +1249,7 @@ fn print_proof(
                     sink.sym("←");
                     sink.ws(" ");
                 }
-                print_term_expr(sink, &rule.term, namer, closure)?;
+                print_term_expr(sink, &rule.term, namer, ctx)?;
             }
             sink.sym("]");
             if let RewriteTarget::Hypothesis(id) = target {
@@ -1203,7 +1273,7 @@ fn print_proof(
                     sink.sym(",");
                     sink.ws(" ");
                 }
-                print_term_expr(sink, rule, namer, closure)?;
+                print_term_expr(sink, rule, namer, ctx)?;
             }
             sink.sym("]");
             if let RewriteTarget::Hypothesis(id) = target {
@@ -1220,7 +1290,7 @@ fn print_proof(
             sink.kw("constructor");
             sink.ws("\n");
             for branch in branches {
-                print_proof(sink, branch, namer, closure, indent, steps)?;
+                print_proof(sink, branch, namer, ctx, indent, steps)?;
             }
         }
         Proof::Cases { scrutinee, cases } | Proof::Induction { scrutinee, cases } => {
@@ -1231,14 +1301,7 @@ fn print_proof(
                 "induction"
             });
             sink.ws(" ");
-            print_term(
-                sink,
-                scrutinee,
-                namer,
-                closure,
-                !is_atomic(scrutinee),
-                false,
-            )?;
+            print_term(sink, scrutinee, namer, ctx, !is_atomic(scrutinee), false)?;
             sink.ws(" ");
             sink.kw("with");
             sink.ws("\n");
@@ -1269,7 +1332,7 @@ fn print_proof(
                 sink.ws(" ");
                 sink.sym("=>");
                 sink.ws("\n");
-                print_proof(sink, &case.proof, namer, closure, indent + 2, steps)?;
+                print_proof(sink, &case.proof, namer, ctx, indent + 2, steps)?;
             }
         }
         Proof::Calculate {
@@ -1286,7 +1349,7 @@ fn print_proof(
             sink.ws(&pad);
             sink.kw("calc");
             sink.ws(" ");
-            print_term(sink, start, namer, closure, !is_atomic(start), false)?;
+            print_term(sink, start, namer, ctx, !is_atomic(start), false)?;
             let mut first = true;
             for step in chain {
                 if first {
@@ -1299,14 +1362,7 @@ fn print_proof(
                 sink.ws(" ");
                 sink.sym("=");
                 sink.ws(" ");
-                print_term(
-                    sink,
-                    &step.term,
-                    namer,
-                    closure,
-                    !is_atomic(&step.term),
-                    false,
-                )?;
+                print_term(sink, &step.term, namer, ctx, !is_atomic(&step.term), false)?;
                 sink.ws(" ");
                 sink.sym(":=");
                 sink.ws(" ");
@@ -1314,7 +1370,7 @@ fn print_proof(
                     sink,
                     &step.proof,
                     namer,
-                    closure,
+                    ctx,
                     !is_atomic(&step.proof),
                     false,
                 )?;
@@ -1697,14 +1753,14 @@ fn print_mapped_param(
     sink: &mut Sink<'_>,
     binder: &Binder,
     namer: &mut Namer,
-    closure: &Closure,
+    ctx: TermCtx<'_>,
     binders: &BTreeMap<LocalId, (usize, usize)>,
     sentence: (usize, usize),
 ) -> Result<(), Diagnostic> {
     let (start, end) = binders.get(&binder.id).copied().unwrap_or(sentence);
     sink.source = EmitSource::File(start, end);
     sink.role = MapRole::Binder;
-    print_param(sink, binder, namer, closure)
+    print_param(sink, binder, namer, ctx)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1717,6 +1773,7 @@ fn render_declaration(
     closure: &Closure,
 ) -> Result<(), Diagnostic> {
     let node = emitter.node("declaration");
+    let ctx = TermCtx { closure, document };
     let mut namer = Namer::default();
     match &declaration.body {
         DeclBody::TheoremLike { statement, proof } => {
@@ -1744,14 +1801,7 @@ fn render_declaration(
             // binders (§18.3, §18.5), in scope order.
             for binder in &declaration.params {
                 sink.ws(" ");
-                print_mapped_param(
-                    &mut sink,
-                    binder,
-                    &mut namer,
-                    closure,
-                    binders,
-                    origin.sentence,
-                )?;
+                print_mapped_param(&mut sink, binder, &mut namer, ctx, binders, origin.sentence)?;
             }
             let mut rest = statement.clone();
             loop {
@@ -1773,7 +1823,7 @@ fn render_declaration(
                                 &mut sink,
                                 binder,
                                 &mut namer,
-                                closure,
+                                ctx,
                                 binders,
                                 origin.sentence,
                             )?;
@@ -1788,7 +1838,7 @@ fn render_declaration(
             sink.ws(" ");
             sink.sym(":");
             sink.ws(" ");
-            print_term_expr(&mut sink, &rest, &mut namer, closure)?;
+            print_term_expr(&mut sink, &rest, &mut namer, ctx)?;
             sink.ws(" ");
             sink.sym(":=");
             sink.ws(" ");
@@ -1801,7 +1851,7 @@ fn render_declaration(
                 steps: &origin.steps,
                 next: 0,
             };
-            print_proof(&mut sink, proof, &mut namer, closure, 1, &mut cursor)?;
+            print_proof(&mut sink, proof, &mut namer, ctx, 1, &mut cursor)?;
             if cursor.next != cursor.steps.len() {
                 return Err(internal(format!(
                     "declaration `{}` has {} proof-step origins for {} printed steps",
@@ -1841,14 +1891,7 @@ fn render_declaration(
             );
             for binder in &declaration.params {
                 sink.ws(" ");
-                print_mapped_param(
-                    &mut sink,
-                    binder,
-                    &mut namer,
-                    closure,
-                    binders,
-                    origin.sentence,
-                )?;
+                print_mapped_param(&mut sink, binder, &mut namer, ctx, binders, origin.sentence)?;
             }
             // Lift lambda binders into declaration parameters when they
             // mirror the leading signature binders (§18.6).
@@ -1884,26 +1927,19 @@ fn render_declaration(
             };
             for binder in &params {
                 sink.ws(" ");
-                print_mapped_param(
-                    &mut sink,
-                    binder,
-                    &mut namer,
-                    closure,
-                    binders,
-                    origin.sentence,
-                )?;
+                print_mapped_param(&mut sink, binder, &mut namer, ctx, binders, origin.sentence)?;
             }
             sink.source = EmitSource::File(origin.sentence.0, origin.sentence.1);
             sink.role = MapRole::Term;
             sink.ws(" ");
             sink.sym(":");
             sink.ws(" ");
-            print_term_expr(&mut sink, &result_ty, &mut namer, closure)?;
+            print_term_expr(&mut sink, &result_ty, &mut namer, ctx)?;
             sink.ws(" ");
             sink.sym(":=");
             sink.ws("\n");
             sink.ws("  ");
-            print_term_expr(&mut sink, &body, &mut namer, closure)?;
+            print_term_expr(&mut sink, &body, &mut namer, ctx)?;
             sink.ws("\n");
         }
     }
@@ -1914,7 +1950,7 @@ fn print_param(
     sink: &mut Sink<'_>,
     binder: &Binder,
     namer: &mut Namer,
-    closure: &Closure,
+    ctx: TermCtx<'_>,
 ) -> Result<(), Diagnostic> {
     let name = namer.term_binder(binder.id);
     print_binder_open(sink, binder.mode);
@@ -1922,7 +1958,7 @@ fn print_param(
     sink.ws(" ");
     sink.sym(":");
     sink.ws(" ");
-    print_term(sink, &binder.ty, namer, closure, false, false)?;
+    print_term(sink, &binder.ty, namer, ctx, false, false)?;
     print_binder_close(sink, binder.mode);
     Ok(())
 }

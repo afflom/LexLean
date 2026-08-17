@@ -302,6 +302,28 @@ pub(crate) fn run(id: &str) {
                 );
             }
             support::verify_ok(&project);
+
+            // §18.4: a numeral whose expected type is a document type
+            // definition ascribes the type that definition unfolds to.
+            // Lean synthesizes `OfNat` against the type as written, and a
+            // `def count : Type := Nat` carries no instance, so `(0 : count)`
+            // and a bare `0` in that position are both rejected by the
+            // pinned toolchain — the emitted `(0 : Nat)` is not.
+            let aliased = support::alias_numeral_project();
+            let lean = support::lean_text(&support::rendered(&aliased), "Main");
+            assert!(
+                lean.contains("tally (0 : Nat)"),
+                "the numeral ascribes the unfolded type: {lean}"
+            );
+            assert!(
+                !lean.contains("(0 : LexLeanExample.Main.count)") && !lean.contains("tally 0"),
+                "neither the alias nor a bare numeral reaches Lean: {lean}"
+            );
+            assert!(
+                lean.contains("def count : Type :=") && lean.contains("def tally"),
+                "the alias itself is still emitted as a def naming the alias: {lean}"
+            );
+            support::verify_ok(&aliased);
         }
         // §18.7: proof lowering uses only the fixed pinned forms.
         "LN-08" => {

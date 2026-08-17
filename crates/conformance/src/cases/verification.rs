@@ -321,8 +321,9 @@ pub(crate) fn run(id: &str) {
                     "the generated location is a note: {diagnostic:?}"
                 );
                 assert!(
-                    diagnostic.notes.iter().any(|note| note.message
-                        == "generated name `llv0` is the source binder `n`"),
+                    diagnostic.notes.iter().any(
+                        |note| note.message == "generated name `llv0` is the source binder `n`"
+                    ),
                     "the generated name is read back to its source spelling: {diagnostic:?}"
                 );
                 assert!(

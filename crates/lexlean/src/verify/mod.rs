@@ -301,7 +301,10 @@ fn generated_names_in(message: &str) -> Vec<String> {
     let mut previous: Option<char> = None;
     let mut rest = message;
     while !rest.is_empty() {
-        let word: String = rest.chars().take_while(|c| is_lean_ident_char(*c)).collect();
+        let word: String = rest
+            .chars()
+            .take_while(|c| is_lean_ident_char(*c))
+            .collect();
         if word.is_empty() {
             let mut chars = rest.chars();
             previous = chars.next();
@@ -371,11 +374,7 @@ fn generated_name_notes(
             .coverage_source
             .iter()
             .find(|row| matches!(row.binding, Origin::Local(local) if local == id))
-            .and_then(|row| {
-                checked_module
-                    .normalized
-                    .get(row.byte_start..row.byte_end)
-            })
+            .and_then(|row| checked_module.normalized.get(row.byte_start..row.byte_end))
             .map(str::to_owned)
             .or_else(|| {
                 let id = u64::try_from(id).ok()?;
@@ -892,8 +891,8 @@ pub fn run(
                 cwd: &workspace_root,
                 extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
                 home: ChildHome::Toolchain {
-                toolchain_bin: &toolchain_bin,
-            },
+                    toolchain_bin: &toolchain_bin,
+                },
             },
             &limits,
             &normalizer,

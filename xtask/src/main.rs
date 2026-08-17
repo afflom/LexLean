@@ -236,38 +236,6 @@ fn normalize_process_record(mut value: serde_json::Value) -> serde_json::Value {
     value
 }
 
-#[cfg(test)]
-mod tests {
-    use super::normalize_process_record;
-
-    /// RP-15: a committed process record keeps the toolchain-relative path
-    /// of the executable it ran, and only the host prefix is dropped.
-    #[test]
-    fn toolchain_argv_keeps_the_relative_path() {
-        let record = serde_json::json!({
-            "argv": ["env", "/home/someone/.elan/toolchains/x/bin/leanchecker", "M"],
-            "executable_sha256": "00",
-        });
-        let normalized = normalize_process_record(serde_json::json!({
-            "argv": ["env", "$TOOLCHAIN/bin/leanchecker", "M"],
-            "executable_sha256": "00",
-        }));
-        assert_eq!(
-            normalized["argv"],
-            serde_json::json!(["env", "$TOOLCHAIN/bin/leanchecker", "M"]),
-            "which binary ran survives normalization"
-        );
-        assert_eq!(normalized["executable_sha256"], "$EXECUTABLE_SHA256");
-        // A token the verification normalizer did not rewrite is left
-        // exactly as recorded; nothing here invents a placeholder.
-        let untouched = normalize_process_record(record);
-        assert_eq!(
-            untouched["argv"][1],
-            "/home/someone/.elan/toolchains/x/bin/leanchecker"
-        );
-    }
-}
-
 /// Compare a generated `(relative, bytes)` set with a committed tree, both
 /// directions.
 fn compare_tree(
@@ -530,4 +498,36 @@ fn check_fixtures(root: &Path, write: bool) -> Result<(), Fail> {
         println!("check-fixtures: {count} fixtures equal their expected files (§28.2)");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_process_record;
+
+    /// RP-15: a committed process record keeps the toolchain-relative path
+    /// of the executable it ran, and only the host prefix is dropped.
+    #[test]
+    fn toolchain_argv_keeps_the_relative_path() {
+        let record = serde_json::json!({
+            "argv": ["env", "/home/someone/.elan/toolchains/x/bin/leanchecker", "M"],
+            "executable_sha256": "00",
+        });
+        let normalized = normalize_process_record(serde_json::json!({
+            "argv": ["env", "$TOOLCHAIN/bin/leanchecker", "M"],
+            "executable_sha256": "00",
+        }));
+        assert_eq!(
+            normalized["argv"],
+            serde_json::json!(["env", "$TOOLCHAIN/bin/leanchecker", "M"]),
+            "which binary ran survives normalization"
+        );
+        assert_eq!(normalized["executable_sha256"], "$EXECUTABLE_SHA256");
+        // A token the verification normalizer did not rewrite is left
+        // exactly as recorded; nothing here invents a placeholder.
+        let untouched = normalize_process_record(record);
+        assert_eq!(
+            untouched["argv"][1],
+            "/home/someone/.elan/toolchains/x/bin/leanchecker"
+        );
+    }
 }

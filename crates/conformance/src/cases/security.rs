@@ -547,7 +547,11 @@ pub(crate) fn run(id: &str) {
             math.push_str(&"(".repeat(nesting));
             math.push('n');
             math.push_str(&")".repeat(nesting));
-            deep.edit("src/Main.lex.tex", "\\(n + 0 = n\\)", &format!("\\({math} + 0 = n\\)"));
+            deep.edit(
+                "src/Main.lex.tex",
+                "\\(n + 0 = n\\)",
+                &format!("\\({math} + 0 = n\\)"),
+            );
             let error = deep.check_fails_with("LLS8002");
             assert_eq!(error.class.exit_code(), 4);
             let diagnostic = error

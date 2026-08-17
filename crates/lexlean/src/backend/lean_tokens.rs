@@ -401,11 +401,12 @@ mod tests {
             .expect("the pinned lean runs");
         let text = String::from_utf8_lossy(&output.stdout).into_owned()
             + &String::from_utf8_lossy(&output.stderr);
-        let error_lines: std::collections::BTreeSet<usize> = crate::verify::parse_lean_messages(&text)
-            .iter()
-            .filter(|message| message.severity == "error")
-            .map(|message| message.line)
-            .collect();
+        let error_lines: std::collections::BTreeSet<usize> =
+            crate::verify::parse_lean_messages(&text)
+                .iter()
+                .filter(|message| message.severity == "error")
+                .map(|message| message.line)
+                .collect();
         for (index, token) in init_tokens.iter().enumerate() {
             let line = index + 2;
             assert!(

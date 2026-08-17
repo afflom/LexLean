@@ -2295,6 +2295,61 @@ pub fn frames_project() -> P {
     project
 }
 
+// ---- WS-F2 helpers (planted Lean messages, alias-typed numerals) ----
+
+/// The `test.defs` entry for a one-argument function over the document
+/// type alias `count`, denoting this module's `tally` declaration.
+const TALLY_ENTRY: &str = r#"spec = "lexlean/entry/1"
+id = "tally"
+category = "function"
+signature = "(pi ((explicit c (const test.defs::count))) (const test.defs::count))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "tally"
+
+[[form]]
+id = "tally"
+channel = "math"
+surface = "tally"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name tally) (paren (slot 0)))"
+"#;
+
+/// The module of [`alias_numeral_project`]: the document type alias
+/// `count`, a function over it, and a statement applying that function to
+/// a numeral — the numeral whose expected type is the alias.
+pub const ALIAS_NUMERAL_MODULE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.defs@1.0.0}\n\\title{Natural number addition}\n\n\\begin{typedefinition}{count}{test.defs::count}\n\\noaxioms\nA count is defined as \\(ℕ\\).\n\\end{typedefinition}\n\n\\begin{termdefinition}{tally}{test.defs::tally}\n\\noaxioms\nFor every count \\(c\\), \\(tally(c)\\) is defined as \\(c\\).\n\\end{termdefinition}\n\n\\begin{theorem}{tally-zero}\n\\noaxioms\n\\(tally(0) = tally(0)\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+
+/// A project whose numeral is typed by a document type alias (§18.4): the
+/// generated Lean must ascribe the type the alias unfolds to, because Lean
+/// synthesizes `OfNat` against the ascription as written.
+#[must_use]
+pub fn alias_numeral_project() -> P {
+    let project = P::example();
+    let mut entries = defs_entries();
+    entries.push(("tally.toml", TALLY_ENTRY.to_owned()));
+    let entry_refs: Vec<(&str, &str)> = entries
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect();
+    project.add_package(
+        "lexicons/test-defs",
+        "test.defs",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &entry_refs,
+    );
+    project.write("src/Main.lex.tex", ALIAS_NUMERAL_MODULE);
+    project.relock();
+    project
+}
+
 // ---- WS-F2 helpers (planted Lean messages) ----
 
 /// A `lake` wrapper that replaces the compilation of a generated module

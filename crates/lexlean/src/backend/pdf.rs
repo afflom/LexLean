@@ -20,7 +20,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use crate::artifact::canonical_json::Json;
 use crate::artifact::content_id::{pdf_recipe_id, Sha256Digest};
 use crate::code;
-use crate::config::PdfProvider;
+use crate::config::{Limits, PdfProvider};
 use crate::diagnostic::Diagnostic;
 use crate::project::Project;
 use crate::verify::child::{run as run_child, ChildHome, ChildRecord, ChildSpec, Normalizer};
@@ -60,42 +60,54 @@ fn policy(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(code!("LLS8004"), message)
 }
 
-/// Run one provider process through the shared child runner (§25.2,
-/// §25.4, §25.5): the isolated temporary home, no inherited proxy
-/// variables, no shell, and the configured timeout and output caps with
-/// checked arithmetic. A provider that cannot be started is a protocol
-/// failure (LLB6004), not a toolchain mismatch.
-fn run_provider_process(
-    project: &Project,
-    program: &Utf8Path,
-    argv: &[String],
-    workdir: &Utf8Path,
-    home: &Utf8Path,
-    stem: &str,
+/// One provider process, everything but its argv fixed by the run (§19.7).
+struct ProviderStep<'a> {
+    /// The hash-checked provider executable.
+    program: &'a Utf8Path,
+    /// Its digest, already computed from the bytes that were checked.
     executable_sha256: Sha256Digest,
-    normalizer: &Normalizer,
-) -> Result<ChildRecord, Diagnostic> {
-    run_child(
-        &ChildSpec {
-            tool: "pdf",
-            module: Some(stem.to_owned()),
-            program,
-            executable_sha256,
-            argv: argv.to_vec(),
-            cwd: workdir,
-            extra_env: Vec::new(),
-            home: ChildHome::Isolated { home },
-        },
-        &project.config.limits,
-        normalizer,
-    )
-    .map_err(|diagnostic| {
-        if diagnostic.code.as_str() == "LLV7001" {
-            protocol(diagnostic.message)
-        } else {
-            diagnostic
-        }
-    })
+    /// The isolated working directory holding the staged inputs.
+    workdir: &'a Utf8Path,
+    /// The isolated temporary home (§25.4).
+    home: &'a Utf8Path,
+    /// The module stem, recorded with the process.
+    stem: &'a str,
+    /// The configured limits.
+    limits: &'a Limits,
+    /// The verification normalizer, so provider records normalize exactly
+    /// like every other child record (§22.7).
+    normalizer: &'a Normalizer,
+}
+
+impl ProviderStep<'_> {
+    /// Run one step through the shared child runner (§25.2, §25.4, §25.5):
+    /// the isolated home, no inherited proxy variables, no shell, and the
+    /// configured timeout and output caps with checked arithmetic. A
+    /// provider that cannot be started is a protocol failure (LLB6004),
+    /// not a toolchain mismatch.
+    fn run(&self, argv: &[String]) -> Result<ChildRecord, Diagnostic> {
+        run_child(
+            &ChildSpec {
+                tool: "pdf",
+                module: Some(self.stem.to_owned()),
+                program: self.program,
+                executable_sha256: self.executable_sha256,
+                argv: argv.to_vec(),
+                cwd: self.workdir,
+                extra_env: Vec::new(),
+                home: ChildHome::Isolated { home: self.home },
+            },
+            self.limits,
+            self.normalizer,
+        )
+        .map_err(|diagnostic| {
+            if diagnostic.code.as_str() == "LLV7001" {
+                protocol(diagnostic.message)
+            } else {
+                diagnostic
+            }
+        })
+    }
 }
 
 /// Run the configured provider for one canonical `.tex` (§19.7).
@@ -171,16 +183,16 @@ pub fn run_provider(
     resource_rows.sort_by(|a, b| a.0.cmp(&b.0));
 
     // 2–3. The version probe with no shell, stdout normalized and checked.
-    let version = run_provider_process(
-        project,
-        &program_path,
-        &provider.version_argv,
-        &workdir,
-        &home,
+    let step = ProviderStep {
+        program: &program_path,
+        executable_sha256: program_sha256,
+        workdir: &workdir,
+        home: &home,
         stem,
-        program_sha256,
+        limits,
         normalizer,
-    )?;
+    };
+    let version = step.run(&provider.version_argv)?;
     let observed_version = Sha256Digest::of(version.stdout.as_bytes());
     if observed_version != provider.version_stdout_sha256 {
         return Err(policy(format!(
@@ -200,16 +212,7 @@ pub fn run_provider(
             other => other.to_owned(),
         })
         .collect();
-    let compile = run_provider_process(
-        project,
-        &program_path,
-        &expanded,
-        &workdir,
-        &home,
-        stem,
-        program_sha256,
-        normalizer,
-    )?;
+    let compile = step.run(&expanded)?;
     if compile.exit_code != 0 {
         return Err(protocol(format!(
             "pdf provider exited {}: {}",
