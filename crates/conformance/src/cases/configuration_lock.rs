@@ -274,8 +274,10 @@ pub(crate) fn run(id: &str) {
             // Non-UTF-8 paths are an environment failure (§8.3), never a
             // security violation. Only Unix file names carry arbitrary
             // bytes; Windows names are UTF-16 and cannot express this.
+            #[cfg(not(unix))]
+            support::unix_only("CF-03", "unix file name carrying arbitrary bytes");
             #[cfg(unix)]
-            {
+            if support::non_utf8_names_backed("CF-03") {
                 use std::os::unix::ffi::OsStrExt;
                 let project = P::example();
                 let bad = std::ffi::OsStr::from_bytes(b"src/Bad\xff.lex.tex");
@@ -716,6 +718,9 @@ pub(crate) fn run(id: &str) {
             {
                 use std::os::unix::ffi::OsStrExt;
                 let bad = path_package_project();
+                if !support::non_utf8_names_backed("CF-09") {
+                    return;
+                }
                 let name = std::ffi::OsStr::from_bytes(b"bad\xff.toml");
                 std::fs::write(
                     bad.root
@@ -937,6 +942,9 @@ pub(crate) fn run(id: &str) {
         }
         // §23.3: duplicate logical modules and case-folded collisions.
         "CF-15" => {
+            if !support::case_sensitive_backed("CF-15") {
+                return;
+            }
             let project = P::example();
             let main = project.read("src/Main.lex.tex");
             project.write("src/MAin.lex.tex", &main);

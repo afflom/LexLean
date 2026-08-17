@@ -353,15 +353,17 @@ pub(crate) fn run(id: &str) {
                 support::expect_code(&error, "LLS8001");
             }
 
-            let folded = P::example();
-            folded.write("src/MAin.lex.tex", &folded.read("src/Main.lex.tex"));
-            folded.edit(
-                "lexlean.toml",
-                "entrypoints = [\"src/Main.lex.tex\"]",
-                "entrypoints = [\"src/MAin.lex.tex\", \"src/Main.lex.tex\"]",
-            );
-            folded.relock();
-            folded.check_fails_with("LLC0104");
+            if support::case_sensitive_backed("SE-02") {
+                let folded = P::example();
+                folded.write("src/MAin.lex.tex", &folded.read("src/Main.lex.tex"));
+                folded.edit(
+                    "lexlean.toml",
+                    "entrypoints = [\"src/Main.lex.tex\"]",
+                    "entrypoints = [\"src/MAin.lex.tex\", \"src/Main.lex.tex\"]",
+                );
+                folded.relock();
+                folded.check_fails_with("LLC0104");
+            }
 
             // Two paths naming one file by identity (a hard link) are a
             // filesystem identity conflict (§25.1).
@@ -770,6 +772,9 @@ pub(crate) fn run(id: &str) {
         // §25.6: confined staging, removed on success and failure, and
         // never in the project root.
         "SE-07" => {
+            if !support::posix_shell_backed("SE-07") {
+                return;
+            }
             let project = P::example();
             project.build_ok();
             let failing = P::example();
@@ -979,6 +984,9 @@ pub(crate) fn run(id: &str) {
         }
         // §11.4: exact 40-hex HTTPS-only git, no submodules or LFS.
         "SE-12" => {
+            if !support::posix_shell_backed("SE-12") {
+                return;
+            }
             const GOOD_URL: &str = "url = \"https://example.invalid/repo.git\"";
             const GOOD_REVISION: &str = "revision = \"0123456789abcdef0123456789abcdef01234567\"";
             const GOOD_SUBDIRECTORY: &str = "subdirectory = \"pkg\"";

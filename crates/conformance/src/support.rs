@@ -1757,6 +1757,60 @@ pub fn posix_shell_backed(id: &str) -> bool {
     false
 }
 
+/// Does this host's filesystem hold two names that differ only in case?
+///
+/// §23.3's case-fold collision needs both `Main.lex.tex` and `MAin.lex.tex`
+/// to exist at once. Apple's default filesystem and NTFS are
+/// case-insensitive: the second write lands on the first file, so the
+/// collision the case is about cannot be constructed there and what the
+/// compiler reports instead is an ordinary missing entrypoint. The rule the
+/// compiler enforces is the reason the collision matters on those hosts;
+/// the *test* of it needs a filesystem that can express one (§8.3).
+#[must_use]
+pub fn case_sensitive_backed(id: &str) -> bool {
+    let dir = tempfile::Builder::new()
+        .prefix("lexlean-case-fold-")
+        .tempdir()
+        .expect("tempdir");
+    std::fs::write(dir.path().join("casefold"), b"a").expect("write");
+    std::fs::write(dir.path().join("CASEFOLD"), b"bb").expect("write");
+    let distinct = std::fs::read(dir.path().join("casefold"))
+        .map(|bytes| bytes.len() == 1)
+        .unwrap_or(false);
+    if !distinct {
+        eprintln!(
+            "{id}: this host's filesystem folds case, so two names differing only in case cannot both exist; only the platform-independent assertions ran (§8.3)"
+        );
+    }
+    distinct
+}
+
+/// Does this host's filesystem accept a file name that is not valid UTF-8?
+///
+/// §8.3 makes a non-UTF-8 path an environment diagnostic, and the case that
+/// proves it has to create one. Linux passes the bytes through; Apple's
+/// filesystems enforce UTF-8 and refuse the name, and a Windows name is
+/// UTF-16 and cannot express the byte at all.
+#[must_use]
+pub fn non_utf8_names_backed(id: &str) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = tempfile::Builder::new()
+            .prefix("lexlean-non-utf8-")
+            .tempdir()
+            .expect("tempdir");
+        let name = std::ffi::OsStr::from_bytes(b"probe\xff");
+        if std::fs::write(dir.path().join(name), b"x").is_ok() {
+            return true;
+        }
+    }
+    eprintln!(
+        "{id}: this host's filesystem refuses a name that is not valid UTF-8; only the platform-independent assertions ran (§8.3)"
+    );
+    false
+}
+
 /// Report that a case's unix-only half did not run on this host (§8.3).
 ///
 /// A `#[cfg(unix)]` block inside a case drops its assertions elsewhere in

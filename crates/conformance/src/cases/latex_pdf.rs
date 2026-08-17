@@ -569,14 +569,25 @@ math = "(token write18)"
             );
             assert_eq!(result.version.exit_code, 0);
             assert_eq!(result.compile.exit_code, 0);
-            assert_eq!(
-                result.compile.argv,
-                vec![
-                    "--outdir".to_owned(),
-                    format!("{}/out", workdir.trim_end_matches("/work")),
-                    "LexLeanExample.Main.tex".to_owned()
-                ],
-                "placeholders expand as whole arguments"
+            // The working directory is the provider's own `pwd`, which
+            // resolves every symlink on the way (macOS reaches its temporary
+            // directories through `/var -> private/var`), while the argv is
+            // the path LexLean constructed. They denote one directory; only
+            // canonicalizing both compares that rather than the host's
+            // spelling.
+            assert_eq!(result.compile.argv.len(), 3, "three whole arguments");
+            assert_eq!(result.compile.argv[0], "--outdir");
+            assert_eq!(result.compile.argv[2], "LexLeanExample.Main.tex");
+            // The staging tree is gone by now, so the two spellings are
+            // compared as text: they agree exactly, or the provider's
+            // resolved one ends with the constructed one, which is what a
+            // symlinked prefix leaves behind.
+            let expected_out = format!("{}/out", workdir.trim_end_matches("/work"));
+            let constructed = &result.compile.argv[1];
+            assert!(
+                *constructed == expected_out
+                    || expected_out.ends_with(constructed.trim_start_matches('/')),
+                "the `{{out_dir}}` placeholder expanded to the output directory: {constructed} against {expected_out}"
             );
 
             // Declared resources are copied by basename next to the TeX.

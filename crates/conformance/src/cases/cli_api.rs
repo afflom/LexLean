@@ -269,11 +269,11 @@ pub(crate) fn run(id: &str) {
             // first (`fmt --check` passes on it), so the expected bytes are
             // an independent oracle rather than the formatter's own output.
             let helper = "\\begin{lexlean}{Helper}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\\end{lexlean}\n";
-            let aux = "\\begin{lexlean}{Aux}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\\end{lexlean}\n";
+            let alpha = "\\begin{lexlean}{Alpha}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\\end{lexlean}\n";
             let expected_main = support::DEFS_MODULE
                 .replacen(
                     "\\useglossary{test.defs@1.0.0}\n",
-                    "\\useglossary{test.defs@1.0.0}\n\\importmodule{Aux}\n\\importmodule{Helper}\n",
+                    "\\useglossary{test.defs@1.0.0}\n\\importmodule{Alpha}\n\\importmodule{Helper}\n",
                     1,
                 )
                 .replace(
@@ -283,7 +283,7 @@ pub(crate) fn run(id: &str) {
                 .replace("\\(k = k\\)", "\\(k ≠ k\\)");
             let direct = support::defs_project();
             direct.write("src/Helper.lex.tex", helper);
-            direct.write("src/Aux.lex.tex", aux);
+            direct.write("src/Alpha.lex.tex", alpha);
             direct.write("src/Main.lex.tex", &expected_main);
             let (exit, _, stderr) = direct.cli(&["fmt", "--check", "--all"]);
             assert_eq!(exit, 0, "the baseline fixture is canonical: {stderr}");
@@ -291,11 +291,11 @@ pub(crate) fn run(id: &str) {
 
             let messy = support::defs_project();
             messy.write("src/Helper.lex.tex", &helper.replace('\n', "\r\n"));
-            messy.write("src/Aux.lex.tex", aux);
+            messy.write("src/Alpha.lex.tex", alpha);
             let messy_main = expected_main
                 .replacen(
-                    "\\importmodule{Aux}\n\\importmodule{Helper}\n",
-                    "\\importmodule{Helper}\n\\importmodule{Aux}\n",
+                    "\\importmodule{Alpha}\n\\importmodule{Helper}\n",
+                    "\\importmodule{Helper}\n\\importmodule{Alpha}\n",
                     1,
                 )
                 .replace("\\(k ≠ k\\)", "\\(k  =\u{338}  k\\)")
@@ -316,8 +316,8 @@ pub(crate) fn run(id: &str) {
             );
             assert_eq!(messy.read("src/Helper.lex.tex"), helper, "CRLF became LF");
             assert_eq!(
-                messy.read("src/Aux.lex.tex"),
-                aux,
+                messy.read("src/Alpha.lex.tex"),
+                alpha,
                 "untouched when canonical"
             );
             let (exit, stdout, _) = messy.cli(&["fmt"]);
