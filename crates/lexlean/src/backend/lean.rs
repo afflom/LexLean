@@ -30,7 +30,9 @@ use crate::diagnostic::Diagnostic;
 use crate::ir::declaration::{DeclBody, Declaration};
 use crate::ir::document::{Block, DocumentModule};
 use crate::ir::proof::{Proof, RewriteTarget};
-use crate::ir::term::{Binder, CoreRef, ExternalConstRef, GlobalRef, LocalId, Term, Universe};
+use crate::ir::term::{
+    Binder, CoreRef, DefinedLexiconRef, ExternalConstRef, GlobalRef, LocalId, Term, Universe,
+};
 use crate::lexicon::entry::{Denotation, Entry};
 use crate::lexicon::lse::{BinderMode, Lse, QualifiedId};
 use crate::lexicon::resolve::Closure;
@@ -45,14 +47,46 @@ struct Namer {
     term_count: usize,
     proof_count: usize,
     synthetic_count: u64,
+    /// The locals this declaration's generated Lean references (§17.8; see
+    /// [`declaration_uses`]). A binder outside this set is bound and never
+    /// mentioned, so its generated name carries the `_` prefix that marks a
+    /// deliberate binding: pinned Lean's `unusedVariables` linter warns
+    /// otherwise, and a warning fails verification (§20.2).
+    used: BTreeSet<LocalId>,
 }
 
 impl Namer {
+    fn for_declaration(declaration: &Declaration) -> Self {
+        let mut used = BTreeSet::new();
+        // An inherited section parameter may be named only by a later
+        // parameter's type (`(llv0 : Nat) (llv1 : Fin llv0)`, §18.3), which
+        // the statement no longer holds: the parameter types are part of
+        // what the declaration references.
+        for param in &declaration.params {
+            collect_locals(&param.ty, &mut used);
+        }
+        declaration_uses(&declaration.body, &mut used);
+        Self {
+            used,
+            ..Self::default()
+        }
+    }
+
+    /// The name of a binder at `index` in its class: the §17.8 spelling,
+    /// prefixed by `_` when nothing references it.
+    fn binder_name(&self, prefix: &str, index: usize, id: LocalId) -> String {
+        if self.used.contains(&id) {
+            format!("{prefix}{index}")
+        } else {
+            format!("_{prefix}{index}")
+        }
+    }
+
     fn term_binder(&mut self, id: LocalId) -> String {
         if let Some(existing) = self.names.get(&id) {
             return existing.clone();
         }
-        let name = format!("llv{}", self.term_count);
+        let name = self.binder_name("llv", self.term_count, id);
         self.term_count += 1;
         self.names.insert(id, name.clone());
         name
@@ -62,7 +96,7 @@ impl Namer {
         if let Some(existing) = self.names.get(&id) {
             return existing.clone();
         }
-        let name = format!("llh{}", self.proof_count);
+        let name = self.binder_name("llh", self.proof_count, id);
         self.proof_count += 1;
         self.names.insert(id, name.clone());
         name
@@ -76,10 +110,14 @@ impl Namer {
     }
 
     /// A compiler-invented binder identity that no elaborated local can
-    /// share (elaboration allocates upward from zero).
+    /// share (elaboration allocates upward from zero). The backend names a
+    /// synthetic binder only where it also references it, so the identity
+    /// counts as used.
     fn synthetic(&mut self) -> LocalId {
         self.synthetic_count += 1;
-        LocalId(u64::MAX - self.synthetic_count)
+        let id = LocalId(u64::MAX - self.synthetic_count);
+        self.used.insert(id);
+        id
     }
 }
 
@@ -717,6 +755,156 @@ pub fn print_lse_type(
 // Term printing
 // ---------------------------------------------------------------------------
 
+/// The beta-reduct of a saturated application of a defined lexicon value
+/// (§13.6): the value's body with each binder replaced by the applied
+/// argument term. Generated Lean then states the definition's meaning
+/// directly, exactly as the elaborator read it (§17.6 unfolds the same
+/// value), instead of applying a lambda in place. `None` — the application
+/// prints as the applied lambda, which is the same term — when the body
+/// holds an LSE form with no backend term equivalent: a numeral, whose
+/// expected type only elaboration determines; a document denotation, whose
+/// generated name is linked per module; a core constructor with no closed
+/// global (the implication arrow is a `Pi`, not a constant); or an entry
+/// without a signature hash.
+fn beta_reduce_defined(
+    global: &GlobalRef,
+    args: &[Term],
+    ctx: TermCtx<'_>,
+    namer: &mut Namer,
+) -> Option<Term> {
+    let GlobalRef::DefinedLexicon(defined) = global else {
+        return None;
+    };
+    let qualified = QualifiedId::parse(&defined.entry).ok()?;
+    let entry = ctx.closure.entry(&qualified)?;
+    let Denotation::Defined { value, .. } = &entry.denotation else {
+        return None;
+    };
+    let Lse::Lam(binders, body) = value else {
+        return None;
+    };
+    if binders.len() != args.len()
+        || binders
+            .iter()
+            .any(|binder| binder.mode != BinderMode::Explicit)
+    {
+        return None;
+    }
+    let mut scope: Vec<(String, Term)> = Vec::new();
+    for (binder, argument) in binders.iter().zip(args) {
+        scope.push((binder.name.clone(), argument.clone()));
+    }
+    lse_body_term(body, ctx, namer, &mut scope)
+}
+
+/// Convert a defined value's body to a term, resolving constants through
+/// the closure and locals through `scope` (see [`beta_reduce_defined`]).
+fn lse_body_term(
+    lse: &Lse,
+    ctx: TermCtx<'_>,
+    namer: &mut Namer,
+    scope: &mut Vec<(String, Term)>,
+) -> Option<Term> {
+    Some(match lse {
+        Lse::SortProp => Term::Sort(Universe::Num(0)),
+        Lse::SortType(universe) => Term::Sort(Universe::Succ(Box::new(lse_universe(universe)))),
+        Lse::Const(id, universes) => Term::Global(
+            defined_body_global(id, ctx)?,
+            universes.iter().map(lse_universe).collect(),
+        ),
+        Lse::Local(name) => scope
+            .iter()
+            .rev()
+            .find(|(bound, _)| bound == name)
+            .map(|(_, term)| term.clone())?,
+        Lse::App(function, arguments) => {
+            let function = lse_body_term(function, ctx, namer, scope)?;
+            let mut explicit_args = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                explicit_args.push(lse_body_term(argument, ctx, namer, scope)?);
+            }
+            Term::App {
+                function: Box::new(function),
+                explicit_args,
+                omitted_implicit_binders: Vec::new(),
+            }
+        }
+        Lse::Pi(binders, body) | Lse::Lam(binders, body) => {
+            let depth = scope.len();
+            let mut ir_binders = Vec::with_capacity(binders.len());
+            for binder in binders {
+                let Some(ty) = lse_body_term(&binder.ty, ctx, namer, scope) else {
+                    scope.truncate(depth);
+                    return None;
+                };
+                let id = namer.synthetic();
+                scope.push((binder.name.clone(), Term::Local(id)));
+                ir_binders.push(Binder {
+                    id,
+                    mode: binder.mode,
+                    ty,
+                    spelling: binder.name.clone(),
+                });
+            }
+            let body = lse_body_term(body, ctx, namer, scope);
+            scope.truncate(depth);
+            let body = Box::new(body?);
+            if matches!(lse, Lse::Pi(..)) {
+                Term::Pi {
+                    binders: ir_binders,
+                    body,
+                }
+            } else {
+                Term::Lambda {
+                    binders: ir_binders,
+                    body,
+                }
+            }
+        }
+        // A numeral needs the expected type elaboration determined, and a
+        // `let` binder needs its value's type; neither is available here.
+        Lse::Nat(_) | Lse::Let { .. } => return None,
+    })
+}
+
+/// The global a constant in a defined value's body denotes.
+fn defined_body_global(id: &QualifiedId, ctx: TermCtx<'_>) -> Option<GlobalRef> {
+    let entry = ctx.closure.entry(id)?;
+    Some(match &entry.denotation {
+        Denotation::Core { constructor } => {
+            GlobalRef::Core(CoreRef::from_constructor(constructor)?)
+        }
+        Denotation::Lean { module, name } => GlobalRef::External(ExternalConstRef {
+            package: id.package.clone(),
+            entry: id.to_string(),
+            lean_module: module.clone(),
+            lean_name: name.clone(),
+            signature_hash: entry.signature_hash?,
+        }),
+        Denotation::Defined { .. } => GlobalRef::DefinedLexicon(DefinedLexiconRef {
+            package: id.package.clone(),
+            entry: id.to_string(),
+            signature_hash: entry.signature_hash?,
+        }),
+        Denotation::Document { .. } => return None,
+    })
+}
+
+/// An LSE universe as an IR universe.
+fn lse_universe(universe: &crate::lexicon::lse::Universe) -> Universe {
+    match universe {
+        crate::lexicon::lse::Universe::Num(n) => Universe::Num(*n),
+        crate::lexicon::lse::Universe::Var(name) => Universe::Var(name.clone()),
+        crate::lexicon::lse::Universe::Succ(inner) => Universe::Succ(Box::new(lse_universe(inner))),
+        crate::lexicon::lse::Universe::Max(items) => {
+            Universe::Max(items.iter().map(lse_universe).collect())
+        }
+        crate::lexicon::lse::Universe::IMax(left, right) => {
+            Universe::IMax(Box::new(lse_universe(left)), Box::new(lse_universe(right)))
+        }
+    }
+}
+
 fn is_atomic(term: &Term) -> bool {
     match term {
         Term::Local(_) | Term::Global(..) | Term::Sort(_) | Term::NatLiteral { .. } => true,
@@ -1012,6 +1200,14 @@ fn print_term(
                     return print_exists_unique(sink, binder, body, namer, ctx, parens);
                 }
             }
+            // A saturated application of a defined lexicon value prints as
+            // its beta-reduct (§13.6, §18.4): the value's meaning, not a
+            // lambda applied in place.
+            if let Term::Global(global, _) = &**function {
+                if let Some(reduced) = beta_reduce_defined(global, explicit_args, ctx, namer) {
+                    return print_term(sink, &reduced, namer, ctx, parens, false);
+                }
+            }
             // An application with no explicit arguments (an atom whose
             // implicit parameters Lean infers) prints as its head.
             if explicit_args.is_empty() {
@@ -1127,6 +1323,88 @@ fn body_uses(term: &Term, id: LocalId) -> bool {
     let mut used = BTreeSet::new();
     collect_locals(term, &mut used);
     used.contains(&id)
+}
+
+/// Every local a declaration's generated Lean references: the locals of
+/// its statement, definition type and value, and every proof term, plus a
+/// hypothesis a rewrite or simplification names as its target. A binder
+/// introduction (a `Pi`/`Lambda`/`Let` binder, an `intro`, a `have`, a case
+/// binder) is not a reference, so a binder whose identity is absent here is
+/// bound and unused.
+fn declaration_uses(body: &DeclBody, out: &mut BTreeSet<LocalId>) {
+    match body {
+        DeclBody::TheoremLike { statement, proof } => {
+            collect_locals(statement, out);
+            proof_uses(proof, out);
+        }
+        DeclBody::Definition { ty, value, .. } => {
+            collect_locals(ty, out);
+            collect_locals(value, out);
+        }
+    }
+}
+
+/// The locals a proof references (see [`declaration_uses`]).
+fn proof_uses(proof: &Proof, out: &mut BTreeSet<LocalId>) {
+    let target_use = |target: &RewriteTarget, out: &mut BTreeSet<LocalId>| {
+        if let RewriteTarget::Hypothesis(id) = target {
+            out.insert(*id);
+        }
+    };
+    match proof {
+        Proof::Sequence(steps) => {
+            for step in steps {
+                proof_uses(step, out);
+            }
+        }
+        // `intro` binds; it does not reference.
+        Proof::Intro(_) | Proof::Reflexivity | Proof::SelectLeft | Proof::SelectRight => {}
+        Proof::Exact(term) | Proof::ApplyOne(term) | Proof::Witness(term) => {
+            collect_locals(term, out);
+        }
+        Proof::Apply { function, premises } => {
+            collect_locals(function, out);
+            for premise in premises {
+                proof_uses(premise, out);
+            }
+        }
+        Proof::Have {
+            proposition, proof, ..
+        } => {
+            collect_locals(proposition, out);
+            proof_uses(proof, out);
+        }
+        Proof::Rewrite { target, rules } => {
+            target_use(target, out);
+            for rule in rules {
+                collect_locals(&rule.term, out);
+            }
+        }
+        Proof::SimplifyOnly { target, rules } => {
+            target_use(target, out);
+            for rule in rules {
+                collect_locals(rule, out);
+            }
+        }
+        Proof::Constructor(branches) => {
+            for branch in branches {
+                proof_uses(branch, out);
+            }
+        }
+        Proof::Cases { scrutinee, cases } | Proof::Induction { scrutinee, cases } => {
+            collect_locals(scrutinee, out);
+            for case in cases {
+                proof_uses(&case.proof, out);
+            }
+        }
+        Proof::Calculate { start, steps, .. } => {
+            collect_locals(start, out);
+            for step in steps {
+                collect_locals(&step.term, out);
+                collect_locals(&step.proof, out);
+            }
+        }
+    }
 }
 
 fn collect_locals(term: &Term, out: &mut BTreeSet<LocalId>) {
@@ -1843,7 +2121,7 @@ fn render_declaration(
 ) -> Result<(), Diagnostic> {
     let node = emitter.node("declaration");
     let ctx = TermCtx { closure, document };
-    let mut namer = Namer::default();
+    let mut namer = Namer::for_declaration(declaration);
     match &declaration.body {
         DeclBody::TheoremLike { statement, proof } => {
             let mut sink = Sink {

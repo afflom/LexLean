@@ -324,6 +324,32 @@ pub(crate) fn run(id: &str) {
                 "the alias itself is still emitted as a def naming the alias: {lean}"
             );
             support::verify_ok(&aliased);
+
+            // §13.6, §18.4: a saturated application of a defined lexicon
+            // value prints as its beta-reduct — the value's meaning, the
+            // same term the elaborator read (§17.6) — not a lambda applied
+            // in place. `lexlean.std.nat::ne` is `fun a b => Not (Eq a b)`.
+            let defined = P::example();
+            defined.edit(
+                "src/Main.lex.tex",
+                "For every natural number \\(n\\), \\(n + 0 = n\\).",
+                "For every natural number \\(n\\), not \\(n + 0 ≠ n\\).",
+            );
+            defined.edit(
+                "src/Main.lex.tex",
+                "Close the goal by reflexivity.",
+                "Assume \\(h\\).\nApply \\(h\\).\nClose the goal by reflexivity.",
+            );
+            let lean = support::lean_text(&support::rendered(&defined), "Main");
+            assert!(
+                lean.contains("Not (Not (Eq (Nat.add llv0 0) llv0))"),
+                "the defined value is beta-reduced: {lean}"
+            );
+            assert!(
+                !lean.contains("fun (x"),
+                "no lambda is applied in place: {lean}"
+            );
+            support::verify_ok(&defined);
         }
         // §18.7: proof lowering uses only the fixed pinned forms.
         "LN-08" => {

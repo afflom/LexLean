@@ -294,7 +294,8 @@ fn is_lean_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-/// The generated local names (`llv<n>`, `llh<n>`, §17.8) a Lean message
+/// The generated local names (`llv<n>`, `llh<n>`, §17.8, each optionally
+/// carrying the `_` prefix an unreferenced binder gets) a Lean message
 /// mentions, in first-mention order.
 fn generated_names_in(message: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
@@ -312,9 +313,10 @@ fn generated_names_in(message: &str) -> Vec<String> {
             continue;
         }
         let starts_word = previous.is_none_or(|c| !is_lean_ident_char(c));
-        let generated = word.len() > 3
-            && (word.starts_with("llv") || word.starts_with("llh"))
-            && word[3..].chars().all(|c| c.is_ascii_digit());
+        let stem = word.strip_prefix('_').unwrap_or(&word);
+        let generated = stem.len() > 3
+            && (stem.starts_with("llv") || stem.starts_with("llh"))
+            && stem[3..].chars().all(|c| c.is_ascii_digit());
         if starts_word && generated && !names.contains(&word) {
             names.push(word.clone());
         }

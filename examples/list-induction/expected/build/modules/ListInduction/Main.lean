@@ -25,7 +25,7 @@ public theorem append_nil (llv0 : Type) (llv1 : List llv0) : Eq (List.append llv
 public theorem succ_add_doc (llv0 : Nat) (llv1 : Nat) : Eq (Nat.add (Nat.succ llv0) llv1) (Nat.succ (Nat.add llv0 llv1)) := by
   exact Nat.succ_add llv0 llv1
 
-public theorem length_append (llv0 : Type) (llv1 : List llv0) (llv2 : List llv0) : (fun (x0 : Nat) (x1 : Nat) => Eq x0 x1) (List.length (List.append llv1 llv2)) (Nat.add (List.length llv1) (List.length llv2)) := by
+public theorem length_append (llv0 : Type) (llv1 : List llv0) (llv2 : List llv0) : Eq (List.length (List.append llv1 llv2)) (Nat.add (List.length llv1) (List.length llv2)) := by
   exact List.length_append
 
 end ListInduction.Main

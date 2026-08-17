@@ -372,6 +372,39 @@ pub(crate) fn run(id: &str) {
                 );
                 project.check_ok();
             }
+
+            // A binder nothing references keeps its §17.8 index and carries
+            // the `_` prefix that marks a deliberate binding: pinned Lean's
+            // unused-variable linter warns otherwise, and a warning fails
+            // verification (§20.2). The theorem still states, and proves,
+            // the quantified proposition the source wrote.
+            let unused = P::example();
+            unused.edit(
+                "src/Main.lex.tex",
+                "For every natural number \\(n\\), \\(n + 0 = n\\).",
+                "For every natural number \\(n\\) and natural number \\(m\\), \\(n + 0 = n\\).",
+            );
+            let lean = support::lean_text(&support::rendered(&unused), "Main");
+            assert!(
+                lean.contains(
+                    "public theorem add_zero (llv0 : Nat) (_llv1 : Nat) : Eq (Nat.add llv0 0) llv0 := by"
+                ),
+                "an unreferenced lifted binder is `_llv1`: {lean}"
+            );
+            support::verify_ok(&unused);
+
+            let unused_hypothesis = P::example();
+            unused_hypothesis.edit(
+                "src/Main.lex.tex",
+                "For every natural number \\(n\\), \\(n + 0 = n\\).\n\\begin{proof}\nClose the goal by reflexivity.",
+                "For every natural number \\(n\\), if \\(n = n\\), then \\(n + 0 = n\\).\n\\begin{proof}\nAssume \\(h\\).\nClose the goal by reflexivity.",
+            );
+            let lean = support::lean_text(&support::rendered(&unused_hypothesis), "Main");
+            assert!(
+                lean.contains("  intro _llh0\n"),
+                "an unreferenced introduced hypothesis is `_llh0`: {lean}"
+            );
+            support::verify_ok(&unused_hypothesis);
         }
         // §17.9: alpha-safe serialization with dense binder indices.
         "SM-09" => {

@@ -221,7 +221,7 @@ pub(crate) fn run(id: &str) {
             );
             corpus_exact(
                 "exists_unique",
-                "public theorem exists_unique : Exists (fun (llv0 : Nat) => And (Eq llv0 (0 : Nat)) ((llv1 : Nat) → (Eq llv1 (0 : Nat)) → Eq llv1 llv0)) := by\n  refine ⟨(0 : Nat), ?_⟩\n  constructor\n  rfl\n  intro llh0 llh1\n  exact llh1",
+                "public theorem exists_unique : Exists (fun (llv0 : Nat) => And (Eq llv0 (0 : Nat)) ((llv1 : Nat) → (Eq llv1 (0 : Nat)) → Eq llv1 llv0)) := by\n  refine ⟨(0 : Nat), ?_⟩\n  constructor\n  rfl\n  intro _llh0 llh1\n  exact llh1",
             );
             fails_with(
                 &theorem_module(
@@ -249,7 +249,7 @@ pub(crate) fn run(id: &str) {
             );
             corpus_exact(
                 "cases_nat",
-                "public theorem cases_nat (llv0 : Nat) : Or (Eq (Nat.add llv0 0) llv0) (Eq llv0 (1 : Nat)) := by\n  cases llv0 with\n    | zero =>\n      left\n      rfl\n    | succ llh0 =>\n      left\n      rfl",
+                "public theorem cases_nat (llv0 : Nat) : Or (Eq (Nat.add llv0 0) llv0) (Eq llv0 (1 : Nat)) := by\n  cases llv0 with\n    | zero =>\n      left\n      rfl\n    | succ _llh0 =>\n      left\n      rfl",
             );
             fails_with(
                 &theorem_module(
@@ -367,7 +367,7 @@ pub(crate) fn run(id: &str) {
             );
             corpus_exact(
                 "constructor_iff",
-                "public theorem constructor_iff (llv0 : Nat) : Iff (Eq (Nat.add llv0 0) llv0) (Eq llv0 llv0) := by\n  constructor\n  intro llh0\n  rfl\n  intro llh1\n  rfl",
+                "public theorem constructor_iff (llv0 : Nat) : Iff (Eq (Nat.add llv0 0) llv0) (Eq llv0 llv0) := by\n  constructor\n  intro _llh0\n  rfl\n  intro _llh1\n  rfl",
             );
             corpus_exact(
                 "constructor_structure",
@@ -442,7 +442,7 @@ pub(crate) fn run(id: &str) {
         "PF-12" => {
             corpus_exact(
                 "zero_add",
-                &format!("public theorem zero_add (llv0 : Nat) : Eq (Nat.add 0 llv0) llv0 := by\n  induction llv0 with\n    | zero =>\n      rfl\n    | succ llh0 llh1 =>\n      rw [{M}.add_succ]\n      apply {M}.succ_congr\n      exact llh1"),
+                &format!("public theorem zero_add (llv0 : Nat) : Eq (Nat.add 0 llv0) llv0 := by\n  induction llv0 with\n    | zero =>\n      rfl\n    | succ _llh0 llh1 =>\n      rw [{M}.add_succ]\n      apply {M}.succ_congr\n      exact llh1"),
             );
             let module = theorem_module(
                 "For every natural number \\(n\\), \\(n + 0 = n\\).",

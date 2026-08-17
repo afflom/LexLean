@@ -8,7 +8,7 @@ set_option autoImplicit false
 namespace PeanoArithmetic.Main
 
 public theorem comm_under_hypothesis (llv0 : Nat) (llv1 : Nat) : (Eq llv0 llv1) → Eq (Nat.add llv0 llv1) (Nat.add llv1 llv0) := by
-  intro llh0
+  intro _llh0
   exact PeanoArithmetic.Addition.add_comm llv0 llv1
 
 public theorem comm_rewrite (llv0 : Nat) (llv1 : Nat) : (Eq llv0 llv1) → Eq (Nat.add llv0 llv0) (Nat.add llv1 llv0) := by
