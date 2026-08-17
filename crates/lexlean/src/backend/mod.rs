@@ -4,6 +4,7 @@
 
 pub mod latex;
 pub mod lean;
+pub mod lean_tokens;
 pub mod pdf;
 
 use std::collections::BTreeMap;
