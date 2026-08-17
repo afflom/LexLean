@@ -32,6 +32,82 @@ math = "(operator-name probe)"
 /// The rewritten HTTPS URL every git fixture is configured under.
 const FIXTURE_URL: &str = "https://example.invalid/repo.git";
 
+/// A project whose glossary declares `dd0 .. dd{levels-1}` as document
+/// functions, where each definition applies its predecessor four times: the
+/// delta-unfolded form of `dd{k}` is exponential in `k` while the source
+/// stays a few lines per level (§25.5, SE-06). `top` is the level the one
+/// theorem states a reflexivity over, and `max_ir_nodes` is the limit the
+/// unfolder is charged against.
+fn nested_definitions(levels: usize, top: usize, max_ir_nodes: u64) -> P {
+    let project = P::example();
+    let entries: Vec<(String, String)> = (0..levels)
+        .map(|k| {
+            (
+                format!("dd{k}.toml"),
+                format!(
+                    r#"spec = "lexlean/entry/1"
+id = "dd{k}"
+category = "function"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "dd{k}"
+
+[[form]]
+id = "dd{k}"
+channel = "math"
+surface = "dd{k}"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name dd{k}) (paren (slot 0)))"
+"#
+                ),
+            )
+        })
+        .collect();
+    let entry_refs: Vec<(&str, &str)> = entries
+        .iter()
+        .map(|(name, body)| (name.as_str(), body.as_str()))
+        .collect();
+    project.add_package(
+        "glossary/nested.defs",
+        "nested.defs",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &entry_refs,
+    );
+    let mut source = String::from(
+        "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{nested.defs@1.0.0}\n\\title{Natural number addition}\n\n",
+    );
+    for k in 0..levels {
+        let body = if k == 0 {
+            "n + n".to_owned()
+        } else {
+            let previous = format!("dd{}(n)", k - 1);
+            [previous.as_str(); 4].join(" + ")
+        };
+        source.push_str(&format!(
+            "\\begin{{termdefinition}}{{dd{k}}}{{nested.defs::dd{k}}}\n\\noaxioms\nFor every natural number \\(n\\), \\(dd{k}(n)\\) is defined as \\({body}\\).\n\\end{{termdefinition}}\n\n"
+        ));
+    }
+    source.push_str(&format!(
+        "\\begin{{theorem}}{{deep-refl}}\n\\noaxioms\nFor every natural number \\(n\\), \\(dd{top}(n) = dd{top}(n)\\).\n\\begin{{proof}}\nClose the goal by reflexivity.\n\\end{{proof}}\n\\end{{theorem}}\n\\end{{lexlean}}\n"
+    ));
+    project.write("src/Main.lex.tex", &source);
+    project.edit(
+        "lexlean.toml",
+        "max_ir_nodes = 2000000",
+        &format!("max_ir_nodes = {max_ir_nodes}"),
+    );
+    project.relock();
+    project
+}
+
 /// Run `git` in a fixture repository (test-side, not the compiler).
 fn git_in(repo: &std::path::Path, arguments: &[&str]) -> String {
     let output = std::process::Command::new("git")
@@ -565,6 +641,43 @@ pub(crate) fn run(id: &str) {
                     && diagnostic.primary.is_some(),
                 "the depth failure names the limit, the observed depth, and a source span: {diagnostic:?}"
             );
+
+            // `max_ir_nodes` bounds the IR the elaborator constructs, not
+            // only the IR the linker finds at the end: twelve nested
+            // definitions, each applying its predecessor four times, unfold
+            // to an exponentially larger term from a source of a few lines
+            // per level. The limit is charged before the nodes are
+            // allocated, so this is `LLS8002` naming the limit rather than
+            // an allocation abort (§25.5, §6 I14).
+            let nested = nested_definitions(12, 11, 100_000);
+            let error = nested.check_fails_with("LLS8002");
+            assert_eq!(error.class.exit_code(), 4);
+            let diagnostic = error
+                .diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic.code.as_str() == "LLS8002")
+                .expect("the IR size limit");
+            for needle in [
+                "max_ir_nodes exceeded",
+                "phase elaborate (definition unfolding)",
+                "configured 100000",
+                "IR nodes constructed",
+            ] {
+                assert!(
+                    diagnostic.message.contains(needle),
+                    "the IR size failure names the limit, its configured value, the observed count, and the phase: {}",
+                    diagnostic.message
+                );
+            }
+            let span = diagnostic
+                .primary
+                .as_ref()
+                .expect("the IR size failure carries a source span");
+            assert_eq!(span.path, "src/Main.lex.tex");
+            // The same project, one theorem shallower, stays inside the
+            // same limit and checks: the bound is the configured resource
+            // and not the definition nesting itself.
+            nested_definitions(12, 4, 100_000).check_ok();
 
             // Child output and time caps: the extreme configured values
             // never overflow, and an exceeded cap names the tool, phase,

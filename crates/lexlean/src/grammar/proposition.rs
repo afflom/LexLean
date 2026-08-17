@@ -1000,104 +1000,153 @@ pub enum PhraseItemAst {
 
 /// Parse a title or heading phrase (§15.3): nonempty, no proposition
 /// machinery, no predicate frames, no proof instructions.
+///
+/// Segmentation is a lattice, not a greedy walk (§14.1): every extent a
+/// glossary form covers at a position is an alternative, and the returned
+/// parses are the complete covers --- the paths that reach the end of the
+/// phrase covering every token exactly once. A path that dead-ends because
+/// nothing covers what follows is simply not a cover, and the caller
+/// decides between the covers that remain by linking them (§14.4). Every
+/// path step is charged against `max_parse_states` (§25.5).
 pub fn parse_phrase(
     parser: &TextParser<'_>,
     budget: &mut Budget,
-) -> Result<Vec<PhraseItemAst>, Diagnostic> {
-    let mut items = Vec::new();
-    let mut pos = 0;
-    while pos < parser.tokens.len() {
-        match &parser.tokens[pos] {
-            token @ TextToken::Island { .. } => {
-                items.push(PhraseItemAst::Math(token.clone()));
-                pos += 1;
-            }
-            TextToken::Atom(atom_index) => {
-                let atom = &parser.atoms[*atom_index];
-                let punct = match (atom.class, atom.text.as_str()) {
-                    (AtomClass::AsciiSymbol, ":") => Some("colon"),
-                    (AtomClass::AsciiSymbol, "-") => Some("hyphen"),
-                    (AtomClass::Delimiter, "(") => Some("paren-open"),
-                    (AtomClass::Delimiter, ")") => Some("paren-close"),
-                    _ => None,
-                };
-                if let Some(entry) = punct {
-                    items.push(PhraseItemAst::Punctuation {
-                        atom: *atom_index,
-                        entry,
-                    });
-                    pos += 1;
-                    continue;
-                }
-                // `the SELF of ARG [and ARG]`: a noun-of term phrase. A
-                // phrase is a fixed sequence, so its extent must be unique.
-                if atom.class == AtomClass::Word && atom.text == "the" {
-                    let mut noun_of: Vec<(usize, TermPhraseAst)> = parser
-                        .term_phrase(pos, budget, 1)?
-                        .into_iter()
-                        .filter(|(_, phrase)| matches!(phrase, TermPhraseAst::NounOf { .. }))
-                        .collect();
-                    if noun_of.len() > 1 {
-                        return Err(Diagnostic::new(
-                            code!("LLP2002"),
-                            "ambiguous noun-of term phrase in a phrase",
-                        )
-                        .with_span(atom.span(parser.path)));
-                    }
-                    if let Some((end, phrase)) = noun_of.pop() {
-                        items.push(PhraseItemAst::TermPhrase(phrase));
-                        pos = end;
-                        continue;
-                    }
-                }
-                let matches = parser.form_matches(pos, budget, |category| {
-                    matches!(
-                        category,
-                        Category::LabelWord
-                            | Category::TypeNoun
-                            | Category::TermConstant
-                            | Category::Function
-                            | Category::PrefixFunction
-                            | Category::PostfixFunction
-                            | Category::InfixFunction
-                            | Category::NounFunction
-                            | Category::BinaryNounFunction
-                    )
-                })?;
-                if matches.is_empty() {
-                    return Err(Diagnostic::new(
-                        code!("LLL1004"),
-                        format!("`{}` is not a phrase concept", atom.text),
-                    )
-                    .with_span(atom.span(parser.path)));
-                }
-                // All candidates must agree on the covered extent; distinct
-                // segmentations of a phrase word are ambiguity.
-                let end = matches[0].1;
-                if matches.iter().any(|(_, other)| *other != end) {
-                    return Err(Diagnostic::new(
-                        code!("LLP2002"),
-                        "ambiguous lexical segmentation in a phrase",
-                    )
-                    .with_span(atom.span(parser.path)));
-                }
-                items.push(PhraseItemAst::Word {
-                    atoms: parser.token_atom_range(pos, end),
-                    candidates: matches
-                        .into_iter()
-                        .map(|(reference, _)| reference)
-                        .collect(),
-                });
-                pos = end;
-            }
-        }
-    }
-    if items.is_empty() {
+) -> Result<Vec<Vec<PhraseItemAst>>, Diagnostic> {
+    if parser.tokens.is_empty() {
         return Err(Diagnostic::new(
             code!("LLP2001"),
             "a phrase is a nonempty sequence of concepts",
         )
         .with_span(crate::diagnostic::Span::whole_file(parser.path)));
     }
-    Ok(items)
+    let mut covers: Vec<Vec<PhraseItemAst>> = Vec::new();
+    let mut failure: Option<Diagnostic> = None;
+    let mut frontier: Vec<(usize, Vec<PhraseItemAst>)> = vec![(0, Vec::new())];
+    while !frontier.is_empty() {
+        let mut next_frontier: Vec<(usize, Vec<PhraseItemAst>)> = Vec::new();
+        for (pos, items) in frontier {
+            budget.state()?;
+            if pos >= parser.tokens.len() {
+                if !covers.contains(&items) {
+                    covers.push(items);
+                }
+                continue;
+            }
+            let steps = match phrase_steps(parser, budget, pos)? {
+                Ok(steps) => steps,
+                Err(dead_end) => {
+                    if failure.is_none() {
+                        failure = Some(dead_end);
+                    }
+                    continue;
+                }
+            };
+            for (item, end) in steps {
+                let mut extended = items.clone();
+                extended.push(item);
+                next_frontier.push((end, extended));
+            }
+        }
+        frontier = next_frontier;
+    }
+    if covers.is_empty() {
+        return Err(failure.unwrap_or_else(|| {
+            Diagnostic::new(
+                code!("LLP2001"),
+                "a phrase is a nonempty sequence of concepts",
+            )
+            .with_span(crate::diagnostic::Span::whole_file(parser.path))
+        }));
+    }
+    Ok(covers)
+}
+
+/// The lattice steps out of one phrase position: each is one item and the
+/// token position after it. `Err` is a dead end at this position --- the
+/// diagnostic a phrase with no other cover reports --- and is distinct from
+/// the outer `Err`, which is a parse failure of the phrase as a whole.
+#[allow(clippy::type_complexity)]
+fn phrase_steps(
+    parser: &TextParser<'_>,
+    budget: &mut Budget,
+    pos: usize,
+) -> Result<Result<Vec<(PhraseItemAst, usize)>, Diagnostic>, Diagnostic> {
+    let atom_index = match &parser.tokens[pos] {
+        token @ TextToken::Island { .. } => {
+            return Ok(Ok(vec![(PhraseItemAst::Math(token.clone()), pos + 1)]));
+        }
+        TextToken::Atom(atom_index) => *atom_index,
+    };
+    let atom = &parser.atoms[atom_index];
+    let punct = match (atom.class, atom.text.as_str()) {
+        (AtomClass::AsciiSymbol, ":") => Some("colon"),
+        (AtomClass::AsciiSymbol, "-") => Some("hyphen"),
+        (AtomClass::Delimiter, "(") => Some("paren-open"),
+        (AtomClass::Delimiter, ")") => Some("paren-close"),
+        _ => None,
+    };
+    if let Some(entry) = punct {
+        return Ok(Ok(vec![(
+            PhraseItemAst::Punctuation {
+                atom: atom_index,
+                entry,
+            },
+            pos + 1,
+        )]));
+    }
+    // `the SELF of ARG [and ARG]`: a noun-of term phrase. Each parse of it
+    // is one lattice step; distinct extents are alternatives, not a guess.
+    if atom.class == AtomClass::Word && atom.text == "the" {
+        let noun_of: Vec<(PhraseItemAst, usize)> = parser
+            .term_phrase(pos, budget, 1)?
+            .into_iter()
+            .filter(|(_, phrase)| matches!(phrase, TermPhraseAst::NounOf { .. }))
+            .map(|(end, phrase)| (PhraseItemAst::TermPhrase(phrase), end))
+            .collect();
+        if !noun_of.is_empty() {
+            return Ok(Ok(noun_of));
+        }
+    }
+    let matches = parser.form_matches(pos, budget, |category| {
+        matches!(
+            category,
+            Category::LabelWord
+                | Category::TypeNoun
+                | Category::TermConstant
+                | Category::Function
+                | Category::PrefixFunction
+                | Category::PostfixFunction
+                | Category::InfixFunction
+                | Category::NounFunction
+                | Category::BinaryNounFunction
+        )
+    })?;
+    if matches.is_empty() {
+        return Ok(Err(Diagnostic::new(
+            code!("LLL1004"),
+            format!("`{}` is not a phrase concept", atom.text),
+        )
+        .with_span(atom.span(parser.path))));
+    }
+    // One step per covered extent, each carrying the candidates that cover
+    // it; extents are ordered so the shortest cover is tried first.
+    let mut ends: Vec<usize> = matches.iter().map(|(_, end)| *end).collect();
+    ends.sort_unstable();
+    ends.dedup();
+    Ok(Ok(ends
+        .into_iter()
+        .map(|end| {
+            (
+                PhraseItemAst::Word {
+                    atoms: parser.token_atom_range(pos, end),
+                    candidates: matches
+                        .iter()
+                        .filter(|(_, other)| *other == end)
+                        .map(|(reference, _)| reference.clone())
+                        .collect(),
+                },
+                end,
+            )
+        })
+        .collect()))
 }

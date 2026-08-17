@@ -181,7 +181,9 @@ fn match_self_application(
     else {
         return Err(def_error("the self head must be a mathematical island"));
     };
-    let ast = crate::grammar::math::parse_math(
+    // Every complete cover the lattice found is tried; the self head is
+    // matched by whichever cover names the declared entry (§14.1).
+    let covers = crate::grammar::math::parse_math(
         shared.path,
         shared.atoms,
         (*inner_start, *inner_end),
@@ -237,61 +239,80 @@ fn match_self_application(
         }
         false
     };
-    let ok = match &ast {
-        MathAst::Call { head, args, .. } => {
-            let MathAst::Leaf { kinds, atoms } = &**head else {
-                return Err(def_error("the self head must name the declared entry"));
-            };
-            head_matches(kinds, &mut rows, *atoms)
-                && args.len() == binder_spellings.len()
-                && args
-                    .iter()
-                    .zip(binder_spellings)
-                    .all(|(argument, spelling)| ident_arg(argument, spelling, &mut rows))
-        }
-        MathAst::Infix {
-            candidates,
-            op_atoms,
-            lhs,
-            rhs,
-        } => {
-            let matched = candidates.iter().any(|reference| {
-                reference.package == entry_id.package && reference.entry == entry_id.entry
-            });
-            if matched {
-                rows.push(SourceRow {
-                    path: shared.path.to_owned(),
-                    byte_start: shared.atoms[op_atoms.0].byte_start,
-                    byte_end: shared.atoms[op_atoms.1 - 1].byte_end,
-                    class: shared.atoms[op_atoms.0].class,
-                    binding: Origin::Form {
-                        package: entry_id.package.clone(),
-                        entry: entry_id.entry.clone(),
-                        form: candidates
-                            .iter()
-                            .find(|reference| {
-                                reference.package == entry_id.package
-                                    && reference.entry == entry_id.entry
-                            })
-                            .map(|reference| reference.form.clone())
-                            .unwrap_or_default(),
-                    },
-                });
+    let mut ok = false;
+    let mut failure: Option<Diagnostic> = None;
+    for ast in &covers {
+        rows.clear();
+        let outcome: Result<bool, Diagnostic> = match ast {
+            MathAst::Call { head, args, .. } => {
+                let MathAst::Leaf { kinds, atoms } = &**head else {
+                    failure.get_or_insert_with(|| {
+                        def_error("the self head must name the declared entry")
+                    });
+                    continue;
+                };
+                Ok(head_matches(kinds, &mut rows, *atoms)
+                    && args.len() == binder_spellings.len()
+                    && args
+                        .iter()
+                        .zip(binder_spellings)
+                        .all(|(argument, spelling)| ident_arg(argument, spelling, &mut rows)))
             }
-            matched
-                && binder_spellings.len() == 2
-                && ident_arg(lhs, &binder_spellings[0], &mut rows)
-                && ident_arg(rhs, &binder_spellings[1], &mut rows)
+            MathAst::Infix {
+                candidates,
+                op_atoms,
+                lhs,
+                rhs,
+            } => {
+                let matched = candidates.iter().any(|reference| {
+                    reference.package == entry_id.package && reference.entry == entry_id.entry
+                });
+                if matched {
+                    rows.push(SourceRow {
+                        path: shared.path.to_owned(),
+                        byte_start: shared.atoms[op_atoms.0].byte_start,
+                        byte_end: shared.atoms[op_atoms.1 - 1].byte_end,
+                        class: shared.atoms[op_atoms.0].class,
+                        binding: Origin::Form {
+                            package: entry_id.package.clone(),
+                            entry: entry_id.entry.clone(),
+                            form: candidates
+                                .iter()
+                                .find(|reference| {
+                                    reference.package == entry_id.package
+                                        && reference.entry == entry_id.entry
+                                })
+                                .map(|reference| reference.form.clone())
+                                .unwrap_or_default(),
+                        },
+                    });
+                }
+                Ok(matched
+                    && binder_spellings.len() == 2
+                    && ident_arg(lhs, &binder_spellings[0], &mut rows)
+                    && ident_arg(rhs, &binder_spellings[1], &mut rows))
+            }
+            MathAst::Leaf { kinds, atoms } if binder_spellings.is_empty() => {
+                Ok(head_matches(kinds, &mut rows, *atoms))
+            }
+            _ => Ok(false),
+        };
+        match outcome {
+            Ok(true) => {
+                ok = true;
+                break;
+            }
+            Ok(false) => {}
+            Err(diagnostic) => {
+                failure.get_or_insert(diagnostic);
+            }
         }
-        MathAst::Leaf { kinds, atoms } if binder_spellings.is_empty() => {
-            head_matches(kinds, &mut rows, *atoms)
-        }
-        _ => false,
-    };
+    }
     if !ok {
-        return Err(def_error(
+        rows.clear();
+        return Err(failure.unwrap_or_else(|| def_error(
             "the self head must apply the declared entry to each explicit signature binder exactly once, in signature order",
-        ));
+        )));
     }
     // The remaining structural atoms of the self application --- parens and
     // argument commas --- are core structure (I1): every accepted atom has
@@ -690,9 +711,14 @@ fn elab_definition_alternative(
                 let result = elab_island(shared, scopes, alloc, budget, &island, None)?;
                 // The island's type must be a sort, read through defined
                 // type nouns (`type` defined as `(sort (type 0))`, §13.6).
-                let island_ty = result.ty.as_ref().map(|ty| {
-                    crate::elaborate::delta::unfold(ty, shared, alloc, budget.max_depth())
-                });
+                let island_ty = result
+                    .ty
+                    .as_ref()
+                    .map(|ty| crate::elaborate::delta::unfold(ty, shared, alloc, budget))
+                    .transpose()
+                    .map_err(|diagnostic| {
+                        diagnostic.with_span(shared.atoms[island.first_atom()].span(shared.path))
+                    })?;
                 if !matches!(island_ty, Some(Term::Sort(_))) {
                     return Err(Diagnostic::new(
                         code!("LLT4001"),

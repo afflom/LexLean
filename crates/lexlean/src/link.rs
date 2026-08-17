@@ -406,6 +406,7 @@ fn check_project_inline(
             limits.max_token_lattice_edges,
             limits.max_parse_states,
             limits.max_scope_depth,
+            limits.max_ir_nodes,
         );
 
         // Glossary uses: exact `package@version` rows matching the lock and
@@ -676,7 +677,91 @@ fn elab_phrase(
         visible: shared.visible,
         sentence_initial: true,
     };
-    let items = parse_phrase(&parser, budget)?;
+    let covers = parse_phrase(&parser, budget)?;
+    // Every complete cover of the phrase is linked; covers that denote one
+    // phrase collapse, a cover that does not link is a dead lattice path,
+    // and `LLP2002` is reported only when more than one distinct linked
+    // phrase survives (§14.1, §14.4).
+    let mut survivors: Vec<(Phrase, Vec<SourceRow>)> = Vec::new();
+    let mut failure: Option<Diagnostic> = None;
+    for items in covers {
+        match elab_phrase_cover(shared, scopes, alloc, budget, items) {
+            Ok(linked) => {
+                if !survivors.iter().any(|(phrase, _)| *phrase == linked.0) {
+                    survivors.push(linked);
+                }
+            }
+            Err(diagnostic) => {
+                if failure.is_none() {
+                    failure = Some(diagnostic);
+                }
+            }
+        }
+    }
+    match survivors.len() {
+        1 => Ok(survivors.into_iter().next().expect("one survivor")),
+        0 => Err(failure.unwrap_or_else(|| {
+            Diagnostic::new(
+                code!("LLI9001"),
+                "phase link: no cover of the phrase linked and none failed",
+            )
+            .with_span(span_of_range(shared.path, shared.atoms, range))
+        })),
+        _ => {
+            // Name what tells the covers apart, as the term ambiguity does
+            // (§20.1): the concepts one linked phrase uses and another does
+            // not, or every concept when they differ only in structure.
+            let concepts: Vec<std::collections::BTreeSet<String>> = survivors
+                .iter()
+                .map(|(phrase, _)| phrase_concepts(phrase))
+                .collect();
+            let union: std::collections::BTreeSet<String> =
+                concepts.iter().flatten().cloned().collect();
+            let differing: Vec<String> = union
+                .iter()
+                .filter(|id| !concepts.iter().all(|set| set.contains(*id)))
+                .cloned()
+                .collect();
+            let named = if differing.is_empty() {
+                union.into_iter().collect::<Vec<_>>()
+            } else {
+                differing
+            };
+            Err(Diagnostic::new(
+                code!("LLP2002"),
+                format!(
+                    "{} distinct linked interpretations of the phrase survive; the differentiating concepts are: {}",
+                    survivors.len(),
+                    named.join(", ")
+                ),
+            )
+            .with_span(span_of_range(shared.path, shared.atoms, range)))
+        }
+    }
+}
+
+/// The glossary concepts one linked phrase names, for the ambiguity
+/// diagnostic. A mathematical item contributes its canonical key, so two
+/// covers differing only inside an island are still told apart.
+fn phrase_concepts(phrase: &Phrase) -> std::collections::BTreeSet<String> {
+    phrase
+        .items
+        .iter()
+        .map(|item| match item {
+            PhraseItem::Word { entry, .. } | PhraseItem::Punctuation(entry) => format!("{entry}"),
+            PhraseItem::Math(term) => term.eq_key(),
+        })
+        .collect()
+}
+
+/// Link one complete cover of a phrase (§15.3).
+fn elab_phrase_cover(
+    shared: &Shared<'_>,
+    scopes: &mut ScopeStack,
+    alloc: &mut LocalAlloc,
+    budget: &mut Budget,
+    items: Vec<PhraseItemAst>,
+) -> Result<(Phrase, Vec<SourceRow>), Diagnostic> {
     let mut rows = Vec::new();
     let mut phrase = Phrase::default();
     for item in items {
@@ -1130,6 +1215,9 @@ fn link_declaration(
             rows: Vec::new(),
             spellings: BTreeMap::new(),
             lifted,
+            // Until the first step is reached, a failure inside the proof
+            // belongs to the declaration that owns it.
+            span: span_of_range(&load.path, &load.atoms, (decl.begin, decl.begin + 1)),
         };
         let proof_result =
             proof_elab.elab_env(proof_ast, crate::elaborate::proofs::Goal::Known(goal));
@@ -1346,29 +1434,10 @@ fn collect_proof_locals(proof: &Proof, out: &mut BTreeSet<LocalId>) {
 }
 
 fn count_ir_nodes(document: &DocumentModule) -> u64 {
-    // A coarse, deterministic node count for the explicit resource policy.
+    // The same node unit the elaborator charges while it builds terms, so
+    // one `max_ir_nodes` means one thing across the pipeline.
     fn term_nodes(term: &Term) -> u64 {
-        1 + match term {
-            Term::App {
-                function,
-                explicit_args,
-                ..
-            } => term_nodes(function) + explicit_args.iter().map(term_nodes).sum::<u64>(),
-            Term::Pi { binders, body } | Term::Lambda { binders, body } => {
-                binders
-                    .iter()
-                    .map(|binder| term_nodes(&binder.ty))
-                    .sum::<u64>()
-                    + term_nodes(body)
-            }
-            Term::Let {
-                binder,
-                value,
-                body,
-            } => term_nodes(&binder.ty) + term_nodes(value) + term_nodes(body),
-            Term::NatLiteral { expected_type, .. } => term_nodes(expected_type),
-            _ => 0,
-        }
+        term.node_count()
     }
     fn proof_nodes(proof: &Proof) -> u64 {
         1 + match proof {

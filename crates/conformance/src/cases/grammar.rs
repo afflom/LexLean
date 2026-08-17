@@ -52,6 +52,60 @@ fn lean_of(module: &str) -> String {
     support::lean_text(&support::rendered(&project), "Main")
 }
 
+/// A zero-arity entry whose one form covers `surface` on `channel`: the
+/// building block of a token lattice whose local segmentation is ambiguous.
+fn segment_entry(id: &str, surface: &str, channel: &str, category: &str) -> String {
+    // A label-word carries no signature and no math rendering (§13.3); a
+    // term constant carries both.
+    let word = category == "label-word";
+    let signature = if word {
+        String::new()
+    } else {
+        "signature = \"(const lexlean.std.nat::nat)\"\n".to_owned()
+    };
+    let features = if word {
+        "\"sentence-case\", \"singular\""
+    } else {
+        ""
+    };
+    let render = if word {
+        String::new()
+    } else {
+        format!("\n[render]\nmath = \"(operator-name {id})\"\n")
+    };
+    format!(
+        "spec = \"lexlean/entry/1\"\nid = \"{id}\"\ncategory = \"{category}\"\n{signature}surface_arity = 0\nframe = \"atom\"\n\n[denotation]\nkind = \"lean\"\nmodule = \"Init\"\nname = \"Nat.zero\"\n\n[[form]]\nid = \"{id}\"\nchannel = \"{channel}\"\nsurface = \"{surface}\"\ncanonical_source = true\nfeatures = [{features}]\n{render}"
+    )
+}
+
+/// A project whose glossary carries exactly the named segmenting entries,
+/// with the given module source.
+fn segmenting_project(entries: &[(&str, &str, &str, &str)], module: &str) -> P {
+    let bodies: Vec<(String, String)> = entries
+        .iter()
+        .map(|(id, surface, channel, category)| {
+            (
+                format!("{id}.toml"),
+                segment_entry(id, surface, channel, category),
+            )
+        })
+        .collect();
+    let refs: Vec<(&str, &str)> = bodies
+        .iter()
+        .map(|(name, body)| (name.as_str(), body.as_str()))
+        .collect();
+    let project = P::example();
+    project.add_package(
+        "lexicons/test-seg",
+        "test.seg",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &refs,
+    );
+    project.write("src/Main.lex.tex", module);
+    project.relock();
+    project
+}
+
 pub(crate) fn run(id: &str) {
     match id {
         // §15.1: only the fixed environment set parses.
@@ -526,6 +580,43 @@ pub(crate) fn run(id: &str) {
             );
             collapsing.relock();
             collapsing.check_ok();
+
+            // §14.1: segmentation is a lattice, not a greedy choice. `Wa Wb`
+            // is covered by the long label-word and, at the same position,
+            // started by the short one; only the long form completes a cover
+            // because nothing covers `Wb`, so exactly one linked phrase
+            // survives and the module checks. Committing to the first extent
+            // at that position would reject a program with one parse.
+            let phrase_module = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.seg@1.0.0}\n\\title{Wa Wb}\n\n\\begin{theorem}{add-zero}\n\\noaxioms\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+            segmenting_project(
+                &[
+                    ("wab", "Wa Wb", "text", "label-word"),
+                    ("wa", "Wa", "text", "label-word"),
+                ],
+                phrase_module,
+            )
+            .check_ok();
+            // The short extent really is a dead end: with only it in the
+            // glossary the phrase has no cover at all.
+            let dead_end = segmenting_project(&[("wa", "Wa", "text", "label-word")], phrase_module);
+            let error = dead_end.check_fails_with("LLL1004");
+            assert!(
+                error.diagnostics.iter().any(|d| d.message.contains("`Wb`")),
+                "the uncovered token is named: {error}"
+            );
+
+            // The same in a mathematical island, where the leaf loop made
+            // the same greedy commitment.
+            let island_module = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\useglossary{test.seg@1.0.0}\n\\title{Natural number addition}\n\n\\begin{theorem}{pq-refl}\n\\noaxioms\n\\(p q = p q\\).\n\\begin{proof}\nClose the goal by reflexivity.\n\\end{proof}\n\\end{theorem}\n\\end{lexlean}\n";
+            segmenting_project(
+                &[
+                    ("pq", "p q", "math", "term-constant"),
+                    ("pp", "p", "math", "term-constant"),
+                ],
+                island_module,
+            )
+            .check_ok();
+            segmenting_project(&[("pp", "p", "math", "term-constant")], island_module).check_err();
         }
         // §15.6: free expository text and opaque nodes are rejected.
         "GR-13" => {

@@ -92,6 +92,10 @@ pub struct ProofElab<'a, 'b> {
     /// linker lifted to declaration parameters (§18.5): they are already in
     /// scope, so `Assume` of one is diagnosed by name.
     pub lifted: BTreeSet<String>,
+    /// The proof step currently being elaborated, so a resource failure
+    /// raised while reading a goal through its definitions still points at
+    /// source (§20.1). The declaration's own span until the first step.
+    pub span: Span,
 }
 
 fn fail(code: crate::diagnostic::DiagnosticCode, message: impl Into<String>) -> Diagnostic {
@@ -124,9 +128,12 @@ fn core_head(term: &Term) -> Option<CoreRef> {
 impl<'a, 'b> ProofElab<'a, 'b> {
     /// Read a term through every definition (§17.7, §13.6): the one delta
     /// unfolder over this module's declaration table and closure, bounded
-    /// by the configured nesting limit.
-    fn unfold(&mut self, term: &Term) -> Term {
-        crate::elaborate::delta::unfold(term, self.shared, self.alloc, self.budget.max_depth())
+    /// by the configured nesting and IR-size limits. A limit failure names
+    /// the proof step being elaborated.
+    fn unfold(&mut self, term: &Term) -> Result<Term, Diagnostic> {
+        let span = self.span.clone();
+        crate::elaborate::delta::unfold(term, self.shared, self.alloc, self.budget)
+            .map_err(|diagnostic| diagnostic.with_span(span))
     }
 
     fn span_of(&self, range: AtomRange) -> Span {
@@ -257,12 +264,12 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         // can reconcile — two different core connectives, a function type
         // against a core proposition other than a negation, a sort against
         // either — and stays rejected.
-        let goal_unfolded = self.unfold(goal_term);
+        let goal_unfolded = self.unfold(goal_term)?;
         match self.term_island(token, None) {
             Ok(term) => {
                 let certain = match term.ty.as_ref() {
                     Some(ty) => {
-                        let ty_unfolded = self.unfold(ty);
+                        let ty_unfolded = self.unfold(ty)?;
                         certainly_distinct(&goal_unfolded, &ty_unfolded)
                     }
                     None => false,
@@ -288,7 +295,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         expected: Option<&Term>,
     ) -> Result<ElabTerm, Diagnostic> {
         self.reject_holes(arg.range)?;
-        let ast = parse_math(
+        let covers = parse_math(
             self.shared.path,
             self.shared.atoms,
             arg.range,
@@ -297,7 +304,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
             self.budget,
         )?;
         let mut elaborator = ExprElab::new(self.shared, self.scopes, self.alloc, self.budget);
-        let result = elaborator.elaborate(&ast, expected)?;
+        let result = elaborator.elaborate_covers(&covers, expected)?;
         self.rows.extend(result.rows.clone());
         Ok(result)
     }
@@ -338,8 +345,9 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 )
                 .with_span(self.item_span(item)));
             }
+            self.span = self.item_span(item);
             let step_goal = match goal.for_step() {
-                Goal::Known(term) => Goal::Known(self.unfold(&term)),
+                Goal::Known(term) => Goal::Known(self.unfold(&term)?),
                 other => other,
             };
             match item {
@@ -436,7 +444,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                     function, premises, ..
                 } => {
                     let function_term = self.term_brace(function)?;
-                    let residuals = self.residual_premises(&function_term, &step_goal);
+                    let residuals = self.residual_premises(&function_term, &step_goal)?;
                     // Premise labels are consecutive decimal integers from 1
                     // and every residual premise occurs exactly once (§16.6).
                     for (index, (label, body)) in premises.iter().enumerate() {
@@ -623,7 +631,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 let entry = entry.clone();
                 let data = match &entry.ty {
                     Some(ty) => {
-                        let unfolded = self.unfold(ty);
+                        let unfolded = self.unfold(ty)?;
                         self.is_data_type(&unfolded)
                     }
                     None => false,
@@ -658,7 +666,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         let Some(ty) = &term.ty else {
             return Ok(());
         };
-        let ty = self.unfold(ty);
+        let ty = self.unfold(ty)?;
         let (_, conclusion) = flatten_pi(&ty);
         if matches!(core_head(&conclusion), Some(CoreRef::Eq | CoreRef::Iff)) {
             return Ok(());
@@ -683,7 +691,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         let Some(ty) = &term.ty else {
             return Ok(());
         };
-        let ty = self.unfold(ty);
+        let ty = self.unfold(ty)?;
         let (_, conclusion) = flatten_pi(&ty);
         if self.is_data_type(&conclusion) {
             return Err(fail(
@@ -700,13 +708,17 @@ impl<'a, 'b> ProofElab<'a, 'b> {
     /// every binder becomes a metavariable, the conclusion is unified with
     /// the goal, and the explicit binders unification left unsolved are the
     /// residual premises, in signature order.
-    fn residual_premises(&mut self, function: &ElabTerm, goal: &Goal) -> Residuals {
+    fn residual_premises(
+        &mut self,
+        function: &ElabTerm,
+        goal: &Goal,
+    ) -> Result<Residuals, Diagnostic> {
         let Some(ty) = function.ty.as_ref() else {
-            return Residuals::Unknown;
+            return Ok(Residuals::Unknown);
         };
         // A conclusion headed by a definition (document or defined lexicon
         // value) is read through its definition, as Lean's `apply` does.
-        let ty = &self.unfold(ty);
+        let ty = &self.unfold(ty)?;
         let (binders, conclusion) = flatten_pi(ty);
         if binders.is_empty() {
             // `Not P` is `P → False`: applying a negation leaves exactly the
@@ -715,23 +727,23 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 (core_head(&conclusion), &conclusion)
             {
                 if let [premise] = explicit_args.as_slice() {
-                    return Residuals::Known(vec![Goal::Known(premise.clone())]);
+                    return Ok(Residuals::Known(vec![Goal::Known(premise.clone())]));
                 }
             }
             // A closed shape has no premises; an open head (an external
             // predicate such as `Ne`, a local) may still reduce to a
             // function type in Lean, which is final.
-            return if is_closed_shape(&conclusion) {
+            return Ok(if is_closed_shape(&conclusion) {
                 Residuals::Known(Vec::new())
             } else {
                 Residuals::Unknown
-            };
+            });
         }
         let Some(goal_term) = goal.known() else {
-            return Residuals::Unknown;
+            return Ok(Residuals::Unknown);
         };
         let Some(instantiated) = instantiate_telescope(ty, Some(goal_term), self.alloc) else {
-            return Residuals::Unknown;
+            return Ok(Residuals::Unknown);
         };
         let mut residuals = Vec::new();
         for (index, (binder, _)) in instantiated.binders.iter().enumerate() {
@@ -743,7 +755,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 None => Goal::Unknown,
             });
         }
-        Residuals::Known(residuals)
+        Ok(Residuals::Known(residuals))
     }
 
     /// The glossary eliminator descriptor of a type, found through the head
@@ -951,7 +963,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         let sentence_span = self.span_of(sentence.range);
         // A goal headed by a definition is seen through its value.
         let goal = match goal {
-            Goal::Known(term) => Goal::Known(self.unfold(&term)),
+            Goal::Known(term) => Goal::Known(self.unfold(&term)?),
             other => other,
         };
         match kind {
@@ -1030,7 +1042,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
             }
             SentenceAstKind::Apply { term } => {
                 let function = self.term_island(&term, None)?;
-                match self.residual_premises(&function, &goal) {
+                match self.residual_premises(&function, &goal)? {
                     Residuals::Known(premises) if premises.len() == 1 => Ok((
                         Proof::ApplyOne(function.term),
                         premises.into_iter().next().expect("one premise"),
@@ -1103,7 +1115,8 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                             _ => None,
                         };
                         let witness = self.term_island(&term, binder_ty.as_ref())?;
-                        let next = beta(&lambda, std::slice::from_ref(&witness.term));
+                        let next =
+                            beta(&lambda, std::slice::from_ref(&witness.term), self.budget)?;
                         Ok((Proof::Witness(witness.term), Goal::Known(next), false))
                     }
                     term if is_closed_shape(term) => Err(fail(
@@ -1167,7 +1180,7 @@ impl<'a, 'b> ProofElab<'a, 'b> {
         // eliminated through its definition (as Lean's `cases` unfolds it):
         // the descriptor is looked up on the unfolded head.
         if let Some(ty) = scrutinee_term.ty.take() {
-            scrutinee_term.ty = Some(self.unfold(&ty));
+            scrutinee_term.ty = Some(self.unfold(&ty)?);
         }
         // The scrutinee type must carry a validated eliminator descriptor
         // (§16.8, GL-14).
@@ -1279,7 +1292,8 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                                 // x => P x` is `P w`).
                                 let ty = instantiated
                                     .binder_type(ordinal)
-                                    .map(|ty| self.unfold(&subst(&ty, &map)));
+                                    .map(|ty| self.unfold(&subst(&ty, &map)))
+                                    .transpose()?;
                                 field_types[field_index] = ty;
                                 map.insert(*meta, Term::Local(field_ids[field_index]));
                                 field_index += 1;
@@ -1391,12 +1405,12 @@ impl<'a, 'b> ProofElab<'a, 'b> {
 
     /// Do a goal endpoint and a chain term denote one term up to
     /// alpha-renaming and definition unfolding (§16.10)?
-    fn endpoints_match(&mut self, goal_side: &Term, chain_side: &Term) -> bool {
+    fn endpoints_match(&mut self, goal_side: &Term, chain_side: &Term) -> Result<bool, Diagnostic> {
         if goal_side.eq_key() == chain_side.eq_key() {
-            return true;
+            return Ok(true);
         }
-        let (goal_side, chain_side) = (self.unfold(goal_side), self.unfold(chain_side));
-        unify_closed(&goal_side, &chain_side)
+        let (goal_side, chain_side) = (self.unfold(goal_side)?, self.unfold(chain_side)?);
+        Ok(unify_closed(&goal_side, &chain_side))
     }
 
     fn calculate(
@@ -1470,8 +1484,11 @@ impl<'a, 'b> ProofElab<'a, 'b> {
                 // endpoint; distinct free locals are not.
                 let (goal_left, goal_right) = (explicit_args[0].clone(), explicit_args[1].clone());
                 let last = ir_steps.last().map(|step| step.term.clone());
-                let left_ok = self.endpoints_match(&goal_left, &start_term.term);
-                let right_ok = last.is_some_and(|last| self.endpoints_match(&goal_right, &last));
+                let left_ok = self.endpoints_match(&goal_left, &start_term.term)?;
+                let right_ok = match last {
+                    Some(last) => self.endpoints_match(&goal_right, &last)?,
+                    None => false,
+                };
                 if !left_ok || !right_ok {
                     return Err(fail(
                         code!("LLF5002"),
