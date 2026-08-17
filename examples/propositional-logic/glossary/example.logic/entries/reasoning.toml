@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "reasoning"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(const example.logic::em)"
+
+[[form]]
+id = "reasoning"
+channel = "text"
+surface = "reasoning"
+canonical_source = true
+features = ["lower-case", "singular"]

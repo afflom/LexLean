@@ -1,0 +1,25 @@
+spec = "lexlean/entry/1"
+id = "count"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "document"
+module = "Doubling"
+component = "count"
+
+[[form]]
+id = "count"
+channel = "text"
+surface = "count"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+
+[[form]]
+id = "counts"
+channel = "text"
+surface = "counts"
+canonical_source = false
+features = ["lower-case", "plural"]

@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "length-append"
+category = "proof-constant"
+signature = "(pi ((implicit a (sort (type u))) (implicit xs (app (const example.list::list) (local a))) (implicit ys (app (const example.list::list) (local a)))) (app (const lexlean.core::eq) (app (const example.list::len) (app (const example.list::append) (local xs) (local ys))) (app (const lexlean.std.nat::add) (app (const example.list::len) (local xs)) (app (const example.list::len) (local ys)))))"
+universes = ["u"]
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List.length_append"
+
+[[form]]
+id = "length-append"
+channel = "math"
+surface = "lengthappend"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name lengthappend)"

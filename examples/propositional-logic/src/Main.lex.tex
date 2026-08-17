@@ -1,0 +1,248 @@
+\begin{lexlean}{Main}
+\useglossary{example.logic@1.0.0}
+\title{Propositional logic}
+
+\begin{section}{conjunction}
+\heading{Conjunction}
+  \begin{theorem}{and-comm}
+  \noaxioms
+  For every proposition \(p\) and proposition \(q\), if \(p\) and \(q\), then \(q\) and \(p\).
+  \begin{proof}
+  Assume \(h\).
+  \begin{cases}{h}
+  \begin{case}{lexlean.core::and-intro}
+  \bind{hp;hq}
+  \begin{constructor}
+  \begin{branch}{1}
+  Close the goal with \(hq\).
+  \end{branch}
+  \begin{branch}{2}
+  Close the goal with \(hp\).
+  \end{branch}
+  \end{constructor}
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{and-assoc}
+  \noaxioms
+  For every proposition \(p\) and proposition \(q\) and proposition \(r\), \(p\) and \(q\) and \(r\) if and only if \(p\) and \(q ∧ r\).
+  \begin{proof}
+  \begin{constructor}
+  \begin{branch}{1}
+  Assume \(h\).
+  \begin{cases}{h}
+  \begin{case}{lexlean.core::and-intro}
+  \bind{hpq;hr}
+  \begin{cases}{hpq}
+  \begin{case}{lexlean.core::and-intro}
+  \bind{hp;hq}
+  \begin{constructor}
+  \begin{branch}{1}
+  Close the goal with \(hp\).
+  \end{branch}
+  \begin{branch}{2}
+  \begin{constructor}
+  \begin{branch}{1}
+  Close the goal with \(hq\).
+  \end{branch}
+  \begin{branch}{2}
+  Close the goal with \(hr\).
+  \end{branch}
+  \end{constructor}
+  \end{branch}
+  \end{constructor}
+  \end{case}
+  \end{cases}
+  \end{case}
+  \end{cases}
+  \end{branch}
+  \begin{branch}{2}
+  Assume \(h\).
+  \begin{cases}{h}
+  \begin{case}{lexlean.core::and-intro}
+  \bind{hp;hqr}
+  \begin{cases}{hqr}
+  \begin{case}{lexlean.core::and-intro}
+  \bind{hq;hr}
+  \begin{constructor}
+  \begin{branch}{1}
+  \begin{constructor}
+  \begin{branch}{1}
+  Close the goal with \(hp\).
+  \end{branch}
+  \begin{branch}{2}
+  Close the goal with \(hq\).
+  \end{branch}
+  \end{constructor}
+  \end{branch}
+  \begin{branch}{2}
+  Close the goal with \(hr\).
+  \end{branch}
+  \end{constructor}
+  \end{case}
+  \end{cases}
+  \end{case}
+  \end{cases}
+  \end{branch}
+  \end{constructor}
+  \end{proof}
+  \end{theorem}
+\end{section}
+
+\begin{section}{disjunction}
+\heading{Disjunction}
+  \begin{theorem}{or-comm}
+  \noaxioms
+  For every proposition \(p\) and proposition \(q\), if \(p\) or \(q\), then \(q\) or \(p\).
+  \begin{proof}
+  Assume \(h\).
+  \begin{cases}{h}
+  \begin{case}{lexlean.core::or-inl}
+  \bind{hp}
+  Select the right alternative.
+  Close the goal with \(hp\).
+  \end{case}
+  \begin{case}{lexlean.core::or-inr}
+  \bind{hq}
+  Select the left alternative.
+  Close the goal with \(hq\).
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{or-elim}
+  \noaxioms
+  For every proposition \(p\) and proposition \(q\) and proposition \(r\), if \(p\) or \(q\), then if if \(p\), then \(r\), then if if \(q\), then \(r\), then \(r\).
+  \begin{proof}
+  Assume \(hpq\), \(hpr\), \(hqr\).
+  \begin{cases}{hpq}
+  \begin{case}{lexlean.core::or-inl}
+  \bind{hp}
+  Apply \(hpr\).
+  Close the goal with \(hp\).
+  \end{case}
+  \begin{case}{lexlean.core::or-inr}
+  \bind{hq}
+  Apply \(hqr\).
+  Close the goal with \(hq\).
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+\end{section}
+
+\begin{section}{negation}
+\heading{Negation}
+  \begin{theorem}{double-negation-intro}
+  \noaxioms
+  For every proposition \(p\), if \(p\), then not not \(p\).
+  \begin{proof}
+  Assume \(hp\).
+  Assume \(hn\).
+  Apply \(hn\).
+  Close the goal with \(hp\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{de-morgan}
+  \noaxioms
+  For every proposition \(p\) and proposition \(q\), if not \(p ∨ q\), then not \(p\) and not \(q\).
+  \begin{proof}
+  Assume \(h\).
+  \begin{constructor}
+  \begin{branch}{1}
+  Assume \(hp\).
+  Apply \(h\).
+  Select the left alternative.
+  Close the goal with \(hp\).
+  \end{branch}
+  \begin{branch}{2}
+  Assume \(hq\).
+  Apply \(h\).
+  Select the right alternative.
+  Close the goal with \(hq\).
+  \end{branch}
+  \end{constructor}
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{explosion}
+  \noaxioms
+  For every proposition \(p\) and proposition \(q\), if \(p\) and not \(p\), then \(q\).
+  \begin{proof}
+  Assume \(h\).
+  \begin{cases}{h}
+  \begin{case}{lexlean.core::and-intro}
+  \bind{hp;hn}
+  Close the goal with \(absurd(hp, hn)\).
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+\end{section}
+
+\begin{section}{equivalence}
+\heading{Equivalence}
+  \begin{theorem}{iff-refl}
+  \noaxioms
+  For every proposition \(p\), \(p\) if and only if \(p\).
+  \begin{proof}
+  \begin{constructor}
+  \begin{branch}{1}
+  Assume \(h\).
+  Close the goal with \(h\).
+  \end{branch}
+  \begin{branch}{2}
+  Assume \(h\).
+  Close the goal with \(h\).
+  \end{branch}
+  \end{constructor}
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{iff-symm}
+  \noaxioms
+  For every proposition \(p\) and proposition \(q\), if \(p\) if and only if \(q\), then \(q\) if and only if \(p\).
+  \begin{proof}
+  Assume \(h\).
+  \begin{cases}{h}
+  \begin{case}{lexlean.core::iff-intro}
+  \bind{mp;mpr}
+  \begin{constructor}
+  \begin{branch}{1}
+  Close the goal with \(mpr\).
+  \end{branch}
+  \begin{branch}{2}
+  Close the goal with \(mp\).
+  \end{branch}
+  \end{constructor}
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+\end{section}
+
+\begin{section}{classical}
+\heading{Classical reasoning}
+  \begin{theorem}{double-negation-elim}
+  \exactaxioms{Classical.choice;Quot.sound;propext}
+  For every proposition \(p\), if not not \(p\), then \(p\).
+  \begin{proof}
+  Assume \(hnn\).
+  \begin{cases}{em(p)}
+  \begin{case}{lexlean.core::or-inl}
+  \bind{hp}
+  Close the goal with \(hp\).
+  \end{case}
+  \begin{case}{lexlean.core::or-inr}
+  \bind{hn}
+  Close the goal with \(absurd(hn, hnn)\).
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+\end{section}
+\end{lexlean}

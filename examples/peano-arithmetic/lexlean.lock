@@ -1,0 +1,47 @@
+spec = "lexlean/lock/1"
+language = "1.0"
+compiler_semantics = "b2b2db7016cec38a198de764259969888fd6737e0b974db58c250a50a4c8d7ec"
+project_config_sha256 = "e8807cf1d8b3572523d96c63963aa70574683cfaca727df915561680848830b5"
+lean_toolchain = "leanprover/lean4:v4.32.1"
+
+[[workspace_file]]
+path = "lake-manifest.json"
+sha256 = "e5cf350fce31104b34525c1f68741192eae060c32d24e596b71144987aa399cb"
+
+[[workspace_file]]
+path = "lakefile.toml"
+sha256 = "10606422b696bfea0172a5d36f2e988ff0e51019328c1978a1dd5b93f587514e"
+
+[[workspace_file]]
+path = "lean-toolchain"
+sha256 = "8e3538e0ab5f81a3ee04927d8838c8c674e0e112838b4b3ce87ec218143276af"
+
+[[package]]
+id = "lexlean.core"
+version = "1.0.0"
+kind = "builtin"
+source = "embedded"
+revision = "compiler-semantics"
+tree_sha256 = "e729489584d93b0fd07ddc7bb6d0544b737b2a1f3a769713614c00902228df17"
+manifest_sha256 = "3de2c46e1eea7eabf082c18797aae7c12113195c806f01115b3f1a13f7ab4ec1"
+imports = []
+
+[[package]]
+id = "lexlean.std.nat"
+version = "1.0.0"
+kind = "builtin"
+source = "embedded"
+revision = "compiler-semantics"
+tree_sha256 = "339e91b34e061513b5bfb09f8ff3be179223afaf913ab7cfa1fff47f198be94e"
+manifest_sha256 = "fb1fe55701cbc3f73a731fe9f4b06a17dcdda064093732938074af482ba08bab"
+imports = ["lexlean.core@1.0.0"]
+
+[[package]]
+id = "peano.arith"
+version = "1.0.0"
+kind = "path"
+source = "glossary/peano.arith"
+revision = "none"
+tree_sha256 = "98c7330e4dc2081b89629e8d8acb6b2175bfe60cea9960e8a8fcd6a56b9d1545"
+manifest_sha256 = "61d5c400667a9b091617bb39416940038ee8c1dcadbb8ad9cc37059d32d689a0"
+imports = ["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"]

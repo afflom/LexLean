@@ -1,0 +1,18 @@
+spec = "lexlean/entry/1"
+id = "even"
+category = "adjective-predicate"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (sort prop))"
+surface_arity = 1
+frame = "adjective"
+
+[denotation]
+kind = "document"
+module = "Doubling"
+component = "even"
+
+[[form]]
+id = "even"
+channel = "text"
+surface = "even"
+canonical_source = true
+features = ["lower-case"]

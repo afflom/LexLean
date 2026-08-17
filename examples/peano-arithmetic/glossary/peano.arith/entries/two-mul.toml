@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "two-mul"
+category = "proof-constant"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (app (const lexlean.std.nat::mul) (nat 2) (local n)) (app (const lexlean.std.nat::add) (local n) (local n))))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.two_mul"
+
+[[form]]
+id = "two-mul"
+channel = "math"
+surface = "twomul"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name twomul) (paren (seq (slot 0))))"

@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "absurd"
+category = "proof-constant"
+signature = "(pi ((implicit a (sort prop)) (implicit b (sort (type u))) (explicit h1 (local a)) (explicit h2 (app (const lexlean.core::lnot) (local a)))) (local b))"
+universes = ["u"]
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "absurd"
+
+[[form]]
+id = "absurd"
+channel = "math"
+surface = "absurd"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name absurd) (paren (seq (slot 0) (token comma) (space) (slot 1))))"

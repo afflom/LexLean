@@ -1,0 +1,82 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\begin{document}
+\begin{center}
+{\LARGE Natural number addition}
+\end{center}
+\section{Additive identities}
+\label{ll:addition:identities}
+\begin{theorem}
+\label{ll:addition:add-zero}
+For every natural number \(n\), \(n + 0 = n\).
+\end{theorem}
+\begin{proof}
+The goal follows by reflexivity.
+\end{proof}
+\begin{theorem}
+\label{ll:addition:zero-add}
+For every natural number \(n\), \(0 + n = n\).
+\end{theorem}
+\begin{proof}
+The goal follows from \(\operatorname{zeroadd}(n)\).
+\end{proof}
+\begin{lemma}
+\label{ll:addition:succ-add}
+For every natural number \(n\) and natural number \(m\), \(\operatorname{succ}(n) + m = \operatorname{succ}(n + m)\).
+\end{lemma}
+\begin{proof}
+The goal follows from \(\operatorname{succadd}(n, m)\).
+\end{proof}
+\begin{corollary}
+\label{ll:addition:both-identities}
+For every natural number \(n\), \(n + 0 = n\) and \(0 + n = n\).
+\end{corollary}
+\begin{proof}
+Branch \(1\):
+The goal follows by reflexivity.
+Branch \(2\):
+The goal follows from \(\operatorname{zero_add}(n)\).
+\end{proof}
+\section{Commutativity}
+\label{ll:addition:commutativity}
+\[\mathrm{Parameters}: \forall a \in \mathbb{N}; \forall b \in \mathbb{N}\]
+\begin{theorem}
+\label{ll:addition:add-comm}
+\(a + b = b + a\).
+\end{theorem}
+\begin{proof}
+The goal follows from \(\operatorname{addcomm}(a, b)\).
+\end{proof}
+\begin{corollary}
+\label{ll:addition:add-comm-symm}
+\(b + a = a + b\).
+\end{corollary}
+\begin{proof}
+The goal follows from \(\operatorname{eqsymm}(\operatorname{add_comm}(a, b))\).
+\end{proof}
+\section{Associativity}
+\label{ll:addition:associativity}
+\begin{theorem}
+\label{ll:addition:add-assoc}
+For every natural number \(a\) and natural number \(b\) and natural number \(c\), \(a + b + c = a + (b + c)\).
+\end{theorem}
+\begin{proof}
+The goal follows from \(\operatorname{addassoc}(a, b, c)\).
+\end{proof}
+\begin{theorem}
+\label{ll:addition:add-left-comm}
+For every natural number \(a\) and natural number \(b\) and natural number \(c\), \(a + (b + c) = b + (a + c)\).
+\end{theorem}
+\begin{proof}
+Rewrite the goal using \(\leftarrow \operatorname{add_assoc}(a, b, c)\), \(\rightarrow \operatorname{add_comm}(a, b)\), \(\rightarrow \operatorname{add_assoc}(b, a, c)\).
+\end{proof}
+\end{document}

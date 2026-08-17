@@ -1,0 +1,90 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\begin{document}
+\begin{center}
+{\LARGE Natural number doubling}
+\end{center}
+\section{Natural number doubling}
+\label{ll:doubling:definitions}
+\begin{definition}
+\label{ll:doubling:count}
+A count is defined as \(\mathbb{N}\).
+\end{definition}
+\begin{definition}
+\label{ll:doubling:double}
+For every natural number \(n\), \(\operatorname{double}(n)\) is defined as \(n + n\).
+\end{definition}
+\begin{definition}
+\label{ll:doubling:even}
+For every natural number \(n\), \(\texttt{peano.arith::even}\) holds exactly when there exists a natural number \(k\) such that \(n = k + k\).
+\end{definition}
+\section{Parity}
+\label{ll:doubling:parity}
+\begin{theorem}
+\label{ll:doubling:double-even}
+For every natural number \(n\), \(\operatorname{even}(\operatorname{double}(n))\).
+\end{theorem}
+\begin{proof}
+Use \(n\) as the witness.
+The goal follows by reflexivity.
+\end{proof}
+\begin{theorem}
+\label{ll:doubling:sum-even}
+For every natural number \(n\), \(\operatorname{even}(\texttt{peano.arith::sum}(n, n))\).
+\end{theorem}
+\begin{proof}
+Use \(n\) as the witness.
+The goal follows by reflexivity.
+\end{proof}
+\begin{theorem}
+\label{ll:doubling:zero-even}
+\(\operatorname{even}(0)\).
+\end{theorem}
+\begin{proof}
+Use \(0\) as the witness.
+The goal follows by reflexivity.
+\end{proof}
+\begin{theorem}
+\label{ll:doubling:even-succ-succ}
+For every natural number \(n\), if \(\operatorname{even}(n)\), then \(\operatorname{even}(\operatorname{succ}(\operatorname{succ}(n)))\).
+\end{theorem}
+\begin{proof}
+Assume \(h\).
+Consider the cases of \(h\).
+Case \(existsintro\) with \(k\), \(hk\):
+Use \(\operatorname{succ}(k)\) as the witness.
+Rewrite the goal using \(\rightarrow hk\), \(\leftarrow \operatorname{succ_add}(k, k)\).
+The goal follows by reflexivity.
+\end{proof}
+\section{Sums}
+\label{ll:doubling:sums}
+\begin{lemma}
+\label{ll:doubling:rotate}
+For every natural number \(a\) and natural number \(b\), \(a + (b + (a + b)) = a + (a + (b + b))\).
+\end{lemma}
+\begin{proof}
+Rewrite the goal using \(\rightarrow \operatorname{add_left_comm}(b, a, b)\).
+\end{proof}
+\begin{theorem}
+\label{ll:doubling:double-add}
+For every natural number \(a\) and natural number \(b\), \(\operatorname{double}(a + b) = \operatorname{double}(a) + \operatorname{double}(b)\).
+\end{theorem}
+\begin{proof}
+\begin{align*}
+\operatorname{double}(a + b) &= a + b + (a + b) && \text{by } \operatorname{rfl} \\
+ &= a + (b + (a + b)) && \text{by } \operatorname{addassoc}(a, b, a + b) \\
+ &= a + (a + (b + b)) && \text{by } \operatorname{rotate}(a, b) \\
+ &= a + a + (b + b) && \text{by } \operatorname{eqsymm}(\operatorname{addassoc}(a, a, b + b)) \\
+ &= \operatorname{double}(a) + \operatorname{double}(b) && \text{by } \operatorname{rfl}
+\end{align*}
+\end{proof}
+\end{document}

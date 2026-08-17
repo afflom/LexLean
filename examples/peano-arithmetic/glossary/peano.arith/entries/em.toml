@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "em"
+category = "proof-constant"
+signature = "(pi ((explicit p (sort prop))) (app (const lexlean.core::lor) (local p) (app (const lexlean.core::lnot) (local p))))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Classical.em"
+
+[[form]]
+id = "em"
+channel = "math"
+surface = "em"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name em) (paren (seq (slot 0))))"

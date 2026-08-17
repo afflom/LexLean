@@ -1,0 +1,90 @@
+\begin{lexlean}{Addition}
+\useglossary{lexlean.std.nat@1.0.0}
+\useglossary{peano.arith@1.0.0}
+\title{Natural number addition}
+
+\begin{section}{identities}
+\heading{Additive identities}
+  \begin{theorem}{add-zero}
+  \noaxioms
+  For every natural number \(n\), \(n + 0 = n\).
+  \begin{proof}
+  Close the goal by reflexivity.
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{zero-add}
+  \noaxioms
+  For every natural number \(n\), \(0 + n = n\).
+  \begin{proof}
+  Close the goal with \(zeroadd(n)\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{lemma}{succ-add}
+  \noaxioms
+  For every natural number \(n\) and natural number \(m\), \(succ(n) + m = succ(n + m)\).
+  \begin{proof}
+  Close the goal with \(succadd(n, m)\).
+  \end{proof}
+  \end{lemma}
+
+  \begin{corollary}{both-identities}
+  \noaxioms
+  For every natural number \(n\), \(n + 0 = n\) and \(0 + n = n\).
+  \begin{proof}
+  \begin{constructor}
+  \begin{branch}{1}
+  Close the goal by reflexivity.
+  \end{branch}
+  \begin{branch}{2}
+  Close the goal with \(\reference{Addition::zero-add}(n)\).
+  \end{branch}
+  \end{constructor}
+  \end{proof}
+  \end{corollary}
+\end{section}
+
+\begin{section}{commutativity}
+\heading{Commutativity}
+\parameters{natural number \(a\); natural number \(b\)}
+  \begin{theorem}{add-comm}
+  \noaxioms
+  \(a + b = b + a\).
+  \begin{proof}
+  Close the goal with \(addcomm(a, b)\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{corollary}{add-comm-symm}
+  \noaxioms
+  \(b + a = a + b\).
+  \begin{proof}
+  Close the goal with \(eqsymm(\reference{Addition::add-comm}(a, b))\).
+  \end{proof}
+  \end{corollary}
+\end{section}
+
+\begin{section}{associativity}
+\heading{Associativity}
+  \begin{theorem}{add-assoc}
+  \noaxioms
+  For every natural number \(a\) and natural number \(b\) and natural number \(c\), \(a + b + c = a + (b + c)\).
+  \begin{proof}
+  Close the goal with \(addassoc(a, b, c)\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{add-left-comm}
+  \noaxioms
+  For every natural number \(a\) and natural number \(b\) and natural number \(c\), \(a + (b + c) = b + (a + c)\).
+  \begin{proof}
+  \begin{rewrite}{goal}
+  \backward{\reference{Addition::add-assoc}(a, b, c)}
+  \forward{\reference{Addition::add-comm}(a, b)}
+  \forward{\reference{Addition::add-assoc}(b, a, c)}
+  \end{rewrite}
+  \end{proof}
+  \end{theorem}
+\end{section}
+\end{lexlean}

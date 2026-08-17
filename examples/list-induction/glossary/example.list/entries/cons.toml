@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "cons"
+category = "function"
+signature = "(pi ((implicit a (sort (type u))) (explicit x (local a)) (explicit xs (app (const example.list::list) (local a)))) (app (const example.list::list) (local a)))"
+universes = ["u"]
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List.cons"
+
+[[form]]
+id = "cons"
+channel = "math"
+surface = "cons"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name cons) (paren (seq (slot 0) (token comma) (space) (slot 1))))"

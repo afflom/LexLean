@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "sums"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(const lexlean.std.nat::add)"
+
+[[form]]
+id = "sums"
+channel = "text"
+surface = "Sums"
+canonical_source = true
+features = ["plural", "sentence-case"]

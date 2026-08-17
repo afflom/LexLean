@@ -1,0 +1,64 @@
+\begin{lexlean}{Divisibility}
+\useglossary{lexlean.std.nat@1.0.0}
+\useglossary{peano.arith@1.0.0}
+\importmodule{Addition}
+\title{Natural number divisibility}
+
+\begin{section}{definition}
+\heading{Divisibility}
+  \begin{predicatedefinition}{divides}{peano.arith::divides}
+  \noaxioms
+  For every natural number \(n\); natural number \(m\), \(n\) divides \(m\) holds exactly when there exists a natural number \(k\) such that \(m = n * k\).
+  \end{predicatedefinition}
+\end{section}
+
+\begin{section}{properties}
+\heading{Divisibility : order}
+  \begin{theorem}{divides-refl}
+  \noaxioms
+  For every natural number \(n\), \(n\) divides \(n\).
+  \begin{proof}
+  Use \(1\) as the witness.
+  Close the goal with \(eqsymm(mulone(n))\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{one-divides}
+  \noaxioms
+  For every natural number \(n\), \(1\) divides \(n\).
+  \begin{proof}
+  Use \(n\) as the witness.
+  Close the goal with \(eqsymm(onemul(n))\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{divides-trans}
+  \exactaxioms{propext}
+  For every natural number \(a\) and natural number \(b\) and natural number \(c\), if \(a\) divides \(b\) and \(b\) divides \(c\), then \(a\) divides \(c\).
+  \begin{proof}
+  Assume \(h\).
+  \begin{cases}{h}
+  \begin{case}{lexlean.core::and-intro}
+  \bind{hab;hbc}
+  \begin{cases}{hab}
+  \begin{case}{lexlean.core::exists-intro}
+  \bind{k;hk}
+  \begin{cases}{hbc}
+  \begin{case}{lexlean.core::exists-intro}
+  \bind{l;hl}
+  Use \(k * l\) as the witness.
+  \begin{rewrite}{goal}
+  \forward{hl}
+  \forward{hk}
+  \end{rewrite}
+  Close the goal with \(mulassoc(a, k, l)\).
+  \end{case}
+  \end{cases}
+  \end{case}
+  \end{cases}
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+\end{section}
+\end{lexlean}

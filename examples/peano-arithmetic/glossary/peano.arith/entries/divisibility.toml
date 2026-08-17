@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "divisibility"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(const peano.arith::divides)"
+
+[[form]]
+id = "divisibility"
+channel = "text"
+surface = "divisibility"
+canonical_source = true
+features = ["lower-case", "singular"]

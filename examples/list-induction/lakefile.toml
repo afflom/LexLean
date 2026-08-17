@@ -1,0 +1,6 @@
+name = "list_induction_host"
+version = "0.1.0"
+defaultTargets = ["ListInductionHost"]
+
+[[lean_lib]]
+name = "ListInductionHost"

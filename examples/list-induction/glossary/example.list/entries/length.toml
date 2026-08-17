@@ -1,0 +1,19 @@
+spec = "lexlean/entry/1"
+id = "length"
+category = "noun-function"
+signature = "(pi ((implicit a (sort (type u))) (explicit xs (app (const example.list::list) (local a)))) (const lexlean.std.nat::nat))"
+universes = ["u"]
+surface_arity = 1
+frame = "noun-of"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List.length"
+
+[[form]]
+id = "length"
+channel = "text"
+surface = "length"
+canonical_source = true
+features = ["lower-case", "singular"]

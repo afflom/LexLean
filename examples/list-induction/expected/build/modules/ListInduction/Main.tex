@@ -1,0 +1,75 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\begin{document}
+\begin{center}
+{\LARGE Lists : concatenation}
+\end{center}
+\section{Structural recursion}
+\label{ll:main:recursion}
+\[\mathrm{Parameters}: \forall T \in \texttt{example.list::type}\]
+\begin{lemma}
+\label{ll:main:nil-append}
+For every \(\operatorname{list}(T)\) \(xs\), \(\operatorname{nil} ++ xs = xs\).
+\end{lemma}
+\begin{proof}
+The goal follows by reflexivity.
+\end{proof}
+\begin{lemma}
+\label{ll:main:cons-append}
+For every \(T\) \(x\) and \(\operatorname{list}(T)\) \(xs\) and \(\operatorname{list}(T)\) \(ys\), \(\operatorname{cons}(x, xs) ++ ys = \operatorname{cons}(x, xs ++ ys)\).
+\end{lemma}
+\begin{proof}
+The goal follows by reflexivity.
+\end{proof}
+\begin{lemma}
+\label{ll:main:length-singleton}
+For every \(T\) \(x\), \(\operatorname{len}(\operatorname{cons}(x, \operatorname{nil})) = 1\).
+\end{lemma}
+\begin{proof}
+The goal follows by reflexivity.
+\end{proof}
+\begin{lemma}
+\label{ll:main:length-cons}
+For every \(T\) \(x\) and \(\operatorname{list}(T)\) \(xs\), \(\operatorname{len}(\operatorname{cons}(x, xs)) = \operatorname{succ}(\operatorname{len}(xs))\).
+\end{lemma}
+\begin{proof}
+The goal follows by reflexivity.
+\end{proof}
+\section{Concatenation}
+\label{ll:main:concatenation}
+\[\mathrm{Parameters}: \forall T \in \texttt{example.list::type}\]
+\begin{theorem}
+\label{ll:main:append-nil}
+For every \(\operatorname{list}(T)\) \(xs\), \(xs ++ \operatorname{nil} = xs\).
+\end{theorem}
+\begin{proof}
+Proceed by induction on \(xs\).
+Case \(nil\):
+The goal follows by reflexivity.
+Case \(cons\) with \(x\), \(rest\), \(ih\):
+Rewrite the goal using \(\rightarrow \operatorname{cons_append}(T, x, rest, \operatorname{nil})\), \(\rightarrow ih\).
+\end{proof}
+\begin{theorem}
+\label{ll:main:succ-add-doc}
+For every natural number \(n\) and natural number \(m\), \(\operatorname{succ}(n) + m = \operatorname{succ}(n + m)\).
+\end{theorem}
+\begin{proof}
+The goal follows from \(\operatorname{succadd}(n, m)\).
+\end{proof}
+\begin{theorem}
+\label{ll:main:length-append}
+For every \(\operatorname{list}(T)\) \(xs\) and \(\operatorname{list}(T)\) \(ys\), \(\texttt{example.list::equals}(\texttt{example.list::length}(xs ++ ys), \texttt{example.list::sum}(\texttt{example.list::length}(xs), \texttt{example.list::length}(ys)))\).
+\end{theorem}
+\begin{proof}
+The goal follows from \(\operatorname{lengthappend}\).
+\end{proof}
+\end{document}

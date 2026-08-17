@@ -1,0 +1,38 @@
+spec = "lexlean/entry/1"
+id = "list"
+category = "function"
+signature = "(pi ((explicit a (sort (type u)))) (sort (type u)))"
+universes = ["u"]
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List"
+
+[[form]]
+id = "list"
+channel = "math"
+surface = "list"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name list) (paren (slot 0)))"
+
+[eliminator]
+cases_lean_name = "List.casesOn"
+induction_lean_name = "List.rec"
+
+[[eliminator.constructor]]
+entry = "example.list::nil"
+lean_name = "List.nil"
+fields = []
+induction_hypotheses = []
+
+[[eliminator.constructor]]
+entry = "example.list::cons"
+lean_name = "List.cons"
+fields = ["x", "xs"]
+induction_hypotheses = ["ih"]

@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "le-refl"
+category = "proof-constant"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.std.nat::le) (local n) (local n)))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.le_refl"
+
+[[form]]
+id = "le-refl"
+channel = "math"
+surface = "lerefl"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name lerefl) (paren (seq (slot 0))))"

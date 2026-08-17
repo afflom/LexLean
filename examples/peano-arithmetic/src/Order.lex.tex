@@ -1,0 +1,86 @@
+\begin{lexlean}{Order}
+\useglossary{lexlean.std.nat@1.0.0}
+\useglossary{peano.arith@1.0.0}
+\importmodule{Addition}
+\title{Natural number order}
+
+\begin{section}{positivity}
+\heading{Positivity}
+  \begin{predicatedefinition}{positive}{peano.arith::positive}
+  \noaxioms
+  For every natural number \(n\), \(n\) is positive holds exactly when \(0 < n\).
+  \end{predicatedefinition}
+
+  \begin{theorem}{successor-positive}
+  \noaxioms
+  For every natural number \(n\), the successor of \(n\) is positive.
+  \begin{proof}
+  Close the goal with \(zeroltsucc(n)\).
+  \end{proof}
+  \end{theorem}
+\end{section}
+
+\begin{section}{induction}
+\heading{Order}
+  \begin{theorem}{zero-le}
+  \noaxioms
+  For every natural number \(n\), \(0 ≤ n\).
+  \begin{proof}
+  \begin{induction}{n}
+  \begin{case}{lexlean.std.nat::zero}
+  \bind{}
+  Close the goal with \(lerefl(0)\).
+  \end{case}
+  \begin{case}{lexlean.std.nat::succ}
+  \bind{m;ih}
+  Close the goal with \(letrans(ih, lesucc(m))\).
+  \end{case}
+  \end{induction}
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{le-add-right}
+  \noaxioms
+  For every natural number \(n\), \(n ≤ n + 0\).
+  \begin{proof}
+  \begin{rewrite}{goal}
+  \forward{\reference{Addition::add-zero}(n)}
+  \end{rewrite}
+  Close the goal with \(lerefl(n)\).
+  \end{proof}
+  \end{theorem}
+\end{section}
+
+\begin{section}{case-analysis}
+\heading{Case analysis}
+  \begin{theorem}{zero-or-successor}
+  \noaxioms
+  For every natural number \(n\), \(n = 0\) or there exists a natural number \(m\) such that \(n = succ(m)\).
+  \begin{proof}
+  \begin{cases}{n}
+  \begin{case}{lexlean.std.nat::zero}
+  \bind{}
+  Select the left alternative.
+  Close the goal by reflexivity.
+  \end{case}
+  \begin{case}{lexlean.std.nat::succ}
+  \bind{k}
+  Select the right alternative.
+  Use \(k\) as the witness.
+  Close the goal by reflexivity.
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{successor-not-zero}
+  \allowaxioms{propext}
+  For every natural number \(n\), not \(succ(n) = 0\).
+  \begin{proof}
+  Assume \(h\).
+  Apply \(succnezero(n)\).
+  Close the goal with \(h\).
+  \end{proof}
+  \end{theorem}
+\end{section}
+\end{lexlean}

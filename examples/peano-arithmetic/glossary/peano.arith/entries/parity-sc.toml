@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "parity-sc"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(const peano.arith::even)"
+
+[[form]]
+id = "parity-sc"
+channel = "text"
+surface = "Parity"
+canonical_source = true
+features = ["sentence-case", "singular"]

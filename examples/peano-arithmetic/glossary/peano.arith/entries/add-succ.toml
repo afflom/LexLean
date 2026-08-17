@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "add-succ"
+category = "proof-constant"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat)) (explicit m (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (app (const lexlean.std.nat::add) (local n) (app (const lexlean.std.nat::succ) (local m))) (app (const lexlean.std.nat::succ) (app (const lexlean.std.nat::add) (local n) (local m)))))"
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.add_succ"
+
+[[form]]
+id = "add-succ"
+channel = "math"
+surface = "addsucc"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name addsucc) (paren (seq (slot 0) (token comma) (space) (slot 1))))"

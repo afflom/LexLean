@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "add-assoc"
+category = "proof-constant"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat)) (explicit m (const lexlean.std.nat::nat)) (explicit k (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (app (const lexlean.std.nat::add) (app (const lexlean.std.nat::add) (local n) (local m)) (local k)) (app (const lexlean.std.nat::add) (local n) (app (const lexlean.std.nat::add) (local m) (local k)))))"
+surface_arity = 3
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.add_assoc"
+
+[[form]]
+id = "add-assoc"
+channel = "math"
+surface = "addassoc"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name addassoc) (paren (seq (slot 0) (token comma) (space) (slot 1) (token comma) (space) (slot 2))))"

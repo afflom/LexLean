@@ -1,0 +1,18 @@
+spec = "lexlean/entry/1"
+id = "sum"
+category = "binary-noun-function"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))"
+surface_arity = 2
+frame = "binary-noun-of"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.add"
+
+[[form]]
+id = "sum"
+channel = "text"
+surface = "sum"
+canonical_source = true
+features = ["lower-case", "singular"]

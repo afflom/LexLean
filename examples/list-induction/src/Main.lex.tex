@@ -1,0 +1,81 @@
+\begin{lexlean}{Main}
+\useglossary{example.list@1.0.0}
+\useglossary{lexlean.std.nat@1.0.0}
+\title{Lists : concatenation}
+
+\begin{section}{recursion}
+\heading{Structural recursion}
+\parameters{type \(T\)}
+  \begin{lemma}{nil-append}
+  \noaxioms
+  For every \(list(T)\) \(xs\), \(nil ⧺ xs = xs\).
+  \begin{proof}
+  Close the goal by reflexivity.
+  \end{proof}
+  \end{lemma}
+
+  \begin{lemma}{cons-append}
+  \noaxioms
+  For every \(T\) \(x\) and \(list(T)\) \(xs\) and \(list(T)\) \(ys\), \(cons(x, xs) ⧺ ys = cons(x, xs ⧺ ys)\).
+  \begin{proof}
+  Close the goal by reflexivity.
+  \end{proof}
+  \end{lemma}
+
+  \begin{lemma}{length-singleton}
+  \noaxioms
+  For every \(T\) \(x\), \(len(cons(x, nil)) = 1\).
+  \begin{proof}
+  Close the goal by reflexivity.
+  \end{proof}
+  \end{lemma}
+
+  \begin{lemma}{length-cons}
+  \noaxioms
+  For every \(T\) \(x\) and \(list(T)\) \(xs\), \(len(cons(x, xs)) = succ(len(xs))\).
+  \begin{proof}
+  Close the goal by reflexivity.
+  \end{proof}
+  \end{lemma}
+\end{section}
+
+\begin{section}{concatenation}
+\heading{Concatenation}
+\parameters{type \(T\)}
+  \begin{theorem}{append-nil}
+  \noaxioms
+  For every \(list(T)\) \(xs\), \(xs ⧺ nil = xs\).
+  \begin{proof}
+  \begin{induction}{xs}
+  \begin{case}{example.list::nil}
+  \bind{}
+  Close the goal by reflexivity.
+  \end{case}
+  \begin{case}{example.list::cons}
+  \bind{x;rest;ih}
+  \begin{rewrite}{goal}
+  \forward{\reference{Main::cons-append}(T, x, rest, nil)}
+  \forward{ih}
+  \end{rewrite}
+  \end{case}
+  \end{induction}
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{succ-add-doc}
+  \noaxioms
+  For every natural number \(n\) and natural number \(m\), \(succ(n) + m = succ(n + m)\).
+  \begin{proof}
+  Close the goal with \(succadd(n, m)\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{length-append}
+  \allowaxioms{propext}
+  For every \(list(T)\) \(xs\) and \(list(T)\) \(ys\), the length of \(xs ⧺ ys\) equals the sum of the length of \(xs\) and the length of \(ys\).
+  \begin{proof}
+  Close the goal with \(lengthappend\).
+  \end{proof}
+  \end{theorem}
+\end{section}
+\end{lexlean}

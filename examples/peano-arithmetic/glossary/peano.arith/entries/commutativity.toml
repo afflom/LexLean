@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "commutativity"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(const peano.arith::add-comm)"
+
+[[form]]
+id = "commutativity"
+channel = "text"
+surface = "Commutativity"
+canonical_source = true
+features = ["sentence-case", "singular"]

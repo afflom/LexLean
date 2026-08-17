@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "le-succ"
+category = "proof-constant"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.std.nat::le) (local n) (app (const lexlean.std.nat::succ) (local n))))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.le_succ"
+
+[[form]]
+id = "le-succ"
+channel = "math"
+surface = "lesucc"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name lesucc) (paren (seq (slot 0))))"

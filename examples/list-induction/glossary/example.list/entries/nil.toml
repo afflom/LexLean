@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "nil"
+category = "term-constant"
+signature = "(pi ((implicit a (sort (type u)))) (app (const example.list::list) (local a)))"
+universes = ["u"]
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List.nil"
+
+[[form]]
+id = "nil"
+channel = "math"
+surface = "nil"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name nil)"

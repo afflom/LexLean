@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "one-mul"
+category = "proof-constant"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (app (const lexlean.std.nat::mul) (nat 1) (local n)) (local n)))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.one_mul"
+
+[[form]]
+id = "one-mul"
+channel = "math"
+surface = "onemul"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name onemul) (paren (slot 0)))"

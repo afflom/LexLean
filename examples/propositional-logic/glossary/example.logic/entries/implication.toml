@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "implication"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(sort prop)"
+
+[[form]]
+id = "implication"
+channel = "text"
+surface = "Implication"
+canonical_source = true
+features = ["sentence-case", "singular"]

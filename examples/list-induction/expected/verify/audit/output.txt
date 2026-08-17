@@ -1,0 +1,7 @@
+'ListInduction.Main.append_nil' does not depend on any axioms
+'ListInduction.Main.cons_append' does not depend on any axioms
+'ListInduction.Main.length_append' depends on axioms: [propext]
+'ListInduction.Main.length_cons' does not depend on any axioms
+'ListInduction.Main.length_singleton' does not depend on any axioms
+'ListInduction.Main.nil_append' does not depend on any axioms
+'ListInduction.Main.succ_add_doc' does not depend on any axioms

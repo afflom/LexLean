@@ -1,0 +1,24 @@
+spec = "lexlean/entry/1"
+id = "proposition"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(sort prop)"
+
+[[form]]
+id = "proposition"
+channel = "text"
+surface = "proposition"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+
+[[form]]
+id = "propositions"
+channel = "text"
+surface = "propositions"
+canonical_source = false
+features = ["lower-case", "plural"]

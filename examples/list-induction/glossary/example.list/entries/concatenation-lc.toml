@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "concatenation-lc"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(const example.list::append)"
+
+[[form]]
+id = "concatenation-lc"
+channel = "text"
+surface = "concatenation"
+canonical_source = true
+features = ["lower-case", "singular"]

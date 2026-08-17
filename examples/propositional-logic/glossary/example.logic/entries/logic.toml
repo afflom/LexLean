@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "logic"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(sort prop)"
+
+[[form]]
+id = "logic"
+channel = "text"
+surface = "logic"
+canonical_source = true
+features = ["lower-case", "singular"]

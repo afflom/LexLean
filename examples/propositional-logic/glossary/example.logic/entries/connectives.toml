@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "connectives"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(sort prop)"
+
+[[form]]
+id = "connectives"
+channel = "text"
+surface = "connectives"
+canonical_source = true
+features = ["lower-case", "plural"]

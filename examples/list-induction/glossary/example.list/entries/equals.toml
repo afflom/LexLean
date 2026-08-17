@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "equals"
+category = "transitive-predicate"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (sort prop))"
+surface_arity = 2
+frame = "transitive"
+
+[denotation]
+kind = "defined"
+value = "(lam ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (local a) (local b)))"
+
+[[form]]
+id = "equals"
+channel = "text"
+surface = "equals"
+canonical_source = true
+features = ["lower-case"]

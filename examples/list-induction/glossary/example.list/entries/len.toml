@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "len"
+category = "function"
+signature = "(pi ((implicit a (sort (type u))) (explicit xs (app (const example.list::list) (local a)))) (const lexlean.std.nat::nat))"
+universes = ["u"]
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List.length"
+
+[[form]]
+id = "len"
+channel = "math"
+surface = "len"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name len) (paren (slot 0)))"

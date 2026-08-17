@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "zero-add"
+category = "proof-constant"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (app (const lexlean.std.nat::add) (nat 0) (local n)) (local n)))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.zero_add"
+
+[[form]]
+id = "zero-add"
+channel = "math"
+surface = "zeroadd"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name zeroadd) (paren (slot 0)))"

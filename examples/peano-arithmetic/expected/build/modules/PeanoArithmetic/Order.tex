@@ -1,0 +1,75 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\begin{document}
+\begin{center}
+{\LARGE Natural number order}
+\end{center}
+\section{Positivity}
+\label{ll:order:positivity}
+\begin{definition}
+\label{ll:order:positive}
+For every natural number \(n\), \(\texttt{peano.arith::positive}\) holds exactly when \(0 < n\).
+\end{definition}
+\begin{theorem}
+\label{ll:order:successor-positive}
+For every natural number \(n\), \(\operatorname{positive}(\texttt{peano.arith::successor}(n))\).
+\end{theorem}
+\begin{proof}
+The goal follows from \(\operatorname{zeroltsucc}(n)\).
+\end{proof}
+\section{Order}
+\label{ll:order:induction}
+\begin{theorem}
+\label{ll:order:zero-le}
+For every natural number \(n\), \(0 \le n\).
+\end{theorem}
+\begin{proof}
+Proceed by induction on \(n\).
+Case zero:
+The goal follows from \(\operatorname{lerefl}(0)\).
+Case \(succ\) with \(m\), \(ih\):
+The goal follows from \(\operatorname{letrans}(ih, \operatorname{lesucc}(m))\).
+\end{proof}
+\begin{theorem}
+\label{ll:order:le-add-right}
+For every natural number \(n\), \(n \le n + 0\).
+\end{theorem}
+\begin{proof}
+Rewrite the goal using \(\rightarrow \operatorname{add_zero}(n)\).
+The goal follows from \(\operatorname{lerefl}(n)\).
+\end{proof}
+\section{Case analysis}
+\label{ll:order:case-analysis}
+\begin{theorem}
+\label{ll:order:zero-or-successor}
+For every natural number \(n\), \(n = 0\) or \(\exists m, n = \operatorname{succ}(m)\).
+\end{theorem}
+\begin{proof}
+Consider the cases of \(n\).
+Case zero:
+Select the left alternative.
+The goal follows by reflexivity.
+Case \(succ\) with \(k\):
+Select the right alternative.
+Use \(k\) as the witness.
+The goal follows by reflexivity.
+\end{proof}
+\begin{theorem}
+\label{ll:order:successor-not-zero}
+For every natural number \(n\), not \(\operatorname{succ}(n) = 0\).
+\end{theorem}
+\begin{proof}
+Assume \(h\).
+Apply \(\operatorname{succnezero}(n)\).
+The goal follows from \(h\).
+\end{proof}
+\end{document}

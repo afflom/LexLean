@@ -1,0 +1,101 @@
+\begin{lexlean}{Doubling}
+\useglossary{lexlean.std.nat@1.0.0}
+\useglossary{peano.arith@1.0.0}
+\importmodule{Addition}
+\title{Natural number doubling}
+
+\begin{section}{definitions}
+\heading{Natural number doubling}
+  \begin{typedefinition}{count}{peano.arith::count}
+  \noaxioms
+  A count is defined as natural number.
+  \end{typedefinition}
+
+  \begin{termdefinition}{double}{peano.arith::double}
+  \noaxioms
+  For every natural number \(n\), \(double(n)\) is defined as \(n + n\).
+  \end{termdefinition}
+
+  \begin{predicatedefinition}{even}{peano.arith::even}
+  \noaxioms
+  For every natural number \(n\), \(n\) is even holds exactly when there exists a natural number \(k\) such that \(n = k + k\).
+  \end{predicatedefinition}
+\end{section}
+
+\begin{section}{parity}
+\heading{Parity}
+  \begin{theorem}{double-even}
+  \noaxioms
+  For every natural number \(n\), \(double(n)\) is even.
+  \begin{proof}
+  Use \(n\) as the witness.
+  Close the goal by reflexivity.
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{sum-even}
+  \noaxioms
+  For every natural number \(n\), the sum of \(n\) and \(n\) is even.
+  \begin{proof}
+  Use \(n\) as the witness.
+  Close the goal by reflexivity.
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{zero-even}
+  \noaxioms
+  \(0\) is even.
+  \begin{proof}
+  Use \(0\) as the witness.
+  Close the goal by reflexivity.
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{even-succ-succ}
+  \noaxioms
+  For every natural number \(n\), if \(n\) is even, then \(succ(succ(n))\) is even.
+  \begin{proof}
+  Assume \(h\).
+  \begin{cases}{h}
+  \begin{case}{lexlean.core::exists-intro}
+  \bind{k;hk}
+  Use \(succ(k)\) as the witness.
+  \begin{rewrite}{goal}
+  \forward{hk}
+  \backward{\reference{Addition::succ-add}(k, k)}
+  \end{rewrite}
+  Close the goal by reflexivity.
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+\end{section}
+
+\begin{section}{sums}
+\heading{Sums}
+  \begin{lemma}{rotate}
+  \noaxioms
+  For every natural number \(a\) and natural number \(b\), \(a + (b + (a + b)) = a + (a + (b + b))\).
+  \begin{proof}
+  \begin{rewrite}{goal}
+  \forward{\reference{Addition::add-left-comm}(b, a, b)}
+  \end{rewrite}
+  \end{proof}
+  \end{lemma}
+
+  \begin{theorem}{double-add}
+  \noaxioms
+  For every natural number \(a\) and natural number \(b\), \(double(a + b) = double(a) + double(b)\).
+  \begin{proof}
+  \begin{calculate}
+  \start{double(a + b)}
+  \step{lexlean.core::eq}{a + b + (a + b)}{rfl}
+  \step{lexlean.core::eq}{a + (b + (a + b))}{addassoc(a, b, a + b)}
+  \step{lexlean.core::eq}{a + (a + (b + b))}{\reference{Doubling::rotate}(a, b)}
+  \step{lexlean.core::eq}{a + a + (b + b)}{eqsymm(addassoc(a, a, b + b))}
+  \step{lexlean.core::eq}{double(a) + double(b)}{rfl}
+  \end{calculate}
+  \end{proof}
+  \end{theorem}
+\end{section}
+\end{lexlean}

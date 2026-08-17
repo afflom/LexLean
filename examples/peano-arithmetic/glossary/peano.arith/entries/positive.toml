@@ -1,0 +1,18 @@
+spec = "lexlean/entry/1"
+id = "positive"
+category = "adjective-predicate"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (sort prop))"
+surface_arity = 1
+frame = "adjective"
+
+[denotation]
+kind = "document"
+module = "Order"
+component = "positive"
+
+[[form]]
+id = "positive"
+channel = "text"
+surface = "positive"
+canonical_source = true
+features = ["lower-case"]

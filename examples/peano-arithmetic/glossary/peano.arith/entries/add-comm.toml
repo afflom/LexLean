@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "add-comm"
+category = "proof-constant"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat)) (explicit m (const lexlean.std.nat::nat))) (app (const lexlean.core::eq) (app (const lexlean.std.nat::add) (local n) (local m)) (app (const lexlean.std.nat::add) (local m) (local n))))"
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.add_comm"
+
+[[form]]
+id = "add-comm"
+channel = "math"
+surface = "addcomm"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name addcomm) (paren (seq (slot 0) (token comma) (space) (slot 1))))"

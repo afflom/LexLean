@@ -1,0 +1,89 @@
+\begin{lexlean}{Main}
+\useglossary{lexlean.std.nat@1.0.0}
+\useglossary{peano.arith@1.0.0}
+\importmodule{Addition}
+\importmodule{Divisibility}
+\importmodule{Doubling}
+\importmodule{Order}
+\title{Natural number addition : consequences}
+
+\begin{section}{consequences}
+\heading{Commutativity : consequences}
+  \begin{theorem}{comm-under-hypothesis}
+  \noaxioms
+  For every natural number \(x\) and natural number \(y\), if \(x = y\), then \(x + y = y + x\).
+  \begin{proof}
+  Assume \(h\).
+  Close the goal with \(\reference{Addition::add-comm}(x, y)\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{comm-rewrite}
+  \noaxioms
+  For every natural number \(x\) and natural number \(y\), if \(x = y\), then \(x + x = y + x\).
+  \begin{proof}
+  Assume \(h\).
+  \begin{rewrite}{goal}
+  \forward{h}
+  \end{rewrite}
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{double-divides}
+  \noaxioms
+  For every natural number \(n\), \(2\) divides \(double(n)\).
+  \begin{proof}
+  Use \(n\) as the witness.
+  Close the goal with \(eqsymm(twomul(n))\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{even-divides}
+  \noaxioms
+  For every natural number \(n\), if \(n\) is even, then \(2\) divides \(n\).
+  \begin{proof}
+  Assume \(h\).
+  \begin{cases}{h}
+  \begin{case}{lexlean.core::exists-intro}
+  \bind{k;hk}
+  Use \(k\) as the witness.
+  \begin{rewrite}{goal}
+  \forward{hk}
+  \end{rewrite}
+  Close the goal with \(eqsymm(twomul(k))\).
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+\end{section}
+
+\begin{section}{excluded-middle}
+\heading{Excluded middle}
+  \begin{theorem}{even-or-not}
+  \exactaxioms{Classical.choice;Quot.sound;propext}
+  For every natural number \(n\), \(n\) is even or not \(n\) is even.
+  \begin{proof}
+  Close the goal with \(em(\lexeme{peano.arith::even}(n))\).
+  \end{proof}
+  \end{theorem}
+
+  \begin{theorem}{positive-or-zero}
+  \allowaxioms{Classical.choice;Quot.sound;propext}
+  For every natural number \(n\), \(n\) is positive or \(n = 0\).
+  \begin{proof}
+  \begin{cases}{n}
+  \begin{case}{lexlean.std.nat::zero}
+  \bind{}
+  Select the right alternative.
+  Close the goal by reflexivity.
+  \end{case}
+  \begin{case}{lexlean.std.nat::succ}
+  \bind{m}
+  Select the left alternative.
+  Close the goal with \(\reference{Order::successor-positive}(m)\).
+  \end{case}
+  \end{cases}
+  \end{proof}
+  \end{theorem}
+\end{section}
+\end{lexlean}

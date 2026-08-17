@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "analysis"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(const lexlean.std.nat::nat)"
+
+[[form]]
+id = "analysis"
+channel = "text"
+surface = "analysis"
+canonical_source = true
+features = ["lower-case", "singular"]

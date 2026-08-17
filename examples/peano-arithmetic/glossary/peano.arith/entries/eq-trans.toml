@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "eq-trans"
+category = "proof-constant"
+signature = "(pi ((implicit a (sort (type u))) (implicit x (local a)) (implicit y (local a)) (implicit z (local a)) (explicit h1 (app (const lexlean.core::eq) (local x) (local y))) (explicit h2 (app (const lexlean.core::eq) (local y) (local z)))) (app (const lexlean.core::eq) (local x) (local z)))"
+universes = ["u"]
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Eq.trans"
+
+[[form]]
+id = "eq-trans"
+channel = "math"
+surface = "eqtrans"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name eqtrans) (paren (seq (slot 0) (token comma) (space) (slot 1))))"

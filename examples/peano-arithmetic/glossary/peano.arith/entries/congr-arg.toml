@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "congr-arg"
+category = "proof-constant"
+signature = "(pi ((implicit a (sort (type u))) (implicit b (sort (type v))) (implicit x (local a)) (implicit y (local a)) (explicit f (pi ((explicit z (local a))) (local b))) (explicit h (app (const lexlean.core::eq) (local x) (local y)))) (app (const lexlean.core::eq) (app (local f) (local x)) (app (local f) (local y))))"
+universes = ["u", "v"]
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "congrArg"
+
+[[form]]
+id = "congr-arg"
+channel = "math"
+surface = "congrarg"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name congrarg) (paren (seq (slot 0) (token comma) (space) (slot 1))))"

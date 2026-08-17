@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "classical"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(const example.logic::em)"
+
+[[form]]
+id = "classical"
+channel = "text"
+surface = "Classical"
+canonical_source = true
+features = ["sentence-case", "singular"]

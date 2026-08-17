@@ -1,0 +1,18 @@
+spec = "lexlean/entry/1"
+id = "divides"
+category = "transitive-predicate"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat)) (explicit m (const lexlean.std.nat::nat))) (sort prop))"
+surface_arity = 2
+frame = "transitive"
+
+[denotation]
+kind = "document"
+module = "Divisibility"
+component = "divides"
+
+[[form]]
+id = "divides"
+channel = "text"
+surface = "divides"
+canonical_source = true
+features = ["lower-case"]

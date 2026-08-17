@@ -1,0 +1,6 @@
+name = "propositional_logic_host"
+version = "0.1.0"
+defaultTargets = ["PropositionalLogicHost"]
+
+[[lean_lib]]
+name = "PropositionalLogicHost"

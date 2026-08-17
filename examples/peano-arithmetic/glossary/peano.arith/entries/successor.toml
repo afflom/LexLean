@@ -1,0 +1,18 @@
+spec = "lexlean/entry/1"
+id = "successor"
+category = "noun-function"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))"
+surface_arity = 1
+frame = "noun-of"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.succ"
+
+[[form]]
+id = "successor"
+channel = "text"
+surface = "successor"
+canonical_source = true
+features = ["lower-case", "singular"]

@@ -1,0 +1,6 @@
+name = "peano_arithmetic_host"
+version = "0.1.0"
+defaultTargets = ["PeanoArithmeticHost"]
+
+[[lean_lib]]
+name = "PeanoArithmeticHost"
