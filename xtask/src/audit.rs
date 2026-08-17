@@ -327,13 +327,32 @@ pub fn audit_errors(root: &Path, model: &repo_model::Model) -> Result<(), Fail> 
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        for token in code_tokens(&text) {
-            if !registered.contains(token.as_str()) {
-                return Err(format!(
-                    "R5: `{token}` in {} is not a registered diagnostic code",
-                    path.display()
-                )
-                .into());
+        // A fenced block in VERIFICATION.md is quoted gate output, not a
+        // claim this repository makes: a falsifiability record shows what
+        // the gate printed when its defect was planted, and a planted
+        // defect is by construction an unregistered code (§27.9, and the
+        // same allowance §27.10 gives fenced code in the deferral audit).
+        // Everything outside the fences is still scanned.
+        let quoted_output = path
+            .file_name()
+            .is_some_and(|name| name == "VERIFICATION.md");
+        let mut fenced = false;
+        for line in text.lines() {
+            if line.trim_start().starts_with("```") {
+                fenced = !fenced;
+                continue;
+            }
+            if quoted_output && fenced {
+                continue;
+            }
+            for token in code_tokens(line) {
+                if !registered.contains(token.as_str()) {
+                    return Err(format!(
+                        "R5: `{token}` in {} is not a registered diagnostic code",
+                        path.display()
+                    )
+                    .into());
+                }
             }
         }
     }
