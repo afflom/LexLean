@@ -428,6 +428,29 @@ math = "(token write18)"
                 let error = run_fake_provider(&project, &escaping).expect_err("bare name");
                 assert_eq!(error.code.as_str(), "LLB6004", "`{bad}` is refused");
             }
+            // And it is refused when the configuration is loaded, not only
+            // when a provider eventually runs: an output that can never
+            // satisfy the protocol is a configuration error (§19.7).
+            for bad in ["../{stem}.pdf", "sub/{stem}.pdf"] {
+                let configured = P::example();
+                configured.edit(
+                    "lexlean.toml",
+                    "\n[limits]",
+                    &format!(
+                        "\n[pdf]\nmode = \"external\"\nprogram = \"tools/fakepdf\"\nprogram_sha256 = \"{}\"\nversion_argv = [\"--version\"]\nversion_stdout_sha256 = \"{}\"\ncompile_argv = [\"--outdir\", \"{{out_dir}}\", \"{{input}}\"]\noutput = \"{bad}\"\nresources = []\n\n[limits]",
+                        Sha256Digest::of(b"").to_hex(),
+                        Sha256Digest::of(b"\n").to_hex(),
+                    ),
+                );
+                let error = lexlean::Engine::load(&configured.root.join("lexlean.toml"))
+                    .err()
+                    .unwrap_or_else(|| panic!("`{bad}` is refused at load"));
+                support::expect_code(&error, "LLC0101");
+                assert!(
+                    format!("{error}").contains("bare file name"),
+                    "the failure says why: {error}"
+                );
+            }
 
             // Exactly one output: an extra file in the output directory
             // fails and is named.
