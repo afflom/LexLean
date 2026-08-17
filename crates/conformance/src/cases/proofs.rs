@@ -111,6 +111,22 @@ pub(crate) fn run(id: &str) {
                 ),
                 "LLF5002",
             );
+            // `Not P` is `P → False` (§16.2): a hypothesis of the function
+            // type closes the negation goal; the shapes are never certainly
+            // distinct, and pinned Lean accepts the exact term.
+            support::f1_exact(
+                "not_intro",
+                "public theorem not_intro (llv0 : Prop) : (llv0 → False) → Not llv0 := by\n  intro llh0\n  exact llh0",
+            );
+            // A certain shape mismatch stays rejected before Lean: an
+            // equation hypothesis against a conjunction goal.
+            fails_with(
+                &theorem_module(
+                    "For every natural number \\(n\\), if \\(n = n\\), then \\(n = n\\) and \\(n = n\\).",
+                    "Assume \\(h\\).\nClose the goal with \\(h\\).",
+                ),
+                "LLT4001",
+            );
         }
         // §16.2: simple Apply needs exactly one residual premise; a
         // quantified lemma's conclusion unifies with the goal (C5).
@@ -132,6 +148,13 @@ pub(crate) fn run(id: &str) {
                 diagnostic.message.contains("yields 2"),
                 "the residual count is named: {}",
                 diagnostic.message
+            );
+            // An external predicate (`Ne`) may reduce to a function type in
+            // Lean: its residual is unknown, not zero, and Lean's `apply`
+            // decides (§16.1).
+            support::f1_exact(
+                "apply_ne",
+                "public theorem apply_ne (llv0 : Nat) : (Ne (Nat.succ llv0) 0) → (Eq (Nat.succ llv0) (0 : Nat)) → False := by\n  intro llh0\n  intro llh1\n  apply llh0\n  exact llh1",
             );
         }
         // §16.6: structured apply names every premise once, in order.
@@ -458,6 +481,13 @@ pub(crate) fn run(id: &str) {
                     "\\begin{calculate}\n\\start{m + 0}\n\\step{lexlean.core::eq}{n}{\\reference{Main::helper}(n)}\n\\end{calculate}",
                 ),
                 "LLF5002",
+            );
+            // Endpoints match through definition unfolding (§16.10): the goal
+            // spells `double(n) + 0`, the chain starts at `n + n + 0`; Lean's
+            // `calc` accepts the same relation.
+            support::f1_exact(
+                "double_calc",
+                "public theorem double_calc (llv0 : Nat) : Eq (Nat.add (LexLeanExample.Main.double llv0) 0) (Nat.add llv0 llv0) := by\n  calc (Nat.add (Nat.add llv0 llv0) 0) = (Nat.add llv0 llv0) := (LexLeanExample.Main.add_zero (Nat.add llv0 llv0))",
             );
         }
         // §16.1: no capture or leak across branch and premise scopes.

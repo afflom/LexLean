@@ -223,6 +223,65 @@ pub(crate) fn run(id: &str) {
                     .map(|d| d.code.as_str())
                     .collect::<Vec<_>>()
             );
+
+            // Expected types are read through definitions (§17.6, §17.7):
+            // a binder typed by a document type definition satisfies `+`,
+            // and a defined type noun (`natural number list`) meets a
+            // polymorphic constant in either argument order — the solved
+            // metavariable's solution unfolds too.
+            support::f1_exact(
+                "count_add_zero",
+                "public theorem count_add_zero (llv0 : LexLeanExample.Main.count) : Eq (Nat.add llv0 0) llv0 := by\n  rfl",
+            );
+            support::f1_exact(
+                "list_nil",
+                "public theorem list_nil (llv0 : (List Nat)) : (Eq llv0 List.nil) → Eq List.nil llv0 := by\n  intro llh0\n  rw [llh0]",
+            );
+            // The core arrow elaborates in math to a non-dependent `Pi`
+            // (§15.6), and the canonical formatter spells it back as `→`
+            // inside an island where prose cannot hold it.
+            support::f1_exact(
+                "arrow_or",
+                "public theorem arrow_or (llv0 : Prop) : Or (llv0 → llv0) llv0 := by\n  left\n  intro llh0\n  exact llh0",
+            );
+            let formatted = support::f1_project();
+            formatted
+                .engine()
+                .format(lexlean::FormatRequest {
+                    selection: lexlean::Selection::Entrypoints,
+                    check_only: false,
+                })
+                .expect("the WS-F1 module formats");
+            let source = formatted.read("src/Main.lex.tex");
+            assert!(
+                source.contains("\\(p → p\\) or \\(p\\)"),
+                "the arrow inside an island keeps its math form: {source}"
+            );
+            formatted.fmt_check_ok();
+            formatted.check_ok();
+            // A rejection names why its candidates died (§20.1): an infix
+            // entry whose document declaration is not yet available leaves
+            // no candidate, and the `LLT4001` carries the reason as a note.
+            let unavailable = support::f1_project();
+            unavailable.edit(
+                "src/Main.lex.tex",
+                "For every count \\(c\\), \\(c + 0 = c\\).",
+                "For every natural number \\(c\\), \\(c ⊕ 0 = c\\).",
+            );
+            let error = unavailable.check_err();
+            let rejected = error
+                .diagnostics
+                .iter()
+                .find(|d| d.code.as_str() == "LLT4001")
+                .unwrap_or_else(|| panic!("an uninstantiable operator is LLT4001: {error}"));
+            assert!(
+                rejected.notes.iter().any(|note| {
+                    note.message.contains("test.f1::oplus")
+                        && note.message.contains("Main::oplus")
+                        && note.message.contains("not available")
+                }),
+                "the note names the entry and why it cannot be instantiated: {rejected:#?}"
+            );
         }
         // §17.3: omitted implicits recorded; user holes rejected.
         "SM-06" => {

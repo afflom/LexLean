@@ -517,7 +517,13 @@ impl Fmt<'_> {
         level: u8,
         trailing: bool,
     ) -> Result<String, Diagnostic> {
-        let quantified = matches!(term, Term::Pi { .. })
+        // An implication (§15.6) has three spellings by position: the
+        // conditional `if P, then Q` where a whole proposition may stand
+        // (level 0 or an antecedent, trailing), `P implies Q` at the
+        // implication level (an equivalence operand), and the core arrow in
+        // math below that.
+        let implication = matches!(term, Term::Pi { binders, body } if Self::is_implication(binders, body));
+        let quantified = (matches!(term, Term::Pi { .. }) && !implication)
             || matches!(
                 term,
                 Term::App { function, .. }
@@ -528,6 +534,8 @@ impl Fmt<'_> {
             );
         let as_prose = if quantified {
             trailing
+        } else if implication {
+            level <= 2
         } else {
             Self::prose_level(term) >= level
         };
@@ -558,12 +566,20 @@ impl Fmt<'_> {
                         body: body.clone(),
                     }
                 };
-                format!(
-                    "{} {}, then {}",
-                    "if",
-                    self.prose(&binders[0].ty, false, 1, true)?,
-                    self.prose(&rest, false, 0, true)?
-                )
+                if level <= 1 && trailing {
+                    format!(
+                        "{} {}, then {}",
+                        "if",
+                        self.prose(&binders[0].ty, false, 1, true)?,
+                        self.prose(&rest, false, 0, true)?
+                    )
+                } else {
+                    format!(
+                        "{} implies {}",
+                        self.prose(&binders[0].ty, initial, 3, false)?,
+                        self.prose(&rest, false, 2, trailing)?
+                    )
+                }
             }
             Term::App {
                 function,
