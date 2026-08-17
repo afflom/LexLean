@@ -1,0 +1,5 @@
+spec = "lexlean/test-case/1"
+command = "check"
+args = []
+expected_exit = 0
+expect_artifacts = false

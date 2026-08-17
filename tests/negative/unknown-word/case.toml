@@ -1,10 +1,5 @@
-spec = "lexlean/negative-case/1"
-class = "unknown-word"
-kind = "mutation"
+spec = "lexlean/test-case/1"
 command = "check"
-codes = ["LLL1004"]
-
-[[edit]]
-file = "src/Main.lex.tex"
-from = "For every natural number"
-to = "For every banana natural number"
+args = []
+expected_exit = 1
+expect_artifacts = false

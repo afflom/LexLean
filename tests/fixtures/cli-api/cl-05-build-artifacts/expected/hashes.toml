@@ -1,0 +1,14 @@
+# Platform-independent artifact hashes (compared exactly) and the
+# process-bound files whose bytes vary per host, toolchain build, and
+# compiler executable (presence only). SPEC.md §28.2, §28.4.
+
+[platform_independent]
+".lexlean/build/17aedda97151033364376aba81fb09b7ef6351e546e0a2609884c0587a642e25/coverage/LexLeanExample/Main.coverage.json" = "6c59b95ee5581bef438190b01d80f67cc12f5a69be4bfa639d8afa122e969ea0"
+".lexlean/build/17aedda97151033364376aba81fb09b7ef6351e546e0a2609884c0587a642e25/lexicons/Main.closure.json" = "bd63869c7035a7240816e0472c9ebc6c35dae7e7ad3f099d95c6e9ce491f57cf"
+".lexlean/build/17aedda97151033364376aba81fb09b7ef6351e546e0a2609884c0587a642e25/manifest.json" = "9384f1ae655e5d6ee686d147ef880a23f1f005d77f642d7aafd7f0e05b92c970"
+".lexlean/build/17aedda97151033364376aba81fb09b7ef6351e546e0a2609884c0587a642e25/maps/LexLeanExample/Main.map.json" = "380a91ca81bace605cd76f126252ac2ac663ed7409728b4d7ea379f1d4afed67"
+".lexlean/build/17aedda97151033364376aba81fb09b7ef6351e546e0a2609884c0587a642e25/modules/LexLeanExample/Main.lean" = "cf715c34def29e6e743576a6b8e2831275e01a8e3909c0ba43266fb6a379d8ea"
+".lexlean/build/17aedda97151033364376aba81fb09b7ef6351e546e0a2609884c0587a642e25/modules/LexLeanExample/Main.tex" = "c8c772b0e613cd25500b569e99fbbb32a14ae446d8db573e9caacbb679030888"
+
+[process_bound]
+files = []

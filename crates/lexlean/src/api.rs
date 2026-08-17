@@ -606,7 +606,25 @@ impl Engine {
 
     /// Enforce `limits.max_diagnostics` on a failure (§10.2).
     fn bound<T>(&self, phase: &str, result: Result<T, LexLeanError>) -> Result<T, LexLeanError> {
-        result.map_err(|error| error.bounded(self.project.config.limits.max_diagnostics, phase))
+        result.map_err(|mut error| {
+            // Every diagnostic a project command emits carries a primary
+            // location (§20.1). A failure that concerns no finer range is
+            // anchored at the start of the file it concerns: lock-structure
+            // failures at the lock file, everything else at the project
+            // configuration whose settings select the toolchain, limits,
+            // packages, and workspace the failure is about.
+            for diagnostic in &mut error.diagnostics {
+                if diagnostic.primary.is_none() {
+                    let anchor = if diagnostic.code.as_str() == "LLC0102" {
+                        self.project.config.lockfile.as_str()
+                    } else {
+                        self.project.config_name.as_str()
+                    };
+                    diagnostic.primary = Some(crate::diagnostic::Span::whole_file(anchor));
+                }
+            }
+            error.bounded(self.project.config.limits.max_diagnostics, phase)
+        })
     }
 
     /// Update or check the lock (§23.4).

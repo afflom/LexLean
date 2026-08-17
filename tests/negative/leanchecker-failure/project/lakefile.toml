@@ -1,0 +1,6 @@
+name = "nat_add_zero_host"
+version = "0.1.0"
+defaultTargets = ["NatAddZeroHost"]
+
+[[lean_lib]]
+name = "NatAddZeroHost"

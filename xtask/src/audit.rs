@@ -44,6 +44,41 @@ fn gather(root: &Path, dirs: &[&str], extensions: &[&str], out: &mut Vec<PathBuf
     out.dedup();
 }
 
+/// The repository root files and dot-directories with a defined role
+/// (SPEC.md §7): the audits read them too, so a deferral cannot park in
+/// a manifest, a lint configuration, the Justfile, the container, or a
+/// workflow.
+fn root_tooling(root: &Path, out: &mut Vec<PathBuf>) {
+    for name in [
+        "Cargo.toml",
+        "deny.toml",
+        "clippy.toml",
+        "rustfmt.toml",
+        "rust-toolchain.toml",
+        "lean-toolchain",
+        "Justfile",
+        ".gitignore",
+        ".cargo/config.toml",
+        ".devcontainer/devcontainer.json",
+    ] {
+        let path = root.join(name);
+        if path.is_file() {
+            out.push(path);
+        }
+    }
+    for entry in std::fs::read_dir(root.join(".github/workflows"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        if entry.path().is_file() {
+            out.push(entry.path());
+        }
+    }
+    out.sort();
+    out.dedup();
+}
+
 /// Does `marker` occur in `line` outside every backtick-delimited span?
 fn outside_code_spans(line: &str, marker: &str) -> bool {
     let mut at = 0usize;
@@ -77,10 +112,28 @@ pub fn audit_deferral(root: &Path) -> Result<(), Fail> {
             "crates", "xtask", "language", "schemas", "features", "examples", "model", "tests",
         ],
         &[
-            ".rs", ".toml", ".json", ".md", ".feature", ".lex.tex", ".lean", ".txt",
+            ".rs", ".toml", ".json", ".md", ".feature", ".lex.tex", ".lean", ".txt", ".sh",
         ],
         &mut files,
     );
+    root_tooling(root, &mut files);
+    // Executables under fixture toolchains carry no extension.
+    for entry in walkdir::WalkDir::new(root.join("tests"))
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+    {
+        let path = entry.path();
+        if entry.file_type().is_file()
+            && path
+                .components()
+                .any(|part| part.as_os_str() == "toolchain")
+        {
+            files.push(path.to_path_buf());
+        }
+    }
+    files.sort();
+    files.dedup();
     let mut violations = Vec::new();
     let mut in_fence = false;
     for path in files {
@@ -122,9 +175,36 @@ pub fn audit_deferral(root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
+/// Diagnostic-code-shaped literals that are deliberately unregistered:
+/// negative sentinels a test hands to `explain` to prove an unknown code
+/// is rejected. They may appear only in test and conformance sources.
+const NEGATIVE_SENTINELS: [&str; 1] = ["LLX9999"];
+
+/// Every `LL<letter><four digits>` token in `text`.
+fn code_tokens(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| {
+            token.len() == 7
+                && token.starts_with("LL")
+                && token.as_bytes()[2].is_ascii_uppercase()
+                && token.as_bytes()[3..].iter().all(u8::is_ascii_digit)
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+fn is_test_source(relative: &str) -> bool {
+    relative.starts_with("crates/conformance/")
+        || relative.contains("/tests/")
+        || relative.starts_with("xtask/")
+}
+
 /// R5, §26.1: every diagnostic code used in Rust, tests, fixtures, or
 /// documentation is registered, and every registered code is emitted
-/// somewhere in the shipped sources.
+/// somewhere in the shipped sources. Rust is scanned for every
+/// code-shaped literal, not only `code!(` arguments, so a code cannot be
+/// smuggled through a string; the declared negative sentinels are the only
+/// unregistered tokens allowed, and only in test sources.
 pub fn audit_errors(root: &Path, model: &repo_model::Model) -> Result<(), Fail> {
     let registered: BTreeSet<&str> = model
         .errors
@@ -132,15 +212,32 @@ pub fn audit_errors(root: &Path, model: &repo_model::Model) -> Result<(), Fail> 
         .iter()
         .map(|row| row.code.as_str())
         .collect();
+    for sentinel in NEGATIVE_SENTINELS {
+        if registered.contains(sentinel) {
+            return Err(format!(
+                "R5: the negative sentinel `{sentinel}` must not be a registered code"
+            )
+            .into());
+        }
+    }
 
-    // Codes constructed in Rust through the checked macro.
+    // Codes constructed in Rust through the checked macro, and every other
+    // code-shaped token in Rust source.
     let mut constructed: BTreeSet<String> = BTreeSet::new();
     let mut rust_files = Vec::new();
     gather(root, &["crates", "xtask"], &[".rs"], &mut rust_files);
     for path in &rust_files {
+        if path.extension().is_none_or(|extension| extension != "rs") {
+            continue;
+        }
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
         };
+        let relative = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
         let mut at = 0usize;
         while let Some(position) = text[at..].find("code!(\"") {
             let start = at + position + 7;
@@ -149,6 +246,28 @@ pub fn audit_errors(root: &Path, model: &repo_model::Model) -> Result<(), Fail> 
                 at = start + end;
             } else {
                 break;
+            }
+        }
+        for (index, line) in text.lines().enumerate() {
+            for token in code_tokens(line) {
+                if registered.contains(token.as_str()) {
+                    continue;
+                }
+                if NEGATIVE_SENTINELS.contains(&token.as_str()) {
+                    if is_test_source(&relative) {
+                        continue;
+                    }
+                    return Err(format!(
+                        "R5: {relative}:{}: the negative sentinel `{token}` may appear only in test sources",
+                        index + 1
+                    )
+                    .into());
+                }
+                return Err(format!(
+                    "R5: {relative}:{}: `{token}` is not a registered diagnostic code (§26.1)",
+                    index + 1
+                )
+                .into());
             }
         }
     }
@@ -160,10 +279,31 @@ pub fn audit_errors(root: &Path, model: &repo_model::Model) -> Result<(), Fail> 
             .into());
         }
     }
+    let mut shipped_constructed: BTreeSet<String> = BTreeSet::new();
+    let mut shipped_files = Vec::new();
+    gather(root, &["crates/lexlean/src"], &[".rs"], &mut shipped_files);
+    for path in &shipped_files {
+        if path.extension().is_none_or(|extension| extension != "rs") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let mut at = 0usize;
+        while let Some(position) = text[at..].find("code!(\"") {
+            let start = at + position + 7;
+            if let Some(end) = text[start..].find('"') {
+                shipped_constructed.insert(text[start..start + end].to_owned());
+                at = start + end;
+            } else {
+                break;
+            }
+        }
+    }
     for code in &registered {
-        if !constructed.contains(*code as &str) {
+        if !shipped_constructed.contains(*code as &str) {
             return Err(format!(
-                "R5: `{code}` is registered but never constructed; an unused registered code is a claim with nothing behind it (§26.1)"
+                "R5: `{code}` is registered but never constructed by the shipped crate; an unused registered code is a claim with nothing behind it (§26.1)"
             )
             .into());
         }
@@ -179,21 +319,16 @@ pub fn audit_errors(root: &Path, model: &repo_model::Model) -> Result<(), Fail> 
     );
     for path in mention_files {
         // SPEC.md is the normative source and states whole code *ranges*
-        // (`LLC0001`-`LLC0999`, SPEC.md 26.2); range bounds are not claims
-        // this repository makes, so the specification is not scanned.
+        // (SPEC.md 26.2); range bounds are not claims this repository
+        // makes, so the specification is not scanned.
         if path.file_name().is_some_and(|name| name == "SPEC.md") {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        for token in text.split(|c: char| !c.is_ascii_alphanumeric()) {
-            if token.len() == 7
-                && token.starts_with("LL")
-                && token.as_bytes()[2].is_ascii_uppercase()
-                && token.as_bytes()[3..].iter().all(u8::is_ascii_digit)
-                && !registered.contains(token)
-            {
+        for token in code_tokens(&text) {
+            if !registered.contains(token.as_str()) {
                 return Err(format!(
                     "R5: `{token}` in {} is not a registered diagnostic code",
                     path.display()
@@ -203,7 +338,7 @@ pub fn audit_errors(root: &Path, model: &repo_model::Model) -> Result<(), Fail> 
         }
     }
     println!(
-        "audit-errors: {} registered codes, every one constructed and none unsanctioned (R5)",
+        "audit-errors: {} registered codes, every one constructed by the shipped crate, no unsanctioned literal in Rust, fixtures, or documentation (R5)",
         registered.len()
     );
     Ok(())
@@ -247,7 +382,31 @@ pub fn audit_shipped(root: &Path) -> Result<(), Fail> {
             }
         }
     }
-    println!("audit-shipped: only lexlean ships, with no repository-only dependency (R6)");
+    // The shipped crate reaches the repository-root normative data through
+    // in-crate links that `cargo package` dereferences (SPEC.md §7 layout,
+    // §21.2 embedding, RP-12 packaging). Each link must resolve to exactly
+    // the root path it stands for, so the package embeds byte-identical
+    // data and no second copy can drift.
+    for (link, target) in [
+        ("crates/lexlean/language", "language"),
+        ("crates/lexlean/schemas", "schemas"),
+        ("crates/lexlean/tests/golden", "tests/golden"),
+        ("crates/lexlean/model/errors.toml", "model/errors.toml"),
+    ] {
+        let link_path = root.join(link);
+        let resolved = std::fs::canonicalize(&link_path).map_err(|error| {
+            format!("R6: {link}: the shipped crate's normative link is missing: {error}")
+        })?;
+        let expected = std::fs::canonicalize(root.join(target))?;
+        if resolved != expected {
+            return Err(format!(
+                "R6: {link} resolves to {} rather than {target}; the crate must embed the repository's own normative data",
+                resolved.display()
+            )
+            .into());
+        }
+    }
+    println!("audit-shipped: only lexlean ships, with no repository-only dependency, and its normative links resolve to the repository data (R6)");
     Ok(())
 }
 

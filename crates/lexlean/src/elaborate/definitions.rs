@@ -983,10 +983,28 @@ pub fn elab_definition(
     let body = match survivors.len() {
         1 => survivors.into_iter().next().expect("one").1,
         0 => {
-            return Err(with_default_span(
-                first_failure.unwrap_or_else(|| def_error("no definition interpretation survives")),
-                &sentence_span,
-            ));
+            // Rule 6 (§15.7): a right-hand side that names the declaration
+            // being defined cannot resolve it (the declaration exists only
+            // after its definition), so the resolution failure that names
+            // this very component is the recursion diagnostic.
+            let self_reference = format!(
+                "document declaration `{}::{}` is not available here",
+                shared.module, decl.component.text
+            );
+            let failure = match first_failure {
+                Some(diagnostic) if diagnostic.message.contains(&self_reference) => def_error(
+                    "the right-hand side must not reference the declaration being defined",
+                )
+                .with_span(
+                    diagnostic
+                        .primary
+                        .clone()
+                        .unwrap_or_else(|| sentence_span.clone()),
+                ),
+                Some(diagnostic) => diagnostic,
+                None => def_error("no definition interpretation survives"),
+            };
+            return Err(with_default_span(failure, &sentence_span));
         }
         _ => {
             return Err(crate::elaborate::ambiguity_diagnostic(

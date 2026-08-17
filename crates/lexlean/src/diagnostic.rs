@@ -43,6 +43,9 @@ impl DiagnosticCode {
     }
 
     /// Construct from a literal already validated by [`Self::validate`].
+    /// Only the [`code!`](crate::code) macro constructs codes; this is an
+    /// unstable implementation detail of that macro (§26.1).
+    #[doc(hidden)]
     #[must_use]
     pub const fn from_validated(code: &'static str) -> Self {
         Self(code)

@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLC0102","help":[],"labels":[],"message":"lexlean.lock is stale or noncanonical; run `lexlean lock`","notes":[],"primary":{"byte_end":0,"byte_start":0,"column_end":1,"column_start":1,"line_end":1,"line_start":1,"path":"lexlean.lock"},"severity":"error","spec":"lexlean/diagnostic/1"}]

@@ -1,0 +1,37 @@
+spec = "lexlean/project/1"
+name = "nat-add-zero"
+language = "1.0"
+module_prefix = "LexLeanExample"
+source_roots = ["src"]
+entrypoints = ["src/Main.lex.tex"]
+build_root = ".lexlean"
+lockfile = "lexlean.lock"
+lean_workspace = "."
+lean_toolchain = "leanprover/lean4:v4.32.1"
+
+[[lexicon_source]]
+package = "lexlean.std.nat"
+kind = "builtin"
+
+[limits]
+max_file_bytes = 4194304
+max_total_source_bytes = 67108864
+max_primitive_atoms = 2000000
+max_token_lattice_edges = 4000000
+max_parse_states = 4000000
+max_ir_nodes = 2000000
+max_scope_depth = 1024
+max_import_depth = 128
+max_diagnostics = 256
+max_child_output_bytes = 16777216
+child_timeout_ms = 300000
+
+[pdf]
+mode = "external"
+program = "tools/fakepdf"
+program_sha256 = "4b274a263f93eea07a2ba5db336348c773a6e04d4ebc011879ce9de307b32d2f"
+version_argv = ["--version"]
+version_stdout_sha256 = "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+compile_argv = ["--outdir", "{out_dir}", "{input}"]
+output = "{stem}.pdf"
+resources = []

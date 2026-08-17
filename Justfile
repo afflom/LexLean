@@ -64,6 +64,21 @@ model-write:
 golden-write:
     cargo xtask check-golden --write
 
+# §28.2: every fixture under tests/fixtures and tests/negative runs through the
+# CLI and equals its committed expected/ files. `just test` also runs the suite
+# through conformance_ex_07; this recipe is the direct, per-fixture report.
+fixtures:
+    cargo xtask check-fixtures
+
+# The only path that rewrites fixture expectations (§28.3). Never part of `vv`.
+fixtures-write:
+    cargo xtask check-fixtures --write
+
+# §29.5: the only path that rewrites the normalized verification records under
+# examples/*/expected/verify. Never part of `vv`.
+verify-write:
+    cargo xtask verify-examples --write
+
 # RP-12: a release is refused unless the complete §30 criterion holds. The
 # gate itself must pass first; refusal is expected until 1.0.0.
 release: vv

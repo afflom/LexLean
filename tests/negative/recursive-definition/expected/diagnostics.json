@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLF5001","help":[],"labels":[],"message":"the right-hand side must not reference the declaration being defined","notes":[],"primary":{"byte_end":249,"byte_start":243,"column_end":69,"column_start":63,"line_end":8,"line_start":8,"path":"src/Main.lex.tex"},"severity":"error","spec":"lexlean/diagnostic/1"}]

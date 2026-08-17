@@ -633,6 +633,18 @@ pub(crate) fn run(id: &str) {
         }
         // §11.1: any drift fails lock checking; nothing silently refreshes.
         "CF-10" => {
+            // The §28.2 sequence fixture: lock, edit the configuration, then
+            // `lock --check` fails with LLC0102 (tests/fixtures/configuration-lock/cf-10).
+            let observed = crate::fixtures::check(
+                &support::repo_root().join("tests/fixtures/configuration-lock/cf-10"),
+            )
+            .unwrap_or_else(|reason| panic!("cf-10 sequence fixture: {reason}"));
+            assert_eq!(
+                observed.exit, 2,
+                "a stale lock is a lock-schema failure (exit 2)"
+            );
+            assert_eq!(observed.codes, ["LLC0102"]);
+
             let config_drift = P::example();
             let before = config_drift.read("lexlean.lock");
             config_drift.edit(

@@ -9,6 +9,32 @@ fn root_file(relative: &str) -> String {
         .unwrap_or_else(|error| panic!("{relative}: {error}"))
 }
 
+/// The Justfile recipes as `name -> (dependency line, command lines)`.
+fn just_recipes(justfile: &str) -> std::collections::BTreeMap<String, (String, Vec<String>)> {
+    let mut recipes = std::collections::BTreeMap::new();
+    let mut current: Option<String> = None;
+    for line in justfile.lines() {
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        if line.starts_with(' ') || line.starts_with('\t') {
+            if let Some(name) = &current {
+                if let Some((_, lines)) = recipes.get_mut(name) {
+                    let lines: &mut Vec<String> = lines;
+                    lines.push(line.trim().trim_start_matches('@').to_owned());
+                }
+            }
+            continue;
+        }
+        if let Some((name, dependencies)) = line.split_once(':') {
+            let name = name.trim().to_owned();
+            recipes.insert(name.clone(), (dependencies.trim().to_owned(), Vec::new()));
+            current = Some(name);
+        }
+    }
+    recipes
+}
+
 /// The §31 table parsed as `(id, suite, statement)` rows.
 fn spec_table() -> Vec<(String, String, String)> {
     let text = support::spec_text();
@@ -169,33 +195,79 @@ pub(crate) fn run(id: &str) {
                 );
             }
         }
-        // §9.2: the vv recipe runs every gate in the fixed order.
+        // §9.2: the vv recipe runs every gate in the fixed order, and every
+        // recipe is exactly the specified command line.
         "RP-05" => {
             let justfile = root_file("Justfile");
-            assert!(
-                justfile.contains(
-                    "vv: fmt-check model spec-links lint test features bdd examples golden repro deny"
-                ),
+            let recipes = just_recipes(&justfile);
+            let vv = recipes.get("vv").expect("§9.2: the Justfile defines vv");
+            assert_eq!(
+                vv.0,
+                "fmt-check model spec-links lint test features bdd examples golden repro deny",
                 "§9.2: `just vv` runs the eleven gates in the normative order"
             );
-            for recipe in [
-                "fmt-check:",
-                "model:",
-                "spec-links:",
-                "lint:",
-                "test:",
-                "features:",
-                "bdd:",
-                "examples:",
-                "golden:",
-                "repro:",
-                "deny:",
-                "model-write:",
-                "golden-write:",
-            ] {
+            let specified: [(&str, &str); 11] = [
+                ("fmt-check", "cargo fmt --all -- --check"),
+                ("model", "cargo xtask validate-model"),
+                ("spec-links", "cargo xtask validate-spec-links"),
+                (
+                    "lint",
+                    "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+                ),
+                ("test", "cargo test --workspace --all-features"),
+                (
+                    "features",
+                    "cargo check --workspace --all-features --all-targets",
+                ),
+                ("bdd", "cargo test -p repo-conformance"),
+                ("examples", "cargo xtask verify-examples"),
+                ("golden", "cargo xtask check-golden"),
+                ("repro", "cargo xtask check-reproducibility"),
+                ("deny", "cargo deny --all-features check"),
+            ];
+            for (name, command) in specified {
+                let (dependencies, lines) = recipes
+                    .get(name)
+                    .unwrap_or_else(|| panic!("§9.2: the Justfile defines `{name}`"));
                 assert!(
-                    justfile.contains(recipe),
-                    "§9.2: the Justfile defines {recipe}"
+                    dependencies.is_empty(),
+                    "§9.2: `{name}` is a leaf recipe, found dependencies `{dependencies}`"
+                );
+                assert_eq!(
+                    lines.as_slice(),
+                    [command.to_owned()],
+                    "§9.2: `{name}` runs exactly the specified command"
+                );
+            }
+            assert_eq!(
+                recipes
+                    .get("model-write")
+                    .map(|(_, lines)| lines.as_slice()),
+                Some(&["cargo xtask validate-model --write".to_owned()][..]),
+                "§9.2: model-write regenerates the generated documents"
+            );
+            assert_eq!(
+                recipes
+                    .get("golden-write")
+                    .map(|(_, lines)| lines.as_slice()),
+                Some(&["cargo xtask check-golden --write".to_owned()][..]),
+                "§9.2: golden-write is the only golden rewrite path"
+            );
+            for dependency in vv.0.split_whitespace() {
+                let (_, lines) = recipes
+                    .get(dependency)
+                    .unwrap_or_else(|| panic!("vv depends on undefined recipe {dependency}"));
+                for line in lines {
+                    assert!(
+                        !line.contains("--write"),
+                        "§9.2: no acceptance recipe rewrites source or expected output: {line}"
+                    );
+                }
+            }
+            for rewriting in ["model-write", "golden-write", "fixtures-write"] {
+                assert!(
+                    !vv.0.split_whitespace().any(|dep| dep == rewriting),
+                    "§9.2: `{rewriting}` is never part of vv"
                 );
             }
         }
@@ -283,6 +355,17 @@ pub(crate) fn run(id: &str) {
                 scanned > 100,
                 "the deferral scan covered only {scanned} files"
             );
+            // §27.8: no conformance test is ignored or hidden behind a cfg,
+            // wherever the attribute sits in the block.
+            let (_names, flagged) = crate::workspace_test_names_with_flags(root.as_std_path());
+            let hidden: Vec<&String> = flagged
+                .iter()
+                .filter(|name| name.starts_with("conformance_"))
+                .collect();
+            assert!(
+                hidden.is_empty(),
+                "R4: hidden conformance tests: {hidden:?}"
+            );
         }
         // §8.1, §27.10: the shipped crate forbids unsafe Rust, actively.
         "RP-09" => {
@@ -346,46 +429,98 @@ pub(crate) fn run(id: &str) {
                 "RP-10: the embedded semantics ID differs from the disk recomputation"
             );
         }
-        // §27: every README capability claim row ties to registered IDs.
+        // §30.4: every README capability claim ties to registered IDs at
+        // their registered level, the claimed ranges are exactly the
+        // register's, and every registered ID is claimed by one row.
         "RP-11" => {
             let readme = root_file("README.md");
             let model = repo_model::Model::load(&root.join("model").into_std_path_buf())
                 .expect("the model loads");
+            let mut in_table = false;
             let mut rows = 0usize;
+            let mut claimed: BTreeSet<String> = BTreeSet::new();
             for line in readme.lines() {
-                if !line.starts_with("| ") || !line.contains("`build`") {
+                if line.starts_with("| Capability | IDs | Level |") {
+                    in_table = true;
                     continue;
                 }
-                let ids: Vec<&str> = line
-                    .split('`')
-                    .filter(|piece| {
-                        piece.len() == 5
-                            && piece.as_bytes()[2] == b'-'
-                            && piece[3..].bytes().all(|b| b.is_ascii_digit())
-                    })
-                    .collect();
-                if ids.is_empty() {
+                if !in_table {
                     continue;
                 }
+                if !line.starts_with('|') {
+                    break;
+                }
+                if line.starts_with("| ---") {
+                    continue;
+                }
+                let cells: Vec<&str> = line.trim_matches('|').split(" | ").map(str::trim).collect();
+                assert_eq!(cells.len(), 3, "a capability row has three cells: {line}");
                 rows += 1;
-                for claim_id in ids {
-                    let row = model
-                        .ids
-                        .get(claim_id)
-                        .unwrap_or_else(|| panic!("README claims unregistered ID {claim_id}"));
-                    assert_eq!(
-                        row.level.as_str(),
-                        "build",
-                        "README level annotation matches the register for {claim_id}"
-                    );
+                assert_eq!(
+                    cells[2], "`build`",
+                    "RP-11: the level cell is `build`: {line}"
+                );
+                for claim in cells[1].split(',').map(str::trim) {
+                    let ids: Vec<String> = match claim.split_once("..") {
+                        Some((low, high)) => {
+                            let low = low.trim_matches('`');
+                            let high = high.trim_matches('`');
+                            let prefix = &low[..2];
+                            assert_eq!(&high[..2], prefix, "a range stays in one prefix: {claim}");
+                            let registered: Vec<&str> = model
+                                .ids
+                                .id
+                                .iter()
+                                .map(|row| row.id.as_str())
+                                .filter(|id| id.starts_with(prefix) && id.as_bytes()[2] == b'-')
+                                .collect();
+                            assert_eq!(
+                                registered.first().copied(),
+                                Some(low),
+                                "RP-11: the range `{claim}` starts at the register's first {prefix} ID"
+                            );
+                            assert_eq!(
+                                registered.last().copied(),
+                                Some(high),
+                                "RP-11: the range `{claim}` ends at the register's last {prefix} ID"
+                            );
+                            registered.iter().map(|id| (*id).to_owned()).collect()
+                        }
+                        None => vec![claim.trim_matches('`').to_owned()],
+                    };
+                    for id in ids {
+                        assert!(
+                            model.ids.get(&id).is_some(),
+                            "README claims unregistered ID {id}"
+                        );
+                        assert!(claimed.insert(id.clone()), "README claims {id} in two rows");
+                    }
                 }
             }
             assert!(
-                rows >= 10,
-                "RP-11: the README capability table ties claims to IDs (found {rows} rows)"
+                in_table && rows >= 1,
+                "RP-11: the README has the capability table"
+            );
+            let registered: BTreeSet<String> =
+                model.ids.id.iter().map(|row| row.id.clone()).collect();
+            let unclaimed: Vec<&String> = registered.difference(&claimed).collect();
+            assert!(
+                unclaimed.is_empty(),
+                "RP-11: registered IDs no README row claims: {unclaimed:?}"
+            );
+            let count_sentence = format!("All {} registered conformance IDs", registered.len());
+            assert!(
+                readme.contains(&count_sentence),
+                "RP-11: the README states the exact register size: `{count_sentence}`"
+            );
+            assert!(
+                readme.contains("honesty level `build`"),
+                "RP-11: the README names the honesty level of its claims"
             );
         }
-        // §30: the release gate refuses until the complete criterion holds.
+        // §30: the release gate refuses until the complete criterion holds,
+        // checks every §30.3 artifact by content, and the crate package
+        // builds standalone with the same semantics ID.
         "RP-12" => {
             let unmet = repo_model::release::check(root.as_std_path())
                 .expect_err("a 0.1.0 tree must refuse release (§2.3, §30.4)");
@@ -393,7 +528,6 @@ pub(crate) fn run(id: &str) {
                 unmet.iter().any(|reason| reason.contains("source-tag")),
                 "the refusal names the version criterion"
             );
-            // Every §30.3 bullet is represented by a criterion.
             let names: BTreeSet<&str> = repo_model::release::CRITERIA
                 .iter()
                 .map(|(name, _)| *name)
@@ -410,16 +544,76 @@ pub(crate) fn run(id: &str) {
                 "licenses",
                 "sbom",
                 "ci-evidence",
+                "version-output",
+                "no-ignored-test",
+                "gate-evidence",
+                "schemas-exercised",
             ] {
                 assert!(
                     names.contains(required),
-                    "§30.3 criterion `{required}` is checked"
+                    "§30.3/§30.4 criterion `{required}` is checked"
                 );
             }
             let justfile = root_file("Justfile");
             assert!(
                 justfile.contains("release: vv") && justfile.contains("cargo xtask release-check"),
                 "the release recipe runs the full gate then the release check"
+            );
+
+            // A synthetic release tree satisfies the content checks except
+            // the version, proving the shape checks discriminate.
+            let staged = tempfile::tempdir().expect("tempdir");
+            let stage =
+                camino::Utf8PathBuf::from_path_buf(staged.path().to_path_buf()).expect("utf8");
+            for relative in [
+                "Cargo.toml",
+                "SPEC.md",
+                "LICENSE-APACHE",
+                "LICENSE-MIT",
+                "CONFORMANCE.md",
+                "ERRORS.md",
+                "VERIFICATION.md",
+                "Justfile",
+                "CHANGELOG.md",
+            ] {
+                let source = root.join(relative);
+                if source.as_std_path().is_file() {
+                    std::fs::copy(source.as_std_path(), stage.join(relative).as_std_path())
+                        .expect("copy");
+                }
+            }
+            std::fs::create_dir_all(stage.join("model").as_std_path()).expect("mkdir");
+            for entry in std::fs::read_dir(root.join("model").as_std_path())
+                .expect("model")
+                .flatten()
+            {
+                std::fs::copy(
+                    entry.path(),
+                    stage
+                        .join("model")
+                        .join(entry.file_name().to_string_lossy().as_ref())
+                        .as_std_path(),
+                )
+                .expect("copy");
+            }
+            let refused =
+                repo_model::release::check(stage.as_std_path()).expect_err("no release/ directory");
+            for name in ["checksums", "sbom", "crate-package", "version-output"] {
+                assert!(
+                    refused.iter().any(|reason| reason.starts_with(name)),
+                    "criterion `{name}` is reported unmet on a tree without release artifacts: {refused:?}"
+                );
+            }
+
+            // The packaged crate builds standalone and reports the same
+            // four-line identity as the in-repository binary (§30.3).
+            let (exit, in_repo, _) = support::cli_in(&root, &["--version"]);
+            assert_eq!(exit, 0);
+            let packaged = support::packaged_crate_version(&root)
+                .unwrap_or_else(|error| panic!("the crate package must build standalone: {error}"));
+            assert_eq!(
+                packaged, in_repo,
+                "the packaged crate reports the same version, language, semantics ID, and toolchain"
             );
         }
         other => panic!("no repository case is wired for {other}"),

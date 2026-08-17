@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLL1002","help":[],"labels":[],"message":"`\\def` is an always-forbidden TeX control (§12.4); LexLean does not expand TeX","notes":[],"primary":{"byte_end":131,"byte_start":127,"column_end":5,"column_start":1,"line_end":7,"line_start":7,"path":"src/Main.lex.tex"},"severity":"error","spec":"lexlean/diagnostic/1"}]

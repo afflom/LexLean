@@ -1,0 +1,13 @@
+\begin{lexlean}{Main}
+\useglossary{lexlean.std.nat@1.0.0}
+\useglossary{test.axioms@1.0.0}
+\title{Natural number addition}
+
+\begin{theorem}{excluded}
+\exactaxioms{Classical.choice;Quot.sound;propext;funext}
+\(z = z ∨ ¬ (z = z)\).
+\begin{proof}
+Close the goal with \(em(z = z)\).
+\end{proof}
+\end{theorem}
+\end{lexlean}

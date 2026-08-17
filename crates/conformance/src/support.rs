@@ -261,25 +261,34 @@ pub fn env_lock() -> MutexGuard<'static, ()> {
 /// Run `body` with environment overrides, restoring the previous values.
 /// `None` removes the variable.
 pub fn with_env<T>(pairs: &[(&str, Option<&str>)], body: impl FnOnce() -> T) -> T {
+    /// Restores the saved values on drop, so a panicking body (a failed
+    /// assertion) cannot leave a temporary value in the process
+    /// environment for every later test.
+    struct Restore(Vec<(String, Option<String>)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            for (key, value) in self.0.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(&key, value),
+                    None => std::env::remove_var(&key),
+                }
+            }
+        }
+    }
     let _guard = env_lock();
-    let saved: Vec<(String, Option<String>)> = pairs
-        .iter()
-        .map(|(key, _)| ((*key).to_owned(), std::env::var(key).ok()))
-        .collect();
+    let _restore = Restore(
+        pairs
+            .iter()
+            .map(|(key, _)| ((*key).to_owned(), std::env::var(key).ok()))
+            .collect(),
+    );
     for (key, value) in pairs {
         match value {
             Some(value) => std::env::set_var(key, value),
             None => std::env::remove_var(key),
         }
     }
-    let out = body();
-    for (key, value) in saved {
-        match value {
-            Some(value) => std::env::set_var(&key, value),
-            None => std::env::remove_var(&key),
-        }
-    }
-    out
+    body()
 }
 
 /// The one shared verified run of the literal example, computed lazily.
@@ -1601,4 +1610,337 @@ pub fn probe_lean(
     )
     .expect("lean runs");
     (probe, record)
+}
+
+// ---- WS-E1 helpers (fixture runner, host gate, fake toolchains) ----
+
+impl P {
+    /// An empty temporary project directory (the fixture runner fills it).
+    #[must_use]
+    pub fn empty() -> Self {
+        let temp = tempfile::Builder::new()
+            .prefix("lexlean-fixture-")
+            .tempdir()
+            .expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).expect("utf8 tempdir");
+        Self { temp, root }
+    }
+}
+
+/// The real elan home: `ELAN_HOME` is deliberately ignored because a
+/// concurrent test may hold the environment lock with a fake value; the
+/// pinned toolchain lives under the home elan directory.
+#[must_use]
+pub fn real_elan_home() -> std::path::PathBuf {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .expect("HOME");
+    std::path::PathBuf::from(home).join(".elan")
+}
+
+/// The pinned toolchain's mangled directory name under `toolchains/`.
+#[must_use]
+pub fn mangled_toolchain_name() -> String {
+    lexlean::LEAN_TOOLCHAIN
+        .replace('/', "--")
+        .replace(':', "---")
+}
+
+/// Is the pinned toolchain installed in the real elan home?
+#[must_use]
+pub fn lean_host_available() -> bool {
+    let bin = real_elan_home()
+        .join("toolchains")
+        .join(mangled_toolchain_name())
+        .join("bin");
+    bin.join("lean").is_file() || bin.join("lean.exe").is_file()
+}
+
+/// Is this the normative host (SPEC.md §8.3: Linux x86-64)?
+#[must_use]
+pub fn normative_host() -> bool {
+    cfg!(all(target_os = "linux", target_arch = "x86_64"))
+}
+
+/// The host gate for Lean-backed cases: on the normative host the pinned
+/// toolchain must be present (the case panics otherwise, R2: a vacuous
+/// pass there is dishonest); on any other host without the toolchain the
+/// case runs only its platform-independent assertions and says so.
+#[must_use]
+pub fn lean_backed(id: &str) -> bool {
+    if lean_host_available() {
+        return true;
+    }
+    assert!(
+        !normative_host(),
+        "{id}: the normative host (Linux x86-64) must have leanprover/lean4:v4.32.1 installed; a Lean-backed case never passes vacuously here (§8.3)"
+    );
+    eprintln!(
+        "{id}: platform-bound host without the pinned toolchain; only the platform-independent assertions ran (§8.3)"
+    );
+    false
+}
+
+/// Build a fake elan home whose pinned toolchain mirrors the real one by
+/// symlink but replaces the named executables under `bin/` with the given
+/// bytes (made executable). Returns the fake home root.
+#[must_use]
+pub fn fake_elan_home(replacements: &[(String, Vec<u8>)]) -> tempfile::TempDir {
+    let mangled = mangled_toolchain_name();
+    let real_toolchain = real_elan_home().join("toolchains").join(&mangled);
+    let fake = tempfile::Builder::new()
+        .prefix("lexlean-fake-elan-")
+        .tempdir()
+        .expect("tempdir");
+    let fake_toolchain_dir = fake.path().join("toolchains").join(&mangled);
+    let fake_bin = fake_toolchain_dir.join("bin");
+    std::fs::create_dir_all(&fake_bin).expect("mkdir");
+    for entry in std::fs::read_dir(&real_toolchain)
+        .expect("the pinned toolchain is installed")
+        .flatten()
+    {
+        if entry.file_name() == "bin" {
+            continue;
+        }
+        symlink_any(entry.path(), fake_toolchain_dir.join(entry.file_name()));
+    }
+    for entry in std::fs::read_dir(real_toolchain.join("bin"))
+        .expect("real bin")
+        .flatten()
+    {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if replacements.iter().any(|(replaced, _)| *replaced == name) {
+            continue;
+        }
+        symlink_any(entry.path(), fake_bin.join(&name));
+    }
+    for (name, bytes) in replacements {
+        let path = fake_bin.join(name);
+        std::fs::write(&path, bytes).expect("script");
+        make_executable(&path);
+    }
+    fake
+}
+
+/// A fake elan home from `(name, script text)` pairs.
+#[must_use]
+pub fn fake_toolchain(replacements: &[(&str, &str)]) -> tempfile::TempDir {
+    let owned: Vec<(String, Vec<u8>)> = replacements
+        .iter()
+        .map(|(name, script)| ((*name).to_owned(), script.as_bytes().to_vec()))
+        .collect();
+    fake_elan_home(&owned)
+}
+
+fn make_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        let mut permissions = std::fs::metadata(path).expect("stat").permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+        std::fs::set_permissions(path, permissions).expect("chmod");
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+/// The committed schema `schemas/<name>.schema.json`, parsed.
+#[must_use]
+pub fn schema(name: &str) -> serde_json::Value {
+    let path = repo_root()
+        .join("schemas")
+        .join(format!("{name}.schema.json"));
+    serde_json::from_slice(&std::fs::read(path.as_std_path()).expect("schema exists"))
+        .expect("schema parses")
+}
+
+/// Assert `instance` validates against `schemas/<name>.schema.json`,
+/// naming `what` on failure (§30.4: schemas are exercised).
+pub fn assert_schema(name: &str, what: &str, instance: &serde_json::Value) {
+    let violations = crate::schema::validate(&schema(name), instance);
+    assert!(
+        violations.is_empty(),
+        "{what} violates schemas/{name}.schema.json:\n{}",
+        violations
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+/// Assert a JSON file validates against a schema.
+pub fn assert_json_file_schema(name: &str, path: &Utf8Path) {
+    let value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(path.as_std_path()).expect("json file"))
+            .unwrap_or_else(|error| panic!("{path}: {error}"));
+    assert_schema(name, path.as_str(), &value);
+}
+
+/// Assert a TOML file, converted to JSON, validates against a schema.
+pub fn assert_toml_file_schema(name: &str, path: &Utf8Path) {
+    let text = std::fs::read_to_string(path.as_std_path()).expect("toml file");
+    let value: toml::Value = text
+        .parse()
+        .unwrap_or_else(|error| panic!("{path}: {error}"));
+    let json = serde_json::to_value(&value).expect("toml converts to json");
+    assert_schema(name, path.as_str(), &json);
+}
+
+/// A `lake` wrapper script that behaves as the pinned lake except that,
+/// for `lake env lean` on a path matching `glob_fragment`, it prints
+/// `injected` to the named stream first (`stdout` or `stderr`) and then
+/// runs the real command; with `replace = true` it prints and exits 0
+/// without running lean. The real lake is found through the sibling
+/// `lean` symlink of the fake bin directory.
+#[must_use]
+pub fn lake_wrapper(glob_fragment: &str, injected: &str, stream: &str, replace: bool) -> String {
+    let redirect = if stream == "stderr" { " >&2" } else { "" };
+    let tail = if replace { "exit 0" } else { "" };
+    format!(
+        "#!/bin/sh\nreal=\"$(dirname \"$(readlink -f \"$(dirname \"$0\")/lean\")\")/lake\"\nif [ \"$1\" = \"env\" ] && [ \"$2\" = \"lean\" ]; then\n  for argument in \"$@\"; do\n    case \"$argument\" in\n      {glob_fragment})\n        printf '%s\\n' '{injected}'{redirect}\n        {tail}\n        ;;\n    esac\n  done\nfi\nexec \"$real\" \"$@\"\n"
+    )
+}
+
+/// §30.3 "crate package", RP-12: package the shipped crate, extract the
+/// `.crate`, build it offline in isolation, and return the packaged
+/// binary's `--version` text. The build reuses `target/package-verify`
+/// (never the workspace build directory, which the running test holds).
+///
+/// # Errors
+///
+/// Any step failing, with the captured output.
+pub fn packaged_crate_version(root: &Utf8Path) -> Result<String, String> {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    let target_dir = root.join("target/package-verify");
+    let run = |program: &str, args: &[&str], cwd: &Utf8Path, envs: &[(&str, &str)]| {
+        let mut command = std::process::Command::new(program);
+        command.args(args).current_dir(cwd.as_std_path());
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        let output = command
+            .output()
+            .map_err(|error| format!("{program} {}: {error}", args.join(" ")))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        if !output.status.success() {
+            return Err(format!(
+                "{program} {} exited {:?}\n{stdout}\n{stderr}",
+                args.join(" "),
+                output.status.code()
+            ));
+        }
+        Ok(stdout)
+    };
+    run(
+        &cargo,
+        &[
+            "package",
+            "-p",
+            "lexlean",
+            "--no-verify",
+            "--allow-dirty",
+            "--offline",
+            "--target-dir",
+            target_dir.as_str(),
+        ],
+        root,
+        &[],
+    )?;
+    let package_dir = target_dir.join("package");
+    let crate_file = std::fs::read_dir(package_dir.as_std_path())
+        .map_err(|error| format!("{package_dir}: {error}"))?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "crate")
+                && path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("lexlean-"))
+        })
+        .ok_or_else(|| format!("{package_dir}: no lexlean-*.crate was produced"))?;
+    let extract = tempfile::Builder::new()
+        .prefix("lexlean-package-")
+        .tempdir()
+        .map_err(|error| error.to_string())?;
+    let extract_dir = Utf8PathBuf::from_path_buf(extract.path().to_path_buf())
+        .map_err(|_| "non-UTF-8 temporary directory".to_owned())?;
+    run(
+        "tar",
+        &["xzf", &crate_file.to_string_lossy()],
+        &extract_dir,
+        &[],
+    )?;
+    let unpacked = std::fs::read_dir(extract_dir.as_std_path())
+        .map_err(|error| error.to_string())?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.is_dir())
+        .ok_or("the crate archive unpacked nothing")?;
+    let unpacked = Utf8PathBuf::from_path_buf(unpacked).map_err(|_| "non-UTF-8 path".to_owned())?;
+    for required in [
+        "language",
+        "schemas",
+        "tests/golden",
+        "model/errors.toml",
+        "build.rs",
+    ] {
+        if !unpacked.join(required).as_std_path().exists() {
+            return Err(format!(
+                "the packaged crate lacks `{required}`; the normative data must ship inside the crate (§7, §21.2)"
+            ));
+        }
+    }
+    // Debug info is not part of the identity being compared; leaving it out
+    // keeps the isolated build directory small.
+    run(
+        &cargo,
+        &["build", "--offline", "--bin", "lexlean"],
+        &unpacked,
+        &[
+            ("CARGO_TARGET_DIR", target_dir.as_str()),
+            ("CARGO_PROFILE_DEV_DEBUG", "0"),
+        ],
+    )?;
+    let binary = target_dir.join("debug").join(if cfg!(windows) {
+        "lexlean.exe"
+    } else {
+        "lexlean"
+    });
+    run(binary.as_str(), &["--version"], &unpacked, &[])
+}
+
+/// Run the pinned `lean` on a tiny module with `#print axioms` commands and
+/// return `(the successful output, the output of a run whose fourth command
+/// names an unknown constant)`, both normalized to LF. Requires the pinned
+/// toolchain (callers gate on [`lean_backed`]).
+#[must_use]
+pub fn print_axioms_output() -> (String, String) {
+    let lean = real_elan_home()
+        .join("toolchains")
+        .join(mangled_toolchain_name())
+        .join("bin")
+        .join("lean");
+    let dir = tempfile::Builder::new()
+        .prefix("lexlean-axioms-")
+        .tempdir()
+        .expect("tempdir");
+    let body = "module\nimport Init\nnamespace Demo.M\npublic theorem no_ax (n : Nat) : n = n := rfl\npublic theorem uses_choice (p : Prop) : p ∨ ¬ p := Classical.em p\npublic theorem uses_funext (f g : Nat → Nat) (h : ∀ x, f x = g x) : f = g := funext h\nend Demo.M\n#print axioms Demo.M.no_ax\n#print axioms Demo.M.uses_choice\n#print axioms Demo.M.uses_funext\n";
+    let run = |name: &str, text: &str| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, text).expect("write module");
+        let output = std::process::Command::new(&lean)
+            .arg(&path)
+            .current_dir(dir.path())
+            .env("LEAN_PATH", "")
+            .output()
+            .expect("the pinned lean runs");
+        String::from_utf8_lossy(&output.stdout)
+            .replace("\r\n", "\n")
+            .replace(dir.path().to_string_lossy().as_ref(), "$STAGING")
+    };
+    let good = run("Good.lean", body);
+    let bad = run("Bad.lean", &format!("{body}#print axioms Demo.M.missing\n"));
+    (good, bad)
 }

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Passes every invocation to the pinned lake except `lake env lean` on the
+# axiom-audit module, whose output is replaced by a payload the exact parser
+# rejects (SPEC.md 22.5, 28.5: malformed axiom output).
+real="$(dirname "$(readlink -f "$(dirname "$0")/lean")")/lake"
+if [ "$1" = "env" ] && [ "$2" = "lean" ]; then
+  case "$3" in
+    */audit/LexLeanAudit.*.lean)
+      echo "'LexLeanExample.Main.add_zero' depends on axioms: [propext, propext"
+      exit 0
+      ;;
+  esac
+fi
+exec "$real" "$@"

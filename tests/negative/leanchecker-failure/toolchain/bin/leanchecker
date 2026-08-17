@@ -1,0 +1,9 @@
+#!/bin/sh
+# A leanchecker that answers the fixed identity probe like the pinned tool
+# and then fails every replay (SPEC.md 28.5: a leanchecker failure fixture).
+if [ "$1" = "LexLeanIdentityProbe" ]; then
+  echo "uncaught exception: Could not find any oleans for: LexLeanIdentityProbe" >&2
+  exit 1
+fi
+echo "leanchecker: fixture failure" >&2
+exit 1

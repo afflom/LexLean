@@ -2,100 +2,6 @@
 
 use crate::support::{self, P};
 
-/// One parsed negative fixture.
-struct NegativeCase {
-    class: String,
-    kind: String,
-    command: String,
-    relock: bool,
-    codes: Vec<String>,
-    edits: Vec<(String, String, String)>,
-    test: Option<String>,
-    directory: camino::Utf8PathBuf,
-}
-
-fn negative_cases() -> Vec<NegativeCase> {
-    let root = support::repo_root().join("tests/negative");
-    let mut cases = Vec::new();
-    let mut entries: Vec<_> = std::fs::read_dir(root.as_std_path())
-        .expect("tests/negative exists")
-        .flatten()
-        .collect();
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-    for entry in entries {
-        if !entry.file_type().expect("type").is_dir() {
-            continue;
-        }
-        let directory =
-            camino::Utf8PathBuf::from_path_buf(entry.path()).expect("utf8 fixture path");
-        let case: toml::Value = toml::from_str(
-            &std::fs::read_to_string(directory.join("case.toml").as_std_path()).expect("case.toml"),
-        )
-        .expect("case.toml parses");
-        let string = |key: &str| case.get(key).and_then(|v| v.as_str()).map(str::to_owned);
-        cases.push(NegativeCase {
-            class: string("class").expect("class"),
-            kind: string("kind").expect("kind"),
-            command: string("command").unwrap_or_else(|| "check".to_owned()),
-            relock: case
-                .get("relock")
-                .and_then(toml::Value::as_bool)
-                .unwrap_or(false),
-            codes: case
-                .get("codes")
-                .and_then(|v| v.as_array())
-                .map(|rows| {
-                    rows.iter()
-                        .filter_map(|row| row.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            edits: case
-                .get("edit")
-                .and_then(|v| v.as_array())
-                .map(|rows| {
-                    rows.iter()
-                        .map(|row| {
-                            (
-                                row["file"].as_str().expect("file").to_owned(),
-                                row["from"].as_str().expect("from").to_owned(),
-                                row["to"].as_str().expect("to").to_owned(),
-                            )
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            test: string("test"),
-            directory,
-        });
-    }
-    cases
-}
-
-fn apply_overlay(project: &P, directory: &camino::Utf8Path) {
-    let overlay = directory.join("overlay");
-    if !overlay.as_std_path().exists() {
-        return;
-    }
-    for entry in walkdir::WalkDir::new(overlay.as_std_path())
-        .into_iter()
-        .flatten()
-    {
-        if entry.file_type().is_file() {
-            let relative = entry
-                .path()
-                .strip_prefix(overlay.as_std_path())
-                .expect("under overlay")
-                .to_string_lossy()
-                .replace('\\', "/");
-            project.write(
-                &relative,
-                &std::fs::read_to_string(entry.path()).expect("overlay file"),
-            );
-        }
-    }
-}
-
 pub(crate) fn run(id: &str) {
     match id {
         // §29: the committed example runs the entire pipeline.
@@ -116,6 +22,27 @@ pub(crate) fn run(id: &str) {
                     }),
                 "§29.5: an empty observed axiom set for the theorem"
             );
+            // §30.4: the project, lock, and built-in lexicon inputs validate
+            // against their committed schemas (TOML read as JSON).
+            let example = support::repo_root().join("examples/nat-add-zero");
+            support::assert_toml_file_schema("project", &example.join("lexlean.toml"));
+            support::assert_toml_file_schema("lock", &example.join("lexlean.lock"));
+            for package in ["core", "std/nat"] {
+                let package_dir = support::repo_root().join("language").join(package);
+                support::assert_toml_file_schema("lexicon", &package_dir.join("lexicon.toml"));
+                let mut entries = 0usize;
+                for entry in std::fs::read_dir(package_dir.join("entries").as_std_path())
+                    .expect("entries")
+                    .flatten()
+                {
+                    let path = camino::Utf8PathBuf::from_path_buf(entry.path()).expect("utf8");
+                    if path.extension() == Some("toml") {
+                        support::assert_toml_file_schema("entry", &path);
+                        entries += 1;
+                    }
+                }
+                assert!(entries > 0, "{package}: entries validated");
+            }
         }
         // §29.6 mutation 1: the false proposition fails in Lean, remapped.
         "EX-02" => {
@@ -193,128 +120,167 @@ pub(crate) fn run(id: &str) {
                 "the observed excess is recorded: {rendered}"
             );
         }
-        // §29.6 mutation 5: distinct paths, byte-identical artifacts.
+        // §29.6 mutation 5: two clean `build`s in distinct absolute
+        // directories publish byte-identical platform-independent trees.
         "EX-06" => {
-            let first = support::rendered(&P::example());
-            let second = support::rendered(&P::example());
-            assert_eq!(first.build_id, second.build_id);
-            for ((path_a, bytes_a), (path_b, bytes_b)) in first.files.iter().zip(&second.files) {
-                assert_eq!(path_a, path_b);
-                assert_eq!(bytes_a, bytes_b, "{path_a}");
-            }
-        }
-        // §28.5: the negative suite covers every required rejection class.
-        "EX-07" => {
-            let cases = negative_cases();
-            let classes: std::collections::BTreeSet<&str> =
-                cases.iter().map(|case| case.class.as_str()).collect();
-            for required in [
-                "unknown-word",
-                "unknown-symbol",
-                "unknown-control",
-                "raw-percent-comment",
-                "raw-lean",
-                "tex-macro",
-                "ambiguous-lexical-segmentation",
-                "ambiguous-typed-resolution",
-                "missing-glossary-entry",
-                "lexicon-cycle",
-                "unsafe-renderer-control",
-                "forward-document-reference",
-                "recursive-definition",
-                "missing-proof",
-                "extra-proof-branch",
-                "unrestricted-simplify",
-                "native-decide",
-                "lean-elaboration-failure",
-                "leanchecker-failure",
-                "malformed-axiom-output",
-                "axiom-policy-excess",
-                "path-symlink",
-                "stale-lock",
-                "toolchain-mismatch",
-                "limit-overrun",
-                "pdf-hash-mismatch",
-            ] {
+            let first = P::example();
+            let second = P::example();
+            assert_ne!(first.root, second.root, "distinct absolute directories");
+            let built_a = first.build_ok();
+            let built_b = second.build_ok();
+            let id_a = built_a.build_id.expect("build id");
+            let id_b = built_b.build_id.expect("build id");
+            assert_eq!(
+                id_a, id_b,
+                "the content-addressed build ID is path independent"
+            );
+            let dir_a = first.build_dir(&id_a);
+            let dir_b = second.build_dir(&id_b);
+            let files_a = support::file_set(&dir_a);
+            let files_b = support::file_set(&dir_b);
+            assert_eq!(files_a, files_b, "the published file sets are equal");
+            assert!(
+                files_a.contains("manifest.json"),
+                "the manifest is published"
+            );
+            for relative in &files_a {
+                let bytes_a = std::fs::read(dir_a.join(relative).as_std_path()).expect("read a");
+                let bytes_b = std::fs::read(dir_b.join(relative).as_std_path()).expect("read b");
+                assert_eq!(
+                    bytes_a, bytes_b,
+                    "{relative} differs between the two builds"
+                );
+                let text = String::from_utf8_lossy(&bytes_a);
                 assert!(
-                    classes.contains(required),
-                    "§28.5: the `{required}` rejection class has a fixture"
+                    !text.contains(first.root.as_str()) && !text.contains(second.root.as_str()),
+                    "{relative} embeds an absolute checkout path"
                 );
             }
+        }
+        // §28.5, §28.2: every required rejection class has a fixture in the
+        // §28.2 layout, each fixture runs through the CLI and equals its
+        // committed expectation, and each negative fixture fails with
+        // exactly the one prescribed diagnostic code.
+        "EX-07" => {
+            let root = support::repo_root();
+            let prescribed: [(&str, &str); 27] = [
+                ("unknown-word", "LLL1004"),
+                ("unknown-symbol", "LLL1004"),
+                ("unknown-control", "LLL1004"),
+                ("raw-percent-comment", "LLL1002"),
+                ("raw-lean", "LLF5005"),
+                ("raw-lean-declaration", "LLP2003"),
+                ("tex-macro", "LLL1002"),
+                ("ambiguous-lexical-segmentation", "LLP2002"),
+                ("ambiguous-typed-resolution", "LLP2002"),
+                ("missing-glossary-entry", "LLR3005"),
+                ("lexicon-cycle", "LLR3003"),
+                ("unsafe-renderer-control", "LLR3004"),
+                ("forward-document-reference", "LLR3005"),
+                ("recursive-definition", "LLF5001"),
+                ("missing-proof", "LLF5005"),
+                ("extra-proof-branch", "LLF5003"),
+                ("unrestricted-simplify", "LLF5005"),
+                ("native-decide", "LLF5005"),
+                ("lean-elaboration-failure", "LLV7002"),
+                ("leanchecker-failure", "LLV7003"),
+                ("malformed-axiom-output", "LLV7004"),
+                ("axiom-policy-excess", "LLV7005"),
+                ("path-symlink", "LLS8001"),
+                ("stale-lock", "LLC0102"),
+                ("toolchain-mismatch", "LLV7001"),
+                ("limit-overrun", "LLS8002"),
+                ("pdf-hash-mismatch", "LLS8004"),
+            ];
+            let negative_root = root.join("tests/negative");
+            let mut classes: Vec<String> = std::fs::read_dir(negative_root.as_std_path())
+                .expect("tests/negative")
+                .flatten()
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect();
+            classes.sort();
+            let expected_classes: Vec<&str> = prescribed.iter().map(|(class, _)| *class).collect();
+            let mut sorted_expected = expected_classes.clone();
+            sorted_expected.sort_unstable();
+            assert_eq!(
+                classes, sorted_expected,
+                "tests/negative holds exactly the prescribed rejection classes (§28.5)"
+            );
 
-            let known_tests = crate::workspace_test_names(support::repo_root().as_std_path());
-            for case in &cases {
-                match case.kind.as_str() {
-                    "mutation" => {
-                        let project = P::example();
-                        apply_overlay(&project, &case.directory);
-                        for (file, from, to) in &case.edits {
-                            project.edit(file, from, to);
-                        }
-                        if case.relock {
-                            project.relock();
-                        }
-                        let error = match case.command.as_str() {
-                            "check" => project
-                                .engine()
-                                .check(lexlean::CheckRequest {
-                                    selection: lexlean::Selection::Entrypoints,
-                                })
-                                .err()
-                                .unwrap_or_else(|| {
-                                    panic!("{}: check unexpectedly succeeded", case.class)
-                                }),
-                            "lock" => project
-                                .engine()
-                                .lock(lexlean::LockRequest {
-                                    check_only: false,
-                                    allow_network: false,
-                                })
-                                .err()
-                                .unwrap_or_else(|| {
-                                    panic!("{}: lock unexpectedly succeeded", case.class)
-                                }),
-                            "lock-check" => project
-                                .engine()
-                                .lock(lexlean::LockRequest {
-                                    check_only: true,
-                                    allow_network: false,
-                                })
-                                .err()
-                                .unwrap_or_else(|| {
-                                    panic!("{}: lock --check unexpectedly succeeded", case.class)
-                                }),
-                            other => panic!("{}: unknown command {other}", case.class),
-                        };
-                        assert!(
-                            error.diagnostics.iter().any(|diagnostic| {
-                                case.codes
-                                    .iter()
-                                    .any(|code| diagnostic.code.as_str() == code)
-                            }),
-                            "{}: expected one of {:?}, found {:?}",
-                            case.class,
-                            case.codes,
-                            error
-                                .diagnostics
+            let lean_available = support::lean_backed("EX-07");
+            let mut failures: Vec<String> = Vec::new();
+            for dir in crate::fixtures::discover(&root) {
+                let case =
+                    crate::fixtures::load_case(&dir).unwrap_or_else(|error| panic!("{error}"));
+                let is_lean_backed = case
+                    .invocations
+                    .iter()
+                    .any(|invocation| invocation.command == "verify");
+                if is_lean_backed && !lean_available {
+                    continue;
+                }
+                // A checkout without symlink support (Windows with
+                // core.symlinks=false) materializes the fixture's symlink as
+                // text, so the path-symlink class is host-bound there.
+                if cfg!(windows) && dir.ends_with("path-symlink") {
+                    eprintln!("EX-07: {dir}: symlink fixture skipped on a host without symlink checkout (§8.3)");
+                    continue;
+                }
+                let observed = match crate::fixtures::check(&dir) {
+                    Ok(observed) => observed,
+                    Err(error) => {
+                        failures.push(error);
+                        continue;
+                    }
+                };
+                // §30.4: every emitted diagnostic validates against the
+                // diagnostic schema.
+                let diagnostics: serde_json::Value =
+                    serde_json::from_str(&observed.expected.diagnostics_json)
+                        .expect("diagnostics.json parses");
+                for (index, diagnostic) in
+                    diagnostics.as_array().expect("an array").iter().enumerate()
+                {
+                    let violations =
+                        crate::schema::validate(&support::schema("diagnostic"), diagnostic);
+                    if !violations.is_empty() {
+                        failures.push(format!(
+                            "{dir}: diagnostic {index} violates schemas/diagnostic.schema.json: {}",
+                            violations
                                 .iter()
-                                .map(|d| d.code.as_str())
+                                .map(ToString::to_string)
                                 .collect::<Vec<_>>()
-                        );
+                                .join("; ")
+                        ));
                     }
-                    "delegated" => {
-                        let test = case.test.as_ref().unwrap_or_else(|| {
-                            panic!("{}: a delegated case names its test", case.class)
-                        });
-                        assert!(
-                            known_tests.contains(test),
-                            "{}: delegated to `{test}`, which does not exist",
-                            case.class
-                        );
+                }
+                let relative = dir.strip_prefix(&root).unwrap_or(&dir);
+                if let Ok(class) = relative.strip_prefix("tests/negative") {
+                    let class = class.as_str();
+                    let code = prescribed
+                        .iter()
+                        .find(|(name, _)| *name == class)
+                        .map(|(_, code)| *code)
+                        .expect("every negative class is prescribed");
+                    if observed.codes != [code.to_owned()] {
+                        failures.push(format!(
+                            "tests/negative/{class}: prescribed exactly [{code}], observed {:?} (§28.5)",
+                            observed.codes
+                        ));
                     }
-                    other => panic!("{}: unknown kind {other}", case.class),
+                    if observed.exit == 0 {
+                        failures.push(format!(
+                            "tests/negative/{class}: a negative fixture must fail"
+                        ));
+                    }
                 }
             }
+            assert!(
+                failures.is_empty(),
+                "fixture failures:\n{}",
+                failures.join("\n\n")
+            );
         }
         // §28.6: every example directory is discovered and gate-complete.
         "EX-08" => {

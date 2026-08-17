@@ -1,10 +1,5 @@
-spec = "lexlean/negative-case/1"
-class = "missing-glossary-entry"
-kind = "mutation"
+spec = "lexlean/test-case/1"
 command = "check"
-codes = ["LLR3005"]
-
-[[edit]]
-file = "src/Main.lex.tex"
-from = "\\(n + 0 = n\\)"
-to = "\\(n + \\lexeme{lexlean.std.nat::absent} = n\\)"
+args = []
+expected_exit = 1
+expect_artifacts = false

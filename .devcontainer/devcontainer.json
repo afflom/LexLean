@@ -11,8 +11,7 @@
     "vscode": {
       "extensions": [
         "rust-lang.rust-analyzer",
-        "leanprover.lean4",
-        "anthropic.claude-code"
+        "leanprover.lean4"
       ],
       "settings": {
         "editor.formatOnSave": true,

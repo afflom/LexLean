@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLF5005","help":[],"labels":[],"message":"not a registered proof sentence; the exact simple sentences are fixed (§16.2)","notes":[],"primary":{"byte_end":196,"byte_start":188,"column_end":9,"column_start":1,"line_end":9,"line_start":9,"path":"src/Main.lex.tex"},"severity":"error","spec":"lexlean/diagnostic/1"}]

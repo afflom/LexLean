@@ -1,2 +1,2 @@
 spec = "lexlean/test-fixtures/1"
-role = "Sequence-behavior fixtures per SPEC.md 28.2; single-command rejection fixtures live in tests/negative and are driven by conformance_ex_07."
+role = "ID-driven fixtures in the SPEC.md 28.2 layout: tests/fixtures/<suite>/<id>/{project,expected,case.toml}. Rejection-class fixtures live in tests/negative/<class>/ in the same layout. Every fixture runs through cargo xtask check-fixtures and the conformance case that names it; optional toolchain/bin/* files overlay the pinned toolchain executables and overlay/<step>/ files are applied before a sequence step."

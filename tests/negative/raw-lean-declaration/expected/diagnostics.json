@@ -1,0 +1,1 @@
+[{"causes":[],"code":"LLP2003","help":[],"labels":[],"message":"expected a block or `\\end{lexlean}`, found `theorem`","notes":[],"primary":{"byte_end":98,"byte_start":91,"column_end":8,"column_start":1,"line_end":5,"line_start":5,"path":"src/Main.lex.tex"},"severity":"error","spec":"lexlean/diagnostic/1"}]

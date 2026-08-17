@@ -5,9 +5,13 @@ expected_exit = 2
 expect_artifacts = false
 
 [[invocation]]
-command = "edit"
-args = ["lexlean.toml", "max_scope_depth = 1024", "max_scope_depth = 512"]
-
-[[invocation]]
+step = 1
 command = "lock"
 args = ["--check"]
+expected_exit = 0
+
+[[invocation]]
+step = 2
+command = "lock"
+args = ["--check"]
+expected_exit = 2

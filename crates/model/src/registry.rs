@@ -33,6 +33,7 @@ impl Level {
 
 /// `model/ledger.toml`.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Ledger {
     /// The schema tag.
     pub spec: String,
@@ -42,6 +43,7 @@ pub struct Ledger {
 
 /// One claim, at exactly one honesty level.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Claim {
     /// The conformance ID, or an `AUTH-`/`OPEN-` prefixed identifier.
     pub id: String,
@@ -108,13 +110,10 @@ impl Ledger {
                     }
                 }
             }
-            // No rules about a *class* of ID here. `CP-` recording a sample size,
-            // `CG-` being measured rather than asserted, `CN-` not existing at
-            // all --- each was a fact about a repository that had that class, and
-            // a rule enforcing a taxonomy the register does not have is a
-            // restriction on the first person to want one. A repository adding a
-            // class adds its rule here, in the commit that adds the first ID in
-            // it. The level rules above apply to every claim and stay.
+            // No rules about a *class* of ID here: LexLean's register has one
+            // class (§31, every ID `build`), and the ledger carries only the
+            // `some-true` authority reproductions of §27.4. The level rules
+            // above apply to every claim.
         }
         Ok(())
     }
@@ -127,6 +126,7 @@ impl Ledger {
 
 /// `model/ids.toml` --- the conformance ID register.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Ids {
     /// The schema tag.
     pub spec: String,
@@ -136,6 +136,7 @@ pub struct Ids {
 
 /// One registered conformance ID.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IdRow {
     /// The ID, e.g. `CS-04`.
     pub id: String,
@@ -154,8 +155,9 @@ impl Ids {
     }
 }
 
-/// `model/authorities.toml` --- what this repository cites (`CM-03`).
+/// `model/authorities.toml` --- what this repository cites (§27.4).
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Authorities {
     /// The schema tag.
     pub spec: String,
@@ -165,8 +167,9 @@ pub struct Authorities {
 
 /// A cited authority. Never re-derived, vendored, or gated on.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthorityRow {
-    /// Stable identifier, e.g. `CL-MM01`.
+    /// Stable identifier, e.g. `LEAN-REL-4-32-1`.
     pub id: String,
     /// Human-readable name.
     pub name: String,

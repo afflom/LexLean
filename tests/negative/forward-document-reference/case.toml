@@ -1,10 +1,5 @@
-spec = "lexlean/negative-case/1"
-class = "forward-document-reference"
-kind = "mutation"
+spec = "lexlean/test-case/1"
 command = "check"
-codes = ["LLR3005"]
-
-[[edit]]
-file = "src/Main.lex.tex"
-from = "Close the goal by reflexivity."
-to = "Close the goal with \\(\\reference{Main::later}\\)."
+args = []
+expected_exit = 1
+expect_artifacts = false
