@@ -619,19 +619,46 @@ fn elab_definition_alternative(
             ),
         ));
     }
+    // The declared binders align with the signature's explicit binders in
+    // order; an implicit or instance binder of the signature has no
+    // sentence counterpart and becomes a like-moded binder of the value.
     let mut map = BTreeMap::new();
-    for (signature_binder, declared) in signature_binders.iter().zip(&binders) {
+    let mut value_binders: Vec<Binder> = Vec::new();
+    let mut declared_iter = binders.iter();
+    for signature_binder in &signature_binders {
         let expected = crate::elaborate::expressions::subst(&signature_binder.ty, &map);
-        if expected.eq_key() != declared.ty.eq_key() {
-            return Err(Diagnostic::new(
-                code!("LLT4004"),
-                format!(
-                    "the type of binder `{}` does not match the entry signature of `{entry_id}`",
-                    declared.spelling
-                ),
-            ));
+        match signature_binder.mode {
+            crate::lexicon::lse::BinderMode::Explicit => {
+                let Some(declared) = declared_iter.next() else {
+                    return Err(Diagnostic::new(
+                        code!("LLI9001"),
+                        "phase definitions: explicit binder count checked above",
+                    ));
+                };
+                if expected.eq_key() != declared.ty.eq_key() {
+                    return Err(Diagnostic::new(
+                        code!("LLT4004"),
+                        format!(
+                            "the type of binder `{}` does not match the entry signature of `{entry_id}`",
+                            declared.spelling
+                        ),
+                    ));
+                }
+                map.insert(signature_binder.id, Term::Local(declared.id));
+                value_binders.push(declared.clone());
+            }
+            crate::lexicon::lse::BinderMode::Implicit
+            | crate::lexicon::lse::BinderMode::Instance => {
+                let id = alloc.fresh();
+                map.insert(signature_binder.id, Term::Local(id));
+                value_binders.push(Binder {
+                    id,
+                    mode: signature_binder.mode,
+                    ty: expected,
+                    spelling: signature_binder.spelling.clone(),
+                });
+            }
         }
-        map.insert(signature_binder.id, Term::Local(declared.id));
     }
     let remaining = crate::elaborate::expressions::subst(&signature_body, &map);
 
@@ -661,7 +688,12 @@ fn elab_definition_alternative(
             // and exactly one distinct linked type must survive (§14.4).
             if let Some(island) = cursor.island() {
                 let result = elab_island(shared, scopes, alloc, budget, &island, None)?;
-                if !matches!(result.ty, Some(Term::Sort(_))) {
+                // The island's type must be a sort, read through defined
+                // type nouns (`type` defined as `(sort (type 0))`, §13.6).
+                let island_ty = result.ty.as_ref().map(|ty| {
+                    crate::elaborate::delta::unfold(ty, shared, alloc, budget.max_depth())
+                });
+                if !matches!(island_ty, Some(Term::Sort(_))) {
                     return Err(Diagnostic::new(
                         code!("LLT4001"),
                         "the right-hand side of a type definition must be a sort",
@@ -675,9 +707,14 @@ fn elab_definition_alternative(
                     return Err(def_error("the right-hand side must be a type phrase"));
                 };
                 let start_atom = *start_atom;
-                let matches: Vec<(crate::lexicon::resolve::FormRef, usize)> = shared
-                    .closure
-                    .matches_at(shared.atoms, start_atom, Channel::Text, shared.visible)
+                let matches: Vec<(crate::lexicon::resolve::FormRef, usize)> = budget
+                    .edges_at(
+                        shared.closure,
+                        shared.atoms,
+                        shared.visible,
+                        start_atom,
+                        Channel::Text,
+                    )?
                     .into_iter()
                     .filter(|(reference, _)| {
                         shared
@@ -697,12 +734,7 @@ fn elab_definition_alternative(
                     )
                     .with_span(shared.atoms[start_atom].span(shared.path)));
                 }
-                let mut elaborator = ExprElab {
-                    shared,
-                    scopes,
-                    alloc,
-                    budget,
-                };
+                let mut elaborator = ExprElab::new(shared, scopes, alloc, budget);
                 let leaf = MathAst::Leaf {
                     kinds: matches
                         .into_iter()
@@ -820,11 +852,11 @@ fn elab_definition_alternative(
                 .with_span(atom.span(shared.path)),
         );
     }
-    let value = if binders.is_empty() {
+    let value = if value_binders.is_empty() {
         value
     } else {
         Term::Lambda {
-            binders,
+            binders: value_binders,
             body: Box::new(value),
         }
     };

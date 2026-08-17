@@ -44,14 +44,14 @@ The goal follows from \(\operatorname{letrans}(ih, \operatorname{lesucc}(m))\).
 For every natural number \(n\), \(n \le n + 0\).
 \end{theorem}
 \begin{proof}
-Rewrite the goal using \(\rightarrow \operatorname{add_zero}(n)\).
+Rewrite the goal using \(\rightarrow \texttt{Addition::add-zero}(n)\).
 The goal follows from \(\operatorname{lerefl}(n)\).
 \end{proof}
 \section{Case analysis}
 \label{ll:order:case-analysis}
 \begin{theorem}
 \label{ll:order:zero-or-successor}
-For every natural number \(n\), \(n = 0\) or \(\exists m, n = \operatorname{succ}(m)\).
+For every natural number \(n\), \(n = 0\) or there exists a natural number \(m\) such that \(n = \operatorname{succ}(m)\).
 \end{theorem}
 \begin{proof}
 Consider the cases of \(n\).

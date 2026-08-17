@@ -4,6 +4,7 @@
 //! Lean definitional equality.
 
 pub mod definitions;
+pub mod delta;
 pub mod expressions;
 pub mod proofs;
 pub mod resolve;
@@ -155,12 +156,7 @@ pub fn elab_island(
         shared.visible,
         budget,
     )?;
-    let mut elaborator = ExprElab {
-        shared,
-        scopes,
-        alloc,
-        budget,
-    };
+    let mut elaborator = ExprElab::new(shared, scopes, alloc, budget);
     let mut result = elaborator.elaborate(&ast, expected)?;
     island_delim_rows(shared, token, &mut result.rows);
     Ok(result)
@@ -259,12 +255,7 @@ fn apply_frame_candidate(
     expected: Option<&Term>,
 ) -> Result<ElabTerm, Diagnostic> {
     let binder_types = {
-        let mut elaborator = ExprElab {
-            shared,
-            scopes,
-            alloc,
-            budget,
-        };
+        let mut elaborator = ExprElab::new(shared, scopes, alloc, budget);
         elaborator.explicit_binder_types(reference)
     };
     let mut rows = Vec::new();
@@ -282,12 +273,7 @@ fn apply_frame_candidate(
         rows.extend(result.rows.clone());
         arg_terms.push(result);
     }
-    let mut elaborator = ExprElab {
-        shared,
-        scopes,
-        alloc,
-        budget,
-    };
+    let mut elaborator = ExprElab::new(shared, scopes, alloc, budget);
     let mut result =
         elaborator.apply_entry_to_terms(reference, surface_atoms, &arg_terms, expected)?;
     rows.append(&mut result.rows);
@@ -343,12 +329,7 @@ pub fn elab_binder(
         TypePhraseAst::Noun { candidates, atoms } => {
             let mut survivors: Vec<(String, Term, SourceRow)> = Vec::new();
             for reference in candidates {
-                let mut elaborator = ExprElab {
-                    shared,
-                    scopes,
-                    alloc,
-                    budget,
-                };
+                let mut elaborator = ExprElab::new(shared, scopes, alloc, budget);
                 let leaf = crate::grammar::math::MathAst::Leaf {
                     kinds: vec![crate::grammar::math::LeafKind::Form(reference.clone())],
                     atoms: *atoms,
@@ -388,9 +369,10 @@ pub fn elab_binder(
             let result = elab_island(shared, scopes, alloc, budget, island, None)?;
             // The island's type must be a sort; a defined type noun (`type`
             // defined as `(sort (type 0))`) is read through its definition.
-            let island_ty = result.ty.as_ref().map(|ty| {
-                crate::elaborate::expressions::unfold_defined(ty, shared, alloc, budget.max_depth())
-            });
+            let island_ty = result
+                .ty
+                .as_ref()
+                .map(|ty| crate::elaborate::delta::unfold(ty, shared, alloc, budget.max_depth()));
             match &island_ty {
                 Some(Term::Sort(_)) => {}
                 _ => {

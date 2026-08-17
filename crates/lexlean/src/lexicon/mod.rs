@@ -326,25 +326,31 @@ mod tests {
         let closure = Closure::build(packages, registry, bootstrap, 128).expect("closure");
         let atoms = crate::source::scan::scan("m", "natural number list", 100).expect("scans");
         let visible = closure.visible_set(&["lexlean.std.nat".to_owned()]);
-        let mut lattice = TokenLattice::new(&closure, &atoms, &visible, 100);
-        let first = lattice.edges_at(0, Channel::Text).expect("edges").len();
+        let mut lattice = TokenLattice::new(100);
+        let first = lattice
+            .edges_at(&closure, &atoms, &visible, 0, Channel::Text)
+            .expect("edges")
+            .len();
         assert!(
             first >= 2,
             "`natural number` and `natural number list` both start here"
         );
         let counted = lattice.edge_count();
         for _ in 0..10 {
-            lattice.edges_at(0, Channel::Text).expect("memoized");
+            lattice
+                .edges_at(&closure, &atoms, &visible, 0, Channel::Text)
+                .expect("memoized");
         }
         assert_eq!(lattice.edge_count(), counted, "revisits are free");
-        let mut tight = TokenLattice::new(&closure, &atoms, &visible, 1);
-        assert_eq!(
-            tight
-                .edges_at(0, Channel::Text)
-                .expect_err("limited")
-                .code
-                .as_str(),
-            "LLS8002"
+        let mut tight = TokenLattice::new(1);
+        let limited = tight
+            .edges_at(&closure, &atoms, &visible, 0, Channel::Text)
+            .expect_err("limited");
+        assert_eq!(limited.code.as_str(), "LLS8002");
+        assert!(
+            limited.message.contains("configured 1") && limited.message.contains("observed"),
+            "the limit diagnostic names the configured value and the observation: {}",
+            limited.message
         );
     }
 

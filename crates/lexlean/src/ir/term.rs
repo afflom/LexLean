@@ -20,6 +20,11 @@ pub type LeanModuleName = String;
 /// A fully qualified Lean name.
 pub type LeanName = String;
 
+/// The core constructor of implication (`lexlean.core::arrow`, §15.6): the
+/// one core term denotation without a global, because an implication is a
+/// non-dependent `Pi` and never an application.
+pub const ARROW_CONSTRUCTOR: &str = "logic.arrow";
+
 /// The closed core constructors that can appear in term position. Every
 /// logical surface construct desugars to an application of one of these or
 /// to a `Pi` (implication and universal quantification).

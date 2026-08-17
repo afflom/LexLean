@@ -295,6 +295,27 @@ impl Render {
         out
     }
 
+    /// The first construct with no rendering in the text channel: `sub`,
+    /// `sup`, `frac`, and `operator-name` are mathematical (§13.9), so a
+    /// text render that uses one can never be emitted.
+    #[must_use]
+    pub fn math_only_construct(&self) -> Option<&'static str> {
+        let mut found = None;
+        self.walk(&mut |render| {
+            if found.is_some() {
+                return;
+            }
+            found = match render {
+                Self::Sub(..) => Some("sub"),
+                Self::Sup(..) => Some("sup"),
+                Self::Frac(..) => Some("frac"),
+                Self::OperatorName(_) => Some("operator-name"),
+                _ => None,
+            };
+        });
+        found
+    }
+
     /// The well-formedness of `sub`, `sup`, and `frac` operands (§13.9): a
     /// script or fraction operand must render something — it cannot be a
     /// bare `(space)`, and a `seq` operand cannot consist of spaces only —

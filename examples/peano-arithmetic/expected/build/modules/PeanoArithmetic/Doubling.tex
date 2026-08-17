@@ -62,7 +62,7 @@ Assume \(h\).
 Consider the cases of \(h\).
 Case \(\operatorname{existsintro}\) with \(k\), \(hk\):
 Use \(\operatorname{succ}(k)\) as the witness.
-Rewrite the goal using \(\rightarrow hk\), \(\leftarrow \operatorname{succ_add}(k, k)\).
+Rewrite the goal using \(\rightarrow hk\), \(\leftarrow \texttt{Addition::succ-add}(k, k)\).
 The goal follows by reflexivity.
 \end{proof}
 \section{Sums}
@@ -72,7 +72,7 @@ The goal follows by reflexivity.
 For every natural number \(a\) and natural number \(b\), \(a + (b + (a + b)) = a + (a + (b + b))\).
 \end{lemma}
 \begin{proof}
-Rewrite the goal using \(\rightarrow \operatorname{add_left_comm}(b, a, b)\).
+Rewrite the goal using \(\rightarrow \texttt{Addition::add-left-comm}(b, a, b)\).
 \end{proof}
 \begin{theorem}
 \label{ll:doubling:double-add}
@@ -82,7 +82,7 @@ For every natural number \(a\) and natural number \(b\), \(\operatorname{double}
 \begin{align*}
 \operatorname{double}(a + b) &= a + b + (a + b) && \text{by } \operatorname{rfl} \\
  &= a + (b + (a + b)) && \text{by } \operatorname{addassoc}(a, b, a + b) \\
- &= a + (a + (b + b)) && \text{by } \operatorname{rotate}(a, b) \\
+ &= a + (a + (b + b)) && \text{by } \texttt{Doubling::rotate}(a, b) \\
  &= a + a + (b + b) && \text{by } \operatorname{eqsymm}(\operatorname{addassoc}(a, a, b + b)) \\
  &= \operatorname{double}(a) + \operatorname{double}(b) && \text{by } \operatorname{rfl}
 \end{align*}

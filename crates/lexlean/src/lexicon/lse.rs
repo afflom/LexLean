@@ -905,6 +905,10 @@ impl Lse {
 pub enum ConstInfo<'a> {
     /// The constant does not resolve.
     Missing,
+    /// The constant lives in another package that is not consulted in this
+    /// check (the package-local check at load): its type is unknown and it
+    /// may unfold to any shape, so nothing rigid is concluded from it.
+    Opaque,
     /// The constant resolves to an entry without a signature (structural,
     /// grammar, or label-word).
     NoSignature,
@@ -1196,13 +1200,15 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn is_defined_const(&self, expr: &Lse) -> bool {
+    /// May this expression unfold to another shape: a defined lexicon
+    /// value, or a constant opaque to this check?
+    fn may_unfold(&self, expr: &Lse) -> bool {
         match expr {
             Lse::Const(id, _) => matches!(
                 (self.lookup)(id),
-                ConstInfo::Signature { defined: true, .. }
+                ConstInfo::Signature { defined: true, .. } | ConstInfo::Opaque
             ),
-            Lse::App(function, _) => self.is_defined_const(function),
+            Lse::App(function, _) => self.may_unfold(function),
             _ => false,
         }
     }
@@ -1231,7 +1237,7 @@ impl<'a> Checker<'a> {
             (Lse::Local(x), Lse::Local(y)) if x == y => Ok(()),
             (Lse::Nat(x), Lse::Nat(y)) if x == y => Ok(()),
             (Lse::App(f, xs), Lse::App(g, ys)) if xs.len() == ys.len() => {
-                if self.is_defined_const(&expected) || self.is_defined_const(&actual) {
+                if self.may_unfold(&expected) || self.may_unfold(&actual) {
                     return Ok(());
                 }
                 self.unify(f, g)?;
@@ -1285,7 +1291,7 @@ impl<'a> Checker<'a> {
                 self.unify(&flat_e.1, &body_a)
             }
             _ => {
-                if self.is_defined_const(&expected) || self.is_defined_const(&actual) {
+                if self.may_unfold(&expected) || self.may_unfold(&actual) {
                     return Ok(());
                 }
                 if self.has_unsolved_meta(&expected) || self.has_unsolved_meta(&actual) {
@@ -1314,7 +1320,7 @@ impl<'a> Checker<'a> {
         match &ty {
             Lse::SortProp | Lse::SortType(_) => Ok(ty),
             Lse::Local(m) if is_meta(m) => Ok(ty),
-            _ if self.is_defined_const(&ty) => Ok(ty),
+            _ if self.may_unfold(&ty) => Ok(ty),
             other => Err(TypeError {
                 message: format!(
                     "`{}` is not a type: its type is `{}`",
@@ -1343,6 +1349,7 @@ impl<'a> Checker<'a> {
                 ConstInfo::Missing => Err(TypeError {
                     message: format!("`{id}` does not resolve"),
                 }),
+                ConstInfo::Opaque => Ok(self.fresh_meta()),
                 ConstInfo::NoSignature => Err(TypeError {
                     message: format!("`{id}` has no signature and cannot appear in an expression"),
                 }),
@@ -1393,7 +1400,7 @@ impl<'a> Checker<'a> {
                             }
                             return Ok(self.fresh_meta());
                         }
-                        other if self.is_defined_const(other) => {
+                        other if self.may_unfold(other) => {
                             for argument in remaining {
                                 self.infer(argument, scope)?;
                             }

@@ -2391,3 +2391,389 @@ pub fn verified_polish() -> &'static VerifiedFixture {
         }
     })
 }
+
+// ---- WS-F1 helpers (delta unfolding, closed shapes, the core arrow) ----
+
+/// The `test.f1` fixture package: the definition entries (`count`,
+/// `double`, `good`) plus a `falsum` predicate constant denoting `False`,
+/// a `proposition` type noun defined as `Prop`, and a `neq` predicate
+/// denoting the external `Ne`, so definitions, negations, defined type
+/// nouns, external predicates, and the core arrow are all exercised under
+/// pinned Lean.
+#[must_use]
+pub fn f1_entries() -> Vec<FixtureEntry> {
+    let nat = "(const lexlean.std.nat::nat)";
+    let falsum = r#"spec = "lexlean/entry/1"
+id = "falsum"
+category = "predicate-constant"
+signature = "(sort prop)"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "False"
+
+[[form]]
+id = "falsum"
+channel = "math"
+surface = "falsum"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name falsum)"
+"#;
+    let proposition = r#"spec = "lexlean/entry/1"
+id = "proposition"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(sort prop)"
+
+[[form]]
+id = "proposition"
+channel = "text"
+surface = "proposition"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+"#;
+    let neq = format!(
+        r#"spec = "lexlean/entry/1"
+id = "neq"
+category = "function"
+signature = "(pi ((explicit a {nat}) (explicit b {nat})) (sort prop))"
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Ne"
+
+[[form]]
+id = "neq"
+channel = "math"
+surface = "neq"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name neq) (paren (seq (slot 0) (token comma) (space) (slot 1))))"
+"#
+    );
+    let nil = r#"spec = "lexlean/entry/1"
+id = "nil"
+category = "term-constant"
+signature = "(pi ((implicit a (sort (type 0)))) (app (const lexlean.std.nat::list) (local a)))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List.nil"
+
+[[form]]
+id = "nil"
+channel = "math"
+surface = "nil"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name nil)"
+"#;
+    // An infix document entry the module never defines: a use of `⊕`
+    // cannot instantiate, and the rejection must say so.
+    let oplus = format!(
+        r#"spec = "lexlean/entry/1"
+id = "oplus"
+category = "infix-function"
+signature = "(pi ((explicit a {nat}) (explicit b {nat})) {nat})"
+surface_arity = 2
+frame = "infix"
+precedence = 65
+associativity = "left"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "oplus"
+
+[[form]]
+id = "oplus"
+channel = "math"
+surface = "⊕"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (self-form oplus) (space) (slot 1))"
+"#
+    );
+    // A defined type noun `type` for `Type`, a constant `omega` typed by it
+    // (denoting `Nat`), and a document type noun `alias`: the right-hand
+    // side of a type definition is a sort only through the defined noun.
+    let type_noun = r#"spec = "lexlean/entry/1"
+id = "type"
+category = "type-noun"
+signature = "(sort (type 1))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "defined"
+value = "(sort (type 0))"
+
+[[form]]
+id = "type"
+channel = "text"
+surface = "type"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+"#;
+    let omega = r#"spec = "lexlean/entry/1"
+id = "omega"
+category = "term-constant"
+signature = "(const test.f1::type)"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat"
+
+[[form]]
+id = "omega"
+channel = "math"
+surface = "omega"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name omega)"
+"#;
+    let alias = r#"spec = "lexlean/entry/1"
+id = "alias"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "document"
+module = "Main"
+component = "alias"
+
+[[form]]
+id = "alias"
+channel = "text"
+surface = "alias"
+canonical_source = true
+features = ["article-an", "lower-case", "singular"]
+"#;
+    let mut entries: Vec<FixtureEntry> = defs_entries()
+        .into_iter()
+        .map(|(name, text)| (name, text.replace("test.defs", "test.f1")))
+        .collect();
+    entries.push(("type.toml", type_noun.to_owned()));
+    entries.push(("omega.toml", omega.to_owned()));
+    entries.push(("alias.toml", alias.to_owned()));
+    entries.push(("falsum.toml", falsum.to_owned()));
+    entries.push(("proposition.toml", proposition.to_owned()));
+    entries.push(("neq.toml", neq));
+    entries.push(("nil.toml", nil.to_owned()));
+    entries.push(("oplus.toml", oplus));
+    entries
+}
+
+/// The WS-F1 module: every theorem is accepted by conservative elaboration
+/// only when definitions are read through their values (a document type
+/// definition in a binder, a defined type noun against a polymorphic
+/// constant, a definition at a calculation endpoint), when negation is
+/// read as its function type, when an external predicate leaves the
+/// residual to Lean, and when the core arrow elaborates in math; every
+/// theorem verifies under pinned Lean 4.32.1.
+pub const F1_MODULE: &str = r"\begin{lexlean}{Main}
+\useglossary{lexlean.std.nat@1.0.0}
+\useglossary{test.f1@1.0.0}
+\title{Natural number addition}
+
+\begin{typedefinition}{count}{test.f1::count}
+\noaxioms
+A count is defined as \(ℕ\).
+\end{typedefinition}
+
+\begin{termdefinition}{double}{test.f1::double}
+\noaxioms
+For every natural number \(n\), \(double(n)\) is defined as \(n + n\).
+\end{termdefinition}
+
+\begin{typedefinition}{alias}{test.f1::alias}
+\noaxioms
+An alias is defined as \(omega\).
+\end{typedefinition}
+
+\begin{theorem}{add-zero}
+\noaxioms
+For every natural number \(n\), \(n + 0 = n\).
+\begin{proof}
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{count-add-zero}
+\noaxioms
+For every count \(c\), \(c + 0 = c\).
+\begin{proof}
+Close the goal by reflexivity.
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{not-intro}
+\noaxioms
+For every proposition \(p\), if if \(p\), then \(falsum\), then not \(p\).
+\begin{proof}
+Assume \(h\).
+Close the goal with \(h\).
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{list-nil}
+\noaxioms
+For every natural number list \(xs\), if \(xs = nil\), then \(nil = xs\).
+\begin{proof}
+Assume \(h\).
+\begin{rewrite}{goal}
+\forward{h}
+\end{rewrite}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{double-calc}
+\noaxioms
+For every natural number \(n\), \(double(n) + 0 = n + n\).
+\begin{proof}
+\begin{calculate}
+\start{n + n + 0}
+\step{lexlean.core::eq}{n + n}{\reference{Main::add-zero}(n + n)}
+\end{calculate}
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{apply-ne}
+\noaxioms
+For every natural number \(n\), if \(neq(succ(n), 0)\), then if \(succ(n) = 0\), then \(falsum\).
+\begin{proof}
+Assume \(h\).
+Assume \(e\).
+Apply \(h\).
+Close the goal with \(e\).
+\end{proof}
+\end{theorem}
+
+\begin{theorem}{arrow-or}
+\noaxioms
+For every proposition \(p\), \(p → p\) or \(p\).
+\begin{proof}
+Select the left alternative.
+Assume \(h\).
+Close the goal with \(h\).
+\end{proof}
+\end{theorem}
+\end{lexlean}
+";
+
+/// A project holding the WS-F1 module and its fixture package (relocked).
+#[must_use]
+pub fn f1_project() -> P {
+    let project = P::example();
+    let entries = f1_entries();
+    let entry_refs: Vec<(&str, &str)> = entries
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect();
+    project.add_package(
+        "lexicons/test-f1",
+        "test.f1",
+        &["lexlean.core@1.0.0", "lexlean.std.nat@1.0.0"],
+        &entry_refs,
+    );
+    project.write("src/Main.lex.tex", F1_MODULE);
+    project.relock();
+    project
+}
+
+/// The one shared Lean-verified run of the WS-F1 module.
+pub fn verified_f1() -> &'static VerifiedFixture {
+    static FIXTURE: OnceLock<VerifiedFixture> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let _guard = env_lock();
+        let project = f1_project();
+        let outcome = project
+            .engine()
+            .verify(VerifyRequest {
+                selection: Selection::Entrypoints,
+            })
+            .unwrap_or_else(|error| {
+                panic!("the WS-F1 module verifies under pinned Lean 4.32.1: {error:#?}")
+            });
+        let attestation: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(outcome.root.join("attestation.json").as_std_path())
+                .expect("attestation exists"),
+        )
+        .expect("attestation parses");
+        VerifiedFixture {
+            project,
+            outcome,
+            attestation,
+        }
+    })
+}
+
+/// The generated Lean lines of one declaration of `lean`: from its
+/// `theorem` or `def` line to the line before the next declaration or the
+/// closing `end`, without trailing blank lines.
+#[must_use]
+pub fn declaration_lean(lean: &str, lean_name: &str) -> String {
+    let lines: Vec<&str> = lean.lines().collect();
+    let start = lines
+        .iter()
+        .position(|line| {
+            line.starts_with(&format!("public theorem {lean_name} "))
+                || line.starts_with(&format!("@[expose] public def {lean_name} "))
+        })
+        .unwrap_or_else(|| panic!("`{lean_name}` in the generated Lean:\n{lean}"));
+    let end = lines[start + 1..]
+        .iter()
+        .position(|line| {
+            line.starts_with("public ")
+                || line.starts_with("@[expose] ")
+                || line.starts_with("end ")
+        })
+        .map_or(lines.len(), |offset| start + 1 + offset);
+    lines[start..end].join("\n").trim_end().to_owned()
+}
+
+/// Assert the WS-F1 module verified and that one declaration's generated
+/// Lean is exactly `expected`.
+pub fn f1_exact(lean_name: &str, expected: &str) {
+    let fixture = verified_f1();
+    assert_eq!(
+        fixture.attestation["status"], "verified",
+        "the WS-F1 attestation records success"
+    );
+    let lean = lean_text(&rendered(&fixture.project), "Main");
+    assert_eq!(
+        declaration_lean(&lean, lean_name),
+        expected,
+        "exact generated Lean for `{lean_name}`"
+    );
+}

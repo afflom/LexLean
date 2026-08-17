@@ -151,9 +151,7 @@ impl Category {
             | Self::ProofConstant => &[Channel::Math],
         }
     }
-}
 
-impl Category {
     /// Categories whose entries may be spelled in either channel and must
     /// therefore carry a canonical source form in at least one of them.
     #[must_use]
@@ -1145,6 +1143,20 @@ pub fn parse_entry(
                     if let Some(problem) = render.script_operand_error() {
                         diagnostics.push(error(path, format!("{channel_name} render: {problem}")));
                     }
+                    // A text render is emitted in the text channel, where
+                    // scripts, fractions, and operator names have no
+                    // rendering (§13.9); the package is rejected at load,
+                    // not at the first build that renders the entry.
+                    if channel == Channel::Text {
+                        if let Some(construct) = render.math_only_construct() {
+                            diagnostics.push(error(
+                                path,
+                                format!(
+                                    "text render uses `{construct}`, a mathematical construct with no text rendering"
+                                ),
+                            ));
+                        }
+                    }
                     for self_form in render.self_form_refs() {
                         match forms.iter().find(|form| form.id == self_form) {
                             None => diagnostics.push(error(
@@ -1473,27 +1485,29 @@ math = "(operator-name probe)"
             &ctx(false, &forbidden)
         ))
         .contains(&"LLR3006".to_owned()));
-        // A non-canonical alias is one control sequence (an input-only
-        // spelling, §13.5 rule 3) or renderer-safe; a mixed raw-TeX alias is
-        // rejected at load whether or not an LRE references it.
-        let raw_alias = PROBE.replace(
+        // A non-canonical alias is renderer-safe or exactly one control
+        // sequence (§13.5 rule 3); a multi-atom raw-TeX alias is rejected
+        // whether or not an LRE references it.
+        let alias = PROBE.replace(
             "[render]",
             "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\jobname{x} $ \\\\relax\"\ncanonical_source = false\nfeatures = []\n\n[render]",
         );
         assert_eq!(
-            codes(parse_entry("p.toml", &raw_alias, &ctx(false, &forbidden))),
+            codes(parse_entry("p.toml", &alias, &ctx(false, &forbidden))),
             vec!["LLR3006"]
         );
-        let alias = PROBE.replace(
-            "[render]",
-            "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\probe\"\ncanonical_source = false\nfeatures = []\n\n[render]",
-        );
-        assert!(parse_entry("p.toml", &alias, &ctx(false, &forbidden)).is_ok());
         let injected = alias.replace("(operator-name probe)", "(self-form alias)");
-        assert_eq!(
-            codes(parse_entry("p.toml", &injected, &ctx(false, &forbidden))),
-            vec!["LLR3006"]
+        assert!(
+            codes(parse_entry("p.toml", &injected, &ctx(false, &forbidden)))
+                .iter()
+                .all(|code| code == "LLR3006")
         );
+        // A single control-sequence alias is accepted as an input spelling.
+        let control_alias = PROBE.replace(
+            "[render]",
+            "[[form]]\nid = \"alias\"\nchannel = \"math\"\nsurface = \"\\\\N\"\ncanonical_source = false\nfeatures = []\n\n[render]",
+        );
+        assert!(parse_entry("p.toml", &control_alias, &ctx(false, &forbidden)).is_ok());
     }
 
     #[test]

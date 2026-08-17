@@ -15,7 +15,7 @@
 \end{center}
 \section{Structural recursion}
 \label{ll:main:recursion}
-\[\mathrm{Parameters}: \forall T \in \texttt{example.list::type}\]
+\[\mathrm{Parameters}: \forall T \in \text{type}\]
 \begin{lemma}
 \label{ll:main:nil-append}
 For every \(\operatorname{list}(T)\) \(xs\), \(\operatorname{nil} ++ xs = xs\).
@@ -46,17 +46,17 @@ The goal follows by reflexivity.
 \end{proof}
 \section{Concatenation}
 \label{ll:main:concatenation}
-\[\mathrm{Parameters}: \forall T \in \texttt{example.list::type}\]
+\[\mathrm{Parameters}: \forall T \in \text{type}\]
 \begin{theorem}
 \label{ll:main:append-nil}
 For every \(\operatorname{list}(T)\) \(xs\), \(xs ++ \operatorname{nil} = xs\).
 \end{theorem}
 \begin{proof}
 Proceed by induction on \(xs\).
-Case \(nil\):
+Case \(\operatorname{nil}\):
 The goal follows by reflexivity.
 Case \(\operatorname{cons}\) with \(x\), \(rest\), \(ih\):
-Rewrite the goal using \(\rightarrow \operatorname{cons_append}(T, x, rest, \operatorname{nil})\), \(\rightarrow ih\).
+Rewrite the goal using \(\rightarrow \texttt{Main::cons-append}(T, x, rest, \operatorname{nil})\), \(\rightarrow ih\).
 \end{proof}
 \begin{theorem}
 \label{ll:main:succ-add-doc}

@@ -44,7 +44,7 @@ For every natural number \(n\), \(n + 0 = n\) and \(0 + n = n\).
 Branch \(1\):
 The goal follows by reflexivity.
 Branch \(2\):
-The goal follows from \(\operatorname{zero_add}(n)\).
+The goal follows from \(\texttt{Addition::zero-add}(n)\).
 \end{proof}
 \section{Commutativity}
 \label{ll:addition:commutativity}
@@ -61,7 +61,7 @@ The goal follows from \(\operatorname{addcomm}(a, b)\).
 \(b + a = a + b\).
 \end{corollary}
 \begin{proof}
-The goal follows from \(\operatorname{eqsymm}(\operatorname{add_comm}(a, b))\).
+The goal follows from \(\operatorname{eqsymm}(\texttt{Addition::add-comm}(a, b))\).
 \end{proof}
 \section{Associativity}
 \label{ll:addition:associativity}
@@ -77,6 +77,6 @@ The goal follows from \(\operatorname{addassoc}(a, b, c)\).
 For every natural number \(a\) and natural number \(b\) and natural number \(c\), \(a + (b + c) = b + (a + c)\).
 \end{theorem}
 \begin{proof}
-Rewrite the goal using \(\leftarrow \operatorname{add_assoc}(a, b, c)\), \(\rightarrow \operatorname{add_comm}(a, b)\), \(\rightarrow \operatorname{add_assoc}(b, a, c)\).
+Rewrite the goal using \(\leftarrow \texttt{Addition::add-assoc}(a, b, c)\), \(\rightarrow \texttt{Addition::add-comm}(a, b)\), \(\rightarrow \texttt{Addition::add-assoc}(b, a, c)\).
 \end{proof}
 \end{document}

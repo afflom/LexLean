@@ -239,8 +239,10 @@ impl<'a> TextParser<'a> {
     /// glossary form, grammar keyword, or proof keyword can ever cover is
     /// reported as `LLL1004` at its own span, in preference to a generic
     /// no-parse failure.
-    #[must_use]
-    pub fn unknown_atom_diagnostic(&self) -> Option<Diagnostic> {
+    pub fn unknown_atom_diagnostic(
+        &self,
+        budget: &mut Budget,
+    ) -> Result<Option<Diagnostic>, Diagnostic> {
         let atom_indices: Vec<usize> = self
             .tokens
             .iter()
@@ -249,7 +251,9 @@ impl<'a> TextParser<'a> {
                 TextToken::Island { .. } => None,
             })
             .collect();
-        let range_start = *atom_indices.first()?;
+        let Some(range_start) = atom_indices.first().copied() else {
+            return Ok(None);
+        };
         for index in &atom_indices {
             let atom = &self.atoms[*index];
             match atom.class {
@@ -263,14 +267,25 @@ impl<'a> TextParser<'a> {
                 }
                 _ => {}
             }
-            let covered = (range_start..=*index).any(|start| {
-                self.closure
-                    .matches_at(self.atoms, start, Channel::Text, self.visible)
+            let mut covered = false;
+            for start in range_start..=*index {
+                let edges = budget.edges_at(
+                    self.closure,
+                    self.atoms,
+                    self.visible,
+                    start,
+                    Channel::Text,
+                )?;
+                if edges
                     .iter()
                     .any(|(_, end)| start <= *index && *index < *end)
-            });
+                {
+                    covered = true;
+                    break;
+                }
+            }
             if !covered {
-                return Some(
+                return Ok(Some(
                     Diagnostic::new(
                         code!("LLL1004"),
                         format!(
@@ -279,10 +294,10 @@ impl<'a> TextParser<'a> {
                         ),
                     )
                     .with_span(atom.span(self.path)),
-                );
+                ));
             }
         }
-        None
+        Ok(None)
     }
 
     fn word_at(&self, pos: usize) -> Option<(&'a str, usize)> {
@@ -353,11 +368,13 @@ impl<'a> TextParser<'a> {
             return Ok(Vec::new());
         };
         let mut out = Vec::new();
-        for (reference, atom_end) in
-            self.closure
-                .matches_at(self.atoms, *atom_index, Channel::Text, self.visible)
-        {
-            budget.edge()?;
+        for (reference, atom_end) in budget.edges_at(
+            self.closure,
+            self.atoms,
+            self.visible,
+            *atom_index,
+            Channel::Text,
+        )? {
             let Some((entry, _)) = self.closure.form(&reference) else {
                 continue;
             };
@@ -943,7 +960,7 @@ impl<'a> TextParser<'a> {
                 }
                 None => crate::diagnostic::Span::whole_file(self.path),
             };
-            if let Some(unknown) = self.unknown_atom_diagnostic() {
+            if let Some(unknown) = self.unknown_atom_diagnostic(budget)? {
                 return Err(unknown);
             }
             return Err(Diagnostic::new(

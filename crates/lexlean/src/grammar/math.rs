@@ -189,12 +189,15 @@ impl<'a> MathParser<'a> {
         if self.at >= self.end {
             return Ok(None);
         }
-        let matches = self
-            .closure
-            .matches_at(self.atoms, self.at, Channel::Math, self.visible);
+        let matches = budget.edges_at(
+            self.closure,
+            self.atoms,
+            self.visible,
+            self.at,
+            Channel::Math,
+        )?;
         let mut infix_like: Vec<(FormRef, usize, u16, Option<Associativity>, Frame)> = Vec::new();
         for (reference, match_end) in matches {
-            budget.edge()?;
             let Some((entry, _)) = self.closure.form(&reference) else {
                 continue;
             };
@@ -316,13 +319,16 @@ impl<'a> MathParser<'a> {
             }
             _ => {
                 // Prefix operator, glossary form, or composed identifier.
-                let matches =
-                    self.closure
-                        .matches_at(self.atoms, self.at, Channel::Math, self.visible);
+                let matches = budget.edges_at(
+                    self.closure,
+                    self.atoms,
+                    self.visible,
+                    self.at,
+                    Channel::Math,
+                )?;
                 let mut prefix: Vec<(FormRef, usize, u16)> = Vec::new();
                 let mut leaf: Vec<(FormRef, usize)> = Vec::new();
                 for (reference, match_end) in matches {
-                    budget.edge()?;
                     let Some((entry, _)) = self.closure.form(&reference) else {
                         continue;
                     };
@@ -600,8 +606,8 @@ pub fn parse_math(
             atom.class,
             AtomClass::Word | AtomClass::Numeral | AtomClass::Delimiter | AtomClass::Whitespace
         ) || atom.text == ","
-            || !closure
-                .matches_at(atoms, parser.at, Channel::Math, visible)
+            || !budget
+                .edges_at(closure, atoms, visible, parser.at, Channel::Math)?
                 .is_empty();
         if !bindable {
             return Err(Diagnostic::new(

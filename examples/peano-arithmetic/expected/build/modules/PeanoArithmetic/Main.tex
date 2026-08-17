@@ -21,7 +21,7 @@ For every natural number \(x\) and natural number \(y\), if \(x = y\), then \(x 
 \end{theorem}
 \begin{proof}
 Assume \(h\).
-The goal follows from \(\operatorname{add_comm}(x, y)\).
+The goal follows from \(\texttt{Addition::add-comm}(x, y)\).
 \end{proof}
 \begin{theorem}
 \label{ll:main:comm-rewrite}
@@ -58,7 +58,7 @@ The goal follows from \(\operatorname{eqsymm}(\operatorname{twomul}(k))\).
 For every natural number \(n\), \(n\) is even or not \(n\) is even.
 \end{theorem}
 \begin{proof}
-The goal follows from \(\operatorname{em}(\operatorname{even}(n))\).
+The goal follows from \(\operatorname{em}(\text{even}(n))\).
 \end{proof}
 \begin{theorem}
 \label{ll:main:positive-or-zero}
@@ -71,6 +71,6 @@ Select the right alternative.
 The goal follows by reflexivity.
 Case \(\operatorname{succ}\) with \(m\):
 Select the left alternative.
-The goal follows from \(\operatorname{successor_positive}(m)\).
+The goal follows from \(\texttt{Order::successor-positive}(m)\).
 \end{proof}
 \end{document}
