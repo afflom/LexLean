@@ -7,6 +7,12 @@
 examples/**/.lexlean/
 tests/**/.lexlean/
 
+# The assembled release artifact set (§30.3). `cargo xtask release-artifacts`
+# derives it, the release workflow attaches it, and it is output, never source:
+# committing it would put a second copy of SPEC.md and the licenses in the tree
+# and make `cargo package` read a dirty working directory.
+/release/
+
 # Editor and OS noise.
 .DS_Store
 *.swp

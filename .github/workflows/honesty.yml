@@ -14,20 +14,30 @@ name: honesty
 on:
   push: { branches: [main] }
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: honesty-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   honesty:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.97.1
-          components: rustfmt, clippy
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
         with:
           tool: just
       # The model is the single source; the §31 table and the register are
       # bijective; every registered ID has one scenario and one named test.
       - run: just model spec-links
-      - run: cargo test -p repo-conformance --test bdd
+      - run: cargo test --locked -p repo-conformance --test bdd

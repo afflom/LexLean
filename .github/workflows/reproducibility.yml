@@ -1,26 +1,41 @@
 # R10, AR-13: two clean builds in distinct absolute directories are
 # byte-identical for every platform-independent artifact (SPEC.md §9.4, §28.4).
 # No build cache: the gate runs from a clean checkout.
+#
+# `build` never runs Lean (§22 belongs to `verify`), so this job installs no
+# Lean toolchain.
 name: reproducibility
 
 on:
   push: { branches: [main] }
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reproducibility-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   repro:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.97.1
-          components: rustfmt, clippy
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
         with:
           tool: just
-      # The gate copies each example project into two distinct absolute
-      # directories, runs a clean `build` in each, and compares the entire
-      # platform-independent artifact set byte-for-byte after the required
-      # path normalization.
+      # The gate builds each example project twice, in two distinct absolute
+      # directories, and compares the published file set and every file's
+      # bytes directly. §9.4 allows a path normalization before the
+      # comparison; none is applied, because a published artifact contains no
+      # absolute path at all — the stronger property, and the one that would
+      # break first if it stopped holding.
       - run: just repro

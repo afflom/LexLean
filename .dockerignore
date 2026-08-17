@@ -1,0 +1,10 @@
+# The build context is the repository's inputs, never its outputs.
+#
+# `target/` alone is tens of gigabytes and would be copied into the build
+# context on every image build; the `.lexlean/` build roots are live output
+# that the committed `expected/` oracles already stand for (§28.3).
+/target/
+**/target/
+**/.lexlean/
+/release/
+/.git/

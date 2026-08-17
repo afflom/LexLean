@@ -1,0 +1,334 @@
+# The release: a tag becomes evidence, a package, and a set of binaries.
+#
+# SPEC.md §30.3 fixes what a release publishes and §30.4 when the project is
+# complete; §2.3 fixes `1.0.0` as the first version satisfying the complete
+# specification. This workflow produces the whole §30.3 artifact set at
+# whatever version is tagged and then runs `cargo xtask release-check` over it,
+# so the release either meets every criterion or says exactly which it does
+# not. Before `1.0.0` the two version-bound criteria cannot hold, and the job
+# below allows those two and no others — at `1.0.0` the allowance is vacuous
+# because `release-check` exits zero.
+#
+# GitHub Packages has no Cargo registry, so the package this publishes there is
+# the container image: `ghcr.io/<owner>/lexlean`, carrying the compiler and the
+# pinned Lean toolchain its `verify` command needs. The host binaries, the
+# packaged crate, the software bill of materials, the checksums, and the gate
+# evidence are attached to the GitHub Release.
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The tag names a version; the repository fixes one. A release whose tag and
+  # workspace version disagree is not a release of this source (§2.3).
+  identity:
+    name: tag identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      image: ${{ steps.version.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tagged="${GITHUB_REF_NAME#v}"
+            if [ "$tagged" != "$workspace" ]; then
+              echo "::error::tag ${GITHUB_REF_NAME} names $tagged; Cargo.toml fixes $workspace (SPEC.md §2.3)"
+              exit 1
+            fi
+          fi
+          echo "version=$workspace" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER@L}/lexlean" >> "$GITHUB_OUTPUT"
+          echo "lexlean $workspace"
+
+  # §30.3 CI evidence: the normative acceptance gate on the normative host,
+  # from a clean checkout, naming the tagged commit.
+  gate:
+    name: just vv (release evidence)
+    needs: identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
+        with:
+          tool: just,cargo-deny
+      - name: Install elan and the pinned Lean toolchain
+        run: |
+          set -euo pipefail
+          curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          "$HOME/.elan/bin/elan" toolchain install "$(cat lean-toolchain)"
+      - name: just vv
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          {
+            echo "repository ${GITHUB_REPOSITORY}"
+            echo "commit ${GITHUB_SHA}"
+            echo "ref ${GITHUB_REF}"
+            echo "run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "host $(uname -srm)"
+            echo "rustc $(rustc --version)"
+            echo "lean $(lean --version)"
+            echo
+          } > release/vv-evidence.txt
+          just vv 2>&1 | tee -a release/vv-evidence.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vv-evidence
+          path: release/vv-evidence.txt
+          if-no-files-found: error
+
+  # §8.3: one binary per supported host, each built natively on that host.
+  binaries:
+    name: binary (${{ matrix.target }})
+    needs: identity
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: macos-15-intel, target: x86_64-apple-darwin }
+          - { os: macos-15, target: aarch64-apple-darwin }
+          - { os: windows-2022, target: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - name: The runner is the host this binary claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [ "$host" != "${{ matrix.target }}" ]; then
+            echo "::error::${{ matrix.os }} is $host, not ${{ matrix.target }} (SPEC.md §8.3)"
+            exit 1
+          fi
+      - run: cargo build --locked --release -p lexlean
+      # A release binary that cannot report its own identity is not one
+      # (§30.3): the four lines are checked here, on the host that built it.
+      - name: The binary reports its four-line identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/release/lexlean"
+          [ -f "$binary" ] || binary="target/release/lexlean.exe"
+          "$binary" --version | tee identity.txt
+          lines="$(wc -l < identity.txt)"
+          if [ "$lines" -ne 4 ]; then
+            echo "::error::--version printed $lines lines, not the four of §30.3"
+            exit 1
+          fi
+          mkdir -p "staged/bin/${{ matrix.target }}"
+          cp "$binary" "staged/bin/${{ matrix.target }}/"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bin-${{ matrix.target }}
+          path: staged/bin/${{ matrix.target }}/*
+          if-no-files-found: error
+
+  # The GitHub Packages artifact: one image per architecture, built natively,
+  # joined into a single multi-architecture tag below.
+  image:
+    name: image (${{ matrix.platform }})
+    needs: identity
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, platform: amd64 }
+          - { os: ubuntu-24.04-arm, platform: arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Sign in to GitHub Packages
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and push the per-architecture image
+        env:
+          IMAGE: ${{ needs.identity.outputs.image }}
+          VERSION: ${{ needs.identity.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="${IMAGE}:${VERSION}-${{ matrix.platform }}"
+          docker build \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --tag "$tag" .
+          # The image reports the same identity as the binaries above.
+          docker run --rm "$tag" --version
+          docker push "$tag"
+
+  # One multi-architecture tag, so `docker pull ghcr.io/<owner>/lexlean:<v>`
+  # resolves on either supported Linux host.
+  manifest:
+    name: multi-architecture tag
+    needs: [identity, image]
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - name: Sign in to GitHub Packages
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - id: push
+        env:
+          IMAGE: ${{ needs.identity.outputs.image }}
+          VERSION: ${{ needs.identity.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${VERSION}" \
+            --tag "${IMAGE}:latest" \
+            "${IMAGE}:${VERSION}-amd64" "${IMAGE}:${VERSION}-arm64"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{.Manifest.Digest}}')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "${IMAGE}:${VERSION}@${digest}"
+
+  # Assemble the §30.3 artifact set, read the release criterion over it, and
+  # publish. This is the only job that writes to the repository.
+  publish:
+    name: publish the release
+    needs: [identity, gate, binaries, manifest]
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - name: Install the bill-of-materials generator
+        run: cargo install cargo-cyclonedx --locked
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: downloaded
+      - name: Stage what the fleet produced
+        run: |
+          set -euo pipefail
+          mkdir -p release/bin
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+                        x86_64-apple-darwin aarch64-apple-darwin \
+                        x86_64-pc-windows-msvc; do
+            mkdir -p "release/bin/$target"
+            cp "downloaded/bin-$target/"* "release/bin/$target/"
+            chmod +x "release/bin/$target/"* || true
+          done
+          cp downloaded/vv-evidence/vv-evidence.txt release/vv-evidence.txt
+      - name: Generate the software bill of materials
+        run: |
+          set -euo pipefail
+          cargo cyclonedx --format json --spec-version 1.5 -a
+          cp crates/lexlean/lexlean.cdx.json release/sbom.json
+          rm -f crates/lexlean/lexlean.cdx.json crates/*/*.cdx.json ./*.cdx.json
+      - name: Derive the rest of the §30.3 artifact set
+        run: cargo xtask release-artifacts
+      - name: Read the release criterion over the assembled set
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `release-check` refuses until every §30.3 artifact and §30.4
+          # criterion holds. §2.3 fixes `1.0.0` as the first version that can
+          # satisfy the version criteria, so before then `source-tag` and
+          # `version-output` are expected to be unmet and nothing else is. At
+          # `1.0.0` the command exits zero and this allowance is vacuous.
+          set +e
+          cargo xtask release-check > release/release-check.txt 2>&1
+          status=$?
+          set -e
+          cat release/release-check.txt
+          if [ "$status" -eq 0 ]; then
+            echo "release-check: the complete §30 criterion holds"
+            exit 0
+          fi
+          unexpected="$(grep -oE '^  [a-z-]+:' release/release-check.txt \
+            | tr -d ' :' | sort -u | grep -vxE 'source-tag|version-output' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::criteria unmet for reasons §2.3 does not explain: $unexpected"
+            exit 1
+          fi
+          echo "the only unmet criteria are the version-bound ones §2.3 defers to 1.0.0"
+      - name: Re-checksum after the criterion report
+        run: cargo xtask release-artifacts
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ needs.identity.outputs.image }}
+          VERSION: ${{ needs.identity.outputs.version }}
+          DIGEST: ${{ needs.manifest.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          semantics="$(cat release/compiler-semantics-id.txt)"
+          {
+            echo "## lexlean ${VERSION}"
+            echo
+            echo '```text'
+            cat release/version-output.txt
+            echo '```'
+            echo
+            echo "Container image (GitHub Packages):"
+            echo
+            echo '```text'
+            echo "docker pull ${IMAGE}:${VERSION}@${DIGEST}"
+            echo '```'
+            echo
+            echo "The image carries the compiler and \`leanprover/lean4:v$(sed 's|.*:v||' lean-toolchain)\`, so \`lexlean verify\` runs in it."
+            echo
+            echo "Assets: one binary per supported host (SPEC.md §8.3), the packaged crate,"
+            echo "\`checksums.txt\` over every other asset, a CycloneDX bill of materials, the"
+            echo "\`just vv\` evidence for this commit, and the release-criterion report."
+            echo
+            echo "\`release-check.txt\` records what SPEC.md §30 still refuses at this version:"
+            echo "§2.3 fixes \`1.0.0\` as the first release satisfying the complete specification,"
+            echo "so a \`${VERSION}\` tag does not claim it. See CHANGELOG.md."
+          } > notes.md
+          tar -czf "release/lexlean-${VERSION}-binaries.tar.gz" -C release bin
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "lexlean ${VERSION}" \
+            --notes-file notes.md \
+            --verify-tag \
+            release/checksums.txt \
+            release/lexlean.crate \
+            release/sbom.json \
+            release/vv-evidence.txt \
+            release/release-check.txt \
+            release/version-output.txt \
+            release/compiler-semantics-id.txt \
+            release/CONFORMANCE.md \
+            release/ERRORS.md \
+            release/SPEC.md \
+            release/LICENSE-APACHE \
+            release/LICENSE-MIT \
+            "release/lexlean-${VERSION}-binaries.tar.gz"
+          echo "published ${GITHUB_REF_NAME} (compiler-semantics ${semantics})"

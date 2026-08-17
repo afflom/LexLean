@@ -1,16 +1,34 @@
-# The normative acceptance gate (SPEC.md §9.4).
+# The normative acceptance gate (SPEC.md §9.4) and the supported-host gate
+# (§8.3).
 #
 # `just vv` is the single gate, run from a clean checkout on Linux x86-64 with
 # the exact pinned toolchains and no build cache: §9.4 says "from a clean
 # checkout", and a restored target directory is not one. `honesty` is split
 # out so a claim that has drifted from its evidence reads differently from
 # broken code.
+#
+# Every version this file needs is read from the file that pins it —
+# `rust-toolchain.toml` through `rustup toolchain install`, `lean-toolchain`
+# through `elan toolchain install` — so the workflow cannot drift from the
+# repository's own pins. Third-party actions are pinned by commit, with the
+# release they belong to named alongside: a floating tag is a dependency
+# whose contents may change after review, which R6 does not allow for the
+# code in the crate and should not allow for the code that gates it.
 name: ci
 
 on:
   push: { branches: [main] }
   pull_request:
   workflow_dispatch:
+
+# Read-only: nothing in this workflow writes to the repository, publishes a
+# package, or mints an artifact. `release.yml` asks for what it needs there.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,39 +37,57 @@ jobs:
   vv:
     name: just vv
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.97.1
-          components: rustfmt, clippy
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
         with:
           tool: just,cargo-deny
       - name: Install elan and the pinned Lean toolchain
         run: |
+          set -euo pipefail
           curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-          "$HOME/.elan/bin/elan" toolchain install leanprover/lean4:v4.32.1
+          "$HOME/.elan/bin/elan" toolchain install "$(cat lean-toolchain)"
       - run: just vv
 
   # §8.3: the crate builds and its non-Lean tests pass on every supported
-  # host. Lean-backed conformance cases detect the host gate at run time
-  # (repo_conformance::support::lean_backed): without the pinned toolchain
-  # on a non-normative host they run only their platform-independent
-  # assertions and say so; on Linux x86-64 the toolchain is mandatory.
+  # host. This job installs no Lean toolchain on purpose — that is the
+  # property under test. A case whose assertions need the pinned toolchain
+  # goes through `repo_conformance::support::lean_backed`, which on a
+  # non-normative host runs the case's platform-independent assertions and
+  # reports which ones it skipped; on Linux x86-64 the same gate makes the
+  # toolchain mandatory, so nothing passes vacuously where it matters.
   host-matrix:
-    name: build and non-Lean tests (${{ matrix.os }})
+    name: build and non-Lean tests (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04-arm, macos-13, macos-14, windows-2022]
+        include:
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: macos-15-intel, target: x86_64-apple-darwin }
+          - { os: macos-15, target: aarch64-apple-darwin }
+          - { os: windows-2022, target: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.97.1
-          components: rustfmt, clippy
-      - run: cargo build --workspace --all-features
-      - run: cargo test --workspace --all-features
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      # The image label and the host triple are separate facts. A runner
+      # image that changed architecture underneath the label would otherwise
+      # leave one of the five §8.3 hosts silently untested.
+      - name: The runner is the host this leg claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [ "$host" != "${{ matrix.target }}" ]; then
+            echo "::error::${{ matrix.os }} is $host, not ${{ matrix.target }} (SPEC.md §8.3)"
+            exit 1
+          fi
+          echo "$host"
+      - run: cargo build --locked --workspace --all-features
+      - run: cargo test --locked --workspace --all-features

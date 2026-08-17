@@ -31,6 +31,7 @@ fn main() -> ExitCode {
         "check-golden" => check_golden(&root, write),
         "check-reproducibility" => check_reproducibility(&root),
         "check-fixtures" => check_fixtures(&root, write),
+        "release-artifacts" => release_artifacts(&root),
         "release-check" => release_check(&root),
         "validate" => codegen::check_model(&root, false).and_then(|()| spec_links::validate(&root)),
         _ => {
@@ -44,6 +45,7 @@ fn main() -> ExitCode {
                  check-golden            §28.3: build outputs equal the committed oracles\n\
                  check-reproducibility   §28.4: two clean builds in distinct paths are byte-identical\n\
                  check-fixtures          §28.2: every fixture's CLI run equals its expected/ files\n\
+                 release-artifacts       §30.3: derive the release/ artifact set from the repository\n\
                  release-check           RP-12: refuse release until §30.3/§30.4 are fully satisfied\n\
                  validate                validate-model then validate-spec-links\n\
                  \n\
@@ -424,6 +426,157 @@ fn check_reproducibility(root: &Path) -> Result<(), Fail> {
             files_a.len(),
             temp_a.path().display(),
             temp_b.path().display()
+        );
+    }
+    Ok(())
+}
+
+/// The workspace version, from the single place §2.3 fixes it.
+fn workspace_version(root: &Path) -> Result<String, Fail> {
+    let text = std::fs::read_to_string(root.join("Cargo.toml"))?;
+    let manifest: toml::Value = text.parse()?;
+    manifest
+        .get("workspace")
+        .and_then(|workspace| workspace.get("package"))
+        .and_then(|package| package.get("version"))
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| "Cargo.toml has no [workspace.package] version (§2.3)".into())
+}
+
+/// §30.3: assemble the publishable release artifact set under `release/`.
+///
+/// A build fleet stages what only it can produce — one binary per supported
+/// host under `release/bin/<target>/`, the software bill of materials as
+/// `release/sbom.json`, and the evidence that `just vv` passed on the tagged
+/// commit as `release/vv-evidence.txt` — and this task derives everything
+/// else from the repository itself: the packaged crate, the
+/// compiler-semantics ID, the exact four-line `--version` output, the
+/// documents §30.3 names, and the checksum manifest over all of them.
+///
+/// Assembling is not releasing. `release-check` reads what this produced and
+/// refuses while any §30.3 artifact or §30.4 criterion is unmet, naming each
+/// one; §2.3 fixes the first release satisfying the complete specification at
+/// `1.0.0`, so before then the version criteria cannot hold and the refusal
+/// is the honest answer rather than a failure to be worked around.
+fn release_artifacts(root: &Path) -> Result<(), Fail> {
+    let version = workspace_version(root)?;
+    let release = root.join("release");
+    std::fs::create_dir_all(&release)?;
+
+    // The four-line identity, from the binary this repository builds (§30.3).
+    let utf8_root = utf8(root)?;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let exit = lexlean::cli::run(
+        &["lexlean".to_owned(), "--version".to_owned()],
+        &utf8_root,
+        &mut stdout,
+        &mut stderr,
+    );
+    if exit != 0 {
+        return Err(format!(
+            "`lexlean --version` exited {exit}: {}",
+            String::from_utf8_lossy(&stderr)
+        )
+        .into());
+    }
+    let version_output = String::from_utf8(stdout)?;
+    std::fs::write(
+        release.join("version-output.txt"),
+        version_output.as_bytes(),
+    )?;
+    let semantics = version_output
+        .lines()
+        .find_map(|line| line.strip_prefix("compiler-semantics "))
+        .ok_or("`lexlean --version` prints no compiler-semantics line (§30.3)")?;
+    std::fs::write(
+        release.join("compiler-semantics-id.txt"),
+        format!("{semantics}\n"),
+    )?;
+
+    // The packaged crate, built by cargo from a clean tree: a release
+    // artifact assembled from uncommitted bytes is not the tagged source.
+    let status = std::process::Command::new(std::env::var("CARGO").unwrap_or("cargo".to_owned()))
+        .args(["package", "--locked", "-p", "lexlean"])
+        .current_dir(root)
+        .status()?;
+    if !status.success() {
+        return Err(format!("`cargo package -p lexlean` failed: {status}").into());
+    }
+    let packaged = root
+        .join("target")
+        .join("package")
+        .join(format!("lexlean-{version}.crate"));
+    std::fs::copy(&packaged, release.join("lexlean.crate"))
+        .map_err(|io_error| format!("{}: {io_error}", packaged.display()))?;
+
+    // The documents §30.3 publishes alongside the binaries.
+    for name in [
+        "SPEC.md",
+        "CONFORMANCE.md",
+        "ERRORS.md",
+        "LICENSE-APACHE",
+        "LICENSE-MIT",
+    ] {
+        std::fs::copy(root.join(name), release.join(name))
+            .map_err(|io_error| format!("{name}: {io_error}"))?;
+    }
+
+    // The checksum manifest over everything else under release/, in the
+    // sorted project-relative order the criterion reads back.
+    let checksums_path = release.join("checksums.txt");
+    let _ = std::fs::remove_file(&checksums_path);
+    let mut rows: Vec<String> = Vec::new();
+    for entry in walkdir::WalkDir::new(&release)
+        .sort_by_file_name()
+        .into_iter()
+        .flatten()
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let relative = entry
+            .path()
+            .strip_prefix(&release)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let bytes = std::fs::read(entry.path())?;
+        rows.push(format!(
+            "{}  {relative}",
+            lexlean::artifact::content_id::Sha256Digest::of(&bytes).to_hex()
+        ));
+    }
+    rows.sort();
+    std::fs::write(&checksums_path, format!("{}\n", rows.join("\n")))?;
+
+    // Say what a fleet still has to stage, rather than leaving a silent gap.
+    let mut missing: Vec<String> = Vec::new();
+    for target in repo_model::release::HOST_TARGETS {
+        let name = if target.contains("windows") {
+            "lexlean.exe"
+        } else {
+            "lexlean"
+        };
+        if !release.join("bin").join(target).join(name).is_file() {
+            missing.push(format!("release/bin/{target}/{name}"));
+        }
+    }
+    for staged in ["sbom.json", "vv-evidence.txt"] {
+        if !release.join(staged).is_file() {
+            missing.push(format!("release/{staged}"));
+        }
+    }
+    println!(
+        "release-artifacts: {} files under release/ for lexlean {version} (compiler-semantics {semantics})",
+        rows.len()
+    );
+    if missing.is_empty() {
+        println!("release-artifacts: every §30.3 artifact is present");
+    } else {
+        println!(
+            "release-artifacts: not staged by a build fleet, so absent here:\n  {}",
+            missing.join("\n  ")
         );
     }
     Ok(())

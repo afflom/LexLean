@@ -48,6 +48,11 @@ fn gather(root: &Path, dirs: &[&str], extensions: &[&str], out: &mut Vec<PathBuf
 /// (SPEC.md §7): the audits read them too, so a deferral cannot park in
 /// a manifest, a lint configuration, the Justfile, the container, or a
 /// workflow.
+///
+/// §7 admits an additional file only when it has a defined role *and* the
+/// repository audits include it, so every root file this repository adds
+/// beyond the §7 tree is named here. A file added without its line would be
+/// the one place in the tree a deferral could sit unread.
 fn root_tooling(root: &Path, out: &mut Vec<PathBuf>) {
     for name in [
         "Cargo.toml",
@@ -58,6 +63,9 @@ fn root_tooling(root: &Path, out: &mut Vec<PathBuf>) {
         "lean-toolchain",
         "Justfile",
         ".gitignore",
+        ".gitattributes",
+        ".dockerignore",
+        "Dockerfile",
         ".cargo/config.toml",
         ".devcontainer/devcontainer.json",
     ] {
@@ -411,6 +419,8 @@ pub fn audit_shipped(root: &Path) -> Result<(), Fail> {
         ("crates/lexlean/schemas", "schemas"),
         ("crates/lexlean/tests/golden", "tests/golden"),
         ("crates/lexlean/model/errors.toml", "model/errors.toml"),
+        ("crates/lexlean/LICENSE-APACHE", "LICENSE-APACHE"),
+        ("crates/lexlean/LICENSE-MIT", "LICENSE-MIT"),
     ] {
         let link_path = root.join(link);
         let resolved = std::fs::canonicalize(&link_path).map_err(|error| {

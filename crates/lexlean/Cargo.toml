@@ -1,6 +1,11 @@
 [package]
 name = "lexlean"
 description = "A closed-lexicon LaTeX-to-Lean 4 compiler whose canonical document and prose-free Lean program are generated from one semantic representation."
+# The document a consumer of the packaged crate reads first, and the two
+# licence texts §2.4 requires, reached through the same in-crate link
+# mechanism as the normative language data: one copy at the repository root,
+# dereferenced by `cargo package` into the archive.
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -21,7 +26,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
-thiserror = { workspace = true }
 toml = { workspace = true }
 unicode-normalization = { workspace = true }
 walkdir = { workspace = true }
