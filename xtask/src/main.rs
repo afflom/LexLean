@@ -101,7 +101,14 @@ fn verify_examples(root: &Path, write: bool) -> Result<(), Fail> {
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        let engine = engine_for(&dir)?;
+        // Every example runs from a clean copy (§28.6): no build directory
+        // from an earlier compiler can be reused or refused, and the
+        // repository tree stays free of generated output.
+        let scratch = tempfile::Builder::new()
+            .prefix("lexlean-example-")
+            .tempdir()?;
+        copy_example(&dir, scratch.path())?;
+        let engine = engine_for(scratch.path())?;
         engine
             .format(lexlean::FormatRequest {
                 selection: lexlean::Selection::Entrypoints,
@@ -154,10 +161,10 @@ fn verify_examples(root: &Path, write: bool) -> Result<(), Fail> {
             continue;
         }
         if !expected_root.is_dir() {
-            println!(
-                "verify-examples: {name} commits no expected/verify; run `cargo xtask verify-examples --write` to record the normalized verification records (§29.5)"
-            );
-            continue;
+            return Err(format!(
+                "R9: {name} commits no expected/verify; every example carries its normalized verification records (§29.5) — run `cargo xtask verify-examples --write` and review the diff"
+            )
+            .into());
         }
         compare_tree(&name, "expected/verify", &expected_root, &records)?;
         println!(
