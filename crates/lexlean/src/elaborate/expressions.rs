@@ -1067,7 +1067,17 @@ fn global_for(shared: &Shared<'_>, id: &QualifiedId, entry: &Entry) -> Result<Gl
     Ok(match &entry.denotation {
         Denotation::Core { constructor } => {
             let core = CoreRef::from_constructor(constructor).ok_or_else(|| {
-                format!("core constructor `{constructor}` has no term denotation")
+                if constructor == crate::ir::term::ARROW_CONSTRUCTOR {
+                    // The implication arrow is a function type, not a
+                    // constant (§15.6: `if P, then Q` is an implication;
+                    // §18.4 lowers connectives to constants and leaves this
+                    // one a `Pi`). It applies only through its infix form.
+                    format!(
+                        "`{id}` is the implication arrow: an implication is a function type, so it has no constant to apply; write the operator (`p → q`) or the sentence form (`if p, then q`)"
+                    )
+                } else {
+                    format!("core constructor `{constructor}` has no term denotation")
+                }
             })?;
             GlobalRef::Core(core)
         }
