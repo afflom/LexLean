@@ -25,8 +25,24 @@
 //!   the branch's own sentences; the words are core glossary entries.
 //! - **Sorts** render as `\mathrm{Prop}` / `\mathrm{Type}` through the
 //!   registered `sort-prop` / `sort-type` tokens.
+//! - **Text frames** (§13.4, §19.4) render as canonical prose wherever a
+//!   proposition or term is prose: `ARG_0 is SELF`, `ARG_0 SELF`,
+//!   `ARG_0 SELF ARG_1`, `the SELF of ARG_0`, and `the SELF of ARG_0 and
+//!   ARG_1`, from the entry's canonical text form and the core words `is`,
+//!   `the`, `of`, and `and`; an entry's `[render] text` template replaces
+//!   the fixed pattern. Noun-phrase arguments nest as prose, every other
+//!   argument is a math island. A document declaration is named through
+//!   the unique visible entry denoting it. A sentence-initial noun phrase
+//!   takes the sentence-case `The`, like every other sentence-initial core
+//!   word.
+//! - **Phrase punctuation** (§15.3) is spaced as canonical source spells
+//!   it: no space before `:` or `)`, none after `(`, and a tight hyphen.
+//! - **Case labels** name the constructor by its canonical text form when
+//!   it has one; otherwise its canonical math surface as an island, as
+//!   `\operatorname{...}` when the constructor takes surface arguments (its
+//!   LRE head is an operator name) and plain when it is an atom.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::artifact::source_map::MapRole;
 use crate::backend::{EmitSource, Emitter};
@@ -36,7 +52,7 @@ use crate::ir::declaration::{DeclBody, DeclKind, Declaration};
 use crate::ir::document::{Block, DocumentModule, Phrase, PhraseItem};
 use crate::ir::proof::{Proof, RewriteTarget};
 use crate::ir::term::{Binder, CoreRef, GlobalRef, LocalId, Term};
-use crate::lexicon::entry::{Channel, Entry};
+use crate::lexicon::entry::{Channel, Denotation, Entry, Frame};
 use crate::lexicon::lre::Render;
 use crate::lexicon::lse::QualifiedId;
 use crate::lexicon::resolve::Closure;
@@ -48,6 +64,42 @@ struct Ctx<'a> {
     closure: &'a Closure,
     /// Display spellings by local identity.
     spellings: BTreeMap<LocalId, String>,
+    /// The visible glossary entry whose document denotation names each
+    /// `(module, component)`, when exactly one visible entry does (§15.7:
+    /// a document declaration is named in prose through that entry).
+    document_entries: BTreeMap<(String, String), Option<QualifiedId>>,
+}
+
+impl<'a> Ctx<'a> {
+    fn new(
+        closure: &'a Closure,
+        visible: &BTreeSet<String>,
+        spellings: BTreeMap<LocalId, String>,
+    ) -> Self {
+        let mut document_entries: BTreeMap<(String, String), Option<QualifiedId>> = BTreeMap::new();
+        for package in &closure.packages {
+            if !visible.contains(&package.id) {
+                continue;
+            }
+            for (entry_id, entry) in &package.entries {
+                if let Denotation::Document { module, component } = &entry.denotation {
+                    let qualified = QualifiedId {
+                        package: package.id.clone(),
+                        entry: entry_id.clone(),
+                    };
+                    document_entries
+                        .entry((module.clone(), component.clone()))
+                        .and_modify(|slot| *slot = None)
+                        .or_insert(Some(qualified));
+                }
+            }
+        }
+        Self {
+            closure,
+            spellings,
+            document_entries,
+        }
+    }
 }
 
 /// A LaTeX token sink bound to one origin context.
@@ -274,11 +326,11 @@ impl Sink<'_, '_> {
     }
 }
 
-/// The canonical math entry for a global, for LRE-driven rendering.
-fn entry_for_global<'c>(
-    closure: &'c Closure,
-    global: &GlobalRef,
-) -> Option<(QualifiedId, &'c Entry)> {
+/// The glossary entry for a global, for LRE-driven rendering: core
+/// constructors and lexicon entries by identity, document declarations
+/// through the unique visible entry denoting them.
+fn entry_for_global<'c>(ctx: &Ctx<'c>, global: &GlobalRef) -> Option<(QualifiedId, &'c Entry)> {
+    let closure = ctx.closure;
     let qualified = match global {
         GlobalRef::Core(core) => QualifiedId {
             package: "lexlean.core".to_owned(),
@@ -294,7 +346,11 @@ fn entry_for_global<'c>(
         },
         GlobalRef::External(external) => QualifiedId::parse(&external.entry).ok()?,
         GlobalRef::DefinedLexicon(defined) => QualifiedId::parse(&defined.entry).ok()?,
-        GlobalRef::Document(_) => return None,
+        GlobalRef::Document(document) => ctx
+            .document_entries
+            .get(&(document.module.clone(), document.component.clone()))
+            .cloned()
+            .flatten()?,
     };
     let entry = closure.entry(&qualified)?;
     Some((qualified, entry))
@@ -302,10 +358,10 @@ fn entry_for_global<'c>(
 
 /// The top-level operator precedence of a term for parenthesization, 255
 /// for atoms.
-fn term_prec(closure: &Closure, term: &Term) -> u8 {
+fn term_prec(ctx: &Ctx<'_>, term: &Term) -> u8 {
     match term {
         Term::App { function, .. } => match &**function {
-            Term::Global(global, _) => entry_for_global(closure, global)
+            Term::Global(global, _) => entry_for_global(ctx, global)
                 .and_then(|(_, entry)| entry.precedence)
                 .unwrap_or(255),
             _ => 255,
@@ -317,8 +373,8 @@ fn term_prec(closure: &Closure, term: &Term) -> u8 {
 
 #[allow(clippy::too_many_lines)]
 fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), Diagnostic> {
-    let closure = sink.ctx.closure;
-    let own_prec = term_prec(closure, term);
+    let ctx = sink.ctx;
+    let own_prec = term_prec(ctx, term);
     let needs_parens = own_prec < min_prec;
     if needs_parens {
         sink.tok("left-paren")?;
@@ -335,7 +391,7 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
             })?;
             sink.brace(false);
         }
-        Term::Global(global, _) => match entry_for_global(closure, global) {
+        Term::Global(global, _) => match entry_for_global(ctx, global) {
             Some((qualified, entry)) => {
                 if let Some(render) = entry.render_math.clone() {
                     if entry.surface_arity == 0 {
@@ -380,7 +436,7 @@ fn math_term(sink: &mut Sink<'_, '_>, term: &Term, min_prec: u8) -> Result<(), D
                         math_term(sink, &explicit_args[0], 255)?;
                     }
                 }
-                _ => match entry_for_global(closure, global) {
+                _ => match entry_for_global(ctx, global) {
                     Some((qualified, entry))
                         if entry.render_math.is_some()
                             && entry.surface_arity as usize == explicit_args.len() =>
@@ -676,6 +732,221 @@ fn island(sink: &mut Sink<'_, '_>, term: &Term, display: bool) -> Result<(), Dia
     Ok(())
 }
 
+/// The canonical text form ID of an entry, when it has one.
+fn text_form_id(entry: &Entry) -> Option<String> {
+    entry
+        .forms
+        .iter()
+        .find(|form| form.canonical_source && form.channel.covers(Channel::Text))
+        .map(|form| form.id.clone())
+}
+
+/// A text-frame application (§13.4): the entry, its qualified ID, and the
+/// explicit arguments, when `term` applies (or is) an entry whose frame is
+/// one of `frames`, whose surface arity matches, and which has a canonical
+/// text form.
+fn text_frame_of<'c, 't>(
+    ctx: &Ctx<'c>,
+    term: &'t Term,
+    frames: &[Frame],
+) -> Option<(QualifiedId, &'c Entry, &'t [Term])> {
+    let (function, args): (&Term, &[Term]) = match term {
+        Term::App {
+            function,
+            explicit_args,
+            ..
+        } => (function, explicit_args),
+        other => (other, &[]),
+    };
+    let Term::Global(global, _) = function else {
+        return None;
+    };
+    let (qualified, entry) = entry_for_global(ctx, global)?;
+    if !frames.contains(&entry.frame) || entry.surface_arity as usize != args.len() {
+        return None;
+    }
+    text_form_id(entry)?;
+    Some((qualified, entry, args))
+}
+
+/// The `i`th explicit argument of a text frame; the arity was matched
+/// before the frame was selected, so a miss is an internal invariant
+/// failure.
+fn frame_arg(args: &[Term], index: usize) -> Result<&Term, Diagnostic> {
+    args.get(index).ok_or_else(|| {
+        Diagnostic::new(
+            code!("LLI9001"),
+            format!("phase latex: text frame argument {index} is missing"),
+        )
+    })
+}
+
+/// Render a text frame (§13.4) as canonical prose: the entry's text render
+/// template when it declares one (§13.9), otherwise the frame's fixed
+/// pattern with the core words `the`, `of`, `and`, and `is`. Arguments
+/// that are noun phrases nest as prose; other arguments are math islands.
+/// `initial` capitalizes a leading core word.
+fn text_frame(
+    sink: &mut Sink<'_, '_>,
+    qualified: &QualifiedId,
+    entry: &Entry,
+    args: &[Term],
+    initial: bool,
+) -> Result<(), Diagnostic> {
+    if let Some(render) = entry.render_text.clone() {
+        return eval_text_lre(sink, &render, qualified, args);
+    }
+    let form_id = text_form_id(entry).ok_or_else(|| {
+        Diagnostic::new(
+            code!("LLB6002"),
+            format!("`{qualified}` has no canonical text form"),
+        )
+    })?;
+    match entry.frame {
+        Frame::NounOf | Frame::BinaryNounOf => {
+            sink.word("the", initial)?;
+            sink.ws(" ");
+            sink.form_surface(&qualified.package, &qualified.entry, &form_id)?;
+            sink.ws(" ");
+            sink.word("of", false)?;
+            sink.ws(" ");
+            term_phrase(sink, frame_arg(args, 0)?, false)?;
+            if entry.frame == Frame::BinaryNounOf {
+                sink.ws(" ");
+                sink.word("and", false)?;
+                sink.ws(" ");
+                term_phrase(sink, frame_arg(args, 1)?, false)?;
+            }
+        }
+        Frame::Adjective => {
+            term_phrase(sink, frame_arg(args, 0)?, initial)?;
+            sink.ws(" ");
+            sink.word("is", false)?;
+            sink.ws(" ");
+            sink.form_surface(&qualified.package, &qualified.entry, &form_id)?;
+        }
+        Frame::Intransitive | Frame::Transitive => {
+            term_phrase(sink, frame_arg(args, 0)?, initial)?;
+            sink.ws(" ");
+            sink.form_surface(&qualified.package, &qualified.entry, &form_id)?;
+            if entry.frame == Frame::Transitive {
+                sink.ws(" ");
+                term_phrase(sink, frame_arg(args, 1)?, false)?;
+            }
+        }
+        Frame::Atom => {
+            sink.form_surface(&qualified.package, &qualified.entry, &form_id)?;
+        }
+        Frame::Call | Frame::Prefix | Frame::Postfix | Frame::Infix => {
+            return Err(Diagnostic::new(
+                code!("LLI9001"),
+                format!("phase latex: `{qualified}` has a mathematical frame, not a text frame"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The frames whose canonical rendering is prose (§13.4): the text frames
+/// and the atom of a text-canonical entry.
+const TEXT_FRAMES: [Frame; 6] = [
+    Frame::Atom,
+    Frame::NounOf,
+    Frame::BinaryNounOf,
+    Frame::Adjective,
+    Frame::Intransitive,
+    Frame::Transitive,
+];
+
+/// Evaluate one text render template (§13.9): slots are nested term
+/// phrases; the mathematical constructs `sub`, `sup`, `frac`, and
+/// `operator-name` have no text rendering.
+fn eval_text_lre(
+    sink: &mut Sink<'_, '_>,
+    render: &Render,
+    self_entry: &QualifiedId,
+    args: &[Term],
+) -> Result<(), Diagnostic> {
+    match render {
+        Render::Seq(items) => {
+            for item in items {
+                eval_text_lre(sink, item, self_entry, args)?;
+            }
+        }
+        Render::Space => sink.ws(" "),
+        Render::Token(id) => sink.tok(id)?,
+        Render::Slot(index) => {
+            let term = args.get(*index as usize).ok_or_else(|| {
+                Diagnostic::new(code!("LLB6002"), "text render slot out of range")
+            })?;
+            term_phrase(sink, term, false)?;
+        }
+        Render::SelfForm(form_id) => {
+            sink.form_surface(&self_entry.package, &self_entry.entry, form_id)?;
+        }
+        Render::Form { entry, form } => {
+            sink.form_surface(&entry.package, &entry.entry, form)?;
+        }
+        Render::Group(inner) => {
+            sink.brace(true);
+            eval_text_lre(sink, inner, self_entry, args)?;
+            sink.brace(false);
+        }
+        Render::Paren(inner) => {
+            sink.structural("(", "paren-open", "punctuation");
+            eval_text_lre(sink, inner, self_entry, args)?;
+            sink.structural(")", "paren-close", "punctuation");
+        }
+        Render::Bracket(inner) => {
+            sink.structural("[", "bracket-open", "punctuation");
+            eval_text_lre(sink, inner, self_entry, args)?;
+            sink.structural("]", "bracket-close", "punctuation");
+        }
+        Render::Sub(..) | Render::Sup(..) | Render::Frac(..) | Render::OperatorName(_) => {
+            return Err(Diagnostic::new(
+                code!("LLB6002"),
+                format!(
+                    "the text render of `{self_entry}` uses a mathematical construct that has no text rendering"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A term in a text position (§15.3, §13.4): the noun-of frame `the SELF
+/// of ARG [and ARG]` when the term applies a noun-function entry, otherwise
+/// a mathematical island.
+fn term_phrase(sink: &mut Sink<'_, '_>, term: &Term, initial: bool) -> Result<(), Diagnostic> {
+    match text_frame_of(sink.ctx, term, &[Frame::NounOf, Frame::BinaryNounOf]) {
+        Some((qualified, entry, args)) => text_frame(sink, &qualified, entry, args, initial),
+        None => island(sink, term, false),
+    }
+}
+
+/// A type in a text position (§15.3): the type-noun's canonical text form
+/// when the type is one such entry, otherwise a mathematical island.
+fn type_prose(sink: &mut Sink<'_, '_>, ty: &Term) -> Result<(), Diagnostic> {
+    match text_frame_of(sink.ctx, ty, &[Frame::Atom]) {
+        Some((qualified, entry, args)) => text_frame(sink, &qualified, entry, args, false),
+        None => island(sink, ty, false),
+    }
+}
+
+/// An atomic proposition (§15.6): a predicate frame `ARG is SELF`, `ARG
+/// SELF`, or `ARG SELF ARG` when the term applies a text-predicate entry,
+/// otherwise a math proposition island.
+fn atomic_prose(sink: &mut Sink<'_, '_>, term: &Term, initial: bool) -> Result<(), Diagnostic> {
+    match text_frame_of(
+        sink.ctx,
+        term,
+        &[Frame::Adjective, Frame::Intransitive, Frame::Transitive],
+    ) {
+        Some((qualified, entry, args)) => text_frame(sink, &qualified, entry, args, initial),
+        None => island(sink, term, false),
+    }
+}
+
 /// Render a proposition as canonical controlled prose (§19.4). `initial`
 /// selects sentence-initial capitalization; `level` is the required prose
 /// level, children below it render as math islands.
@@ -740,7 +1011,7 @@ fn prose(sink: &mut Sink<'_, '_>, term: &Term, initial: bool, level: u8) -> Resu
                         sink.word("one", false)?;
                         sink.ws(" ");
                     } else {
-                        let article = binder_article(sink.ctx.closure, &binders[0]);
+                        let article = binder_article(sink.ctx, &binders[0]);
                         sink.word(article, false)?;
                         sink.ws(" ");
                     }
@@ -786,18 +1057,18 @@ fn prose(sink: &mut Sink<'_, '_>, term: &Term, initial: bool, level: u8) -> Resu
                 }
                 _ => island(sink, term, false)?,
             },
-            _ => island(sink, term, false)?,
+            _ => atomic_prose(sink, term, initial)?,
         },
-        _ => island(sink, term, false)?,
+        _ => atomic_prose(sink, term, initial)?,
     }
     Ok(())
 }
 
 /// The text article for an existential binder (`a` or `an`), from the
 /// binder type's canonical text form features (§13.5).
-fn binder_article(closure: &Closure, binder: &Binder) -> &'static str {
+fn binder_article(ctx: &Ctx<'_>, binder: &Binder) -> &'static str {
     if let Term::Global(global, _) = &binder.ty {
-        if let Some((_, entry)) = entry_for_global(closure, global) {
+        if let Some((_, entry)) = entry_for_global(ctx, global) {
             if let Some(form) = entry
                 .forms
                 .iter()
@@ -814,24 +1085,7 @@ fn binder_article(closure: &Closure, binder: &Binder) -> &'static str {
 
 /// One binder: the type's canonical text words then the local island.
 fn binder_prose(sink: &mut Sink<'_, '_>, binder: &Binder) -> Result<(), Diagnostic> {
-    match &binder.ty {
-        Term::Global(global, _) => {
-            let closure = sink.ctx.closure;
-            match entry_for_global(closure, global).and_then(|(qualified, entry)| {
-                entry
-                    .forms
-                    .iter()
-                    .find(|form| form.canonical_source && form.channel.covers(Channel::Text))
-                    .map(|form| (qualified, form.id.clone()))
-            }) {
-                Some((qualified, form_id)) => {
-                    sink.form_surface(&qualified.package, &qualified.entry, &form_id)?;
-                }
-                None => island(sink, &binder.ty, false)?,
-            }
-        }
-        other => island(sink, other, false)?,
-    }
+    type_prose(sink, &binder.ty)?;
     sink.ws(" ");
     sink.structural("\\(", "math-open", "control");
     sink.local(binder.id)?;
@@ -897,7 +1151,17 @@ fn case_label(
     } else {
         sink.structural("\\(", "math-open", "control");
         if let Some(form_id) = math_form {
+            // A constructor with surface arguments is an operator name in
+            // math (its LRE head); an atom is its plain surface.
+            let operator = entry.surface_arity > 0;
+            if operator {
+                sink.tok("operatorname")?;
+                sink.brace(true);
+            }
             sink.form_surface(&case.constructor.package, &case.constructor.entry, &form_id)?;
+            if operator {
+                sink.brace(false);
+            }
         } else if let Some(render) = entry
             .render_math
             .clone()
@@ -1199,16 +1463,29 @@ fn rewrite_target_prose(sink: &mut Sink<'_, '_>, target: &RewriteTarget) -> Resu
     Ok(())
 }
 
+/// Whether one space separates two adjacent phrase items (§15.3): none
+/// before `:` or `)`, none after `(`, and a hyphen is tight on both sides.
+fn phrase_space(previous: &PhraseItem, next: &PhraseItem) -> bool {
+    let punct = |item: &PhraseItem| match item {
+        PhraseItem::Punctuation(entry) => Some(entry.entry.clone()),
+        _ => None,
+    };
+    !matches!(
+        (punct(previous).as_deref(), punct(next).as_deref()),
+        (Some("paren-open" | "hyphen"), _) | (_, Some("colon" | "paren-close" | "hyphen"))
+    )
+}
+
 fn phrase_prose(sink: &mut Sink<'_, '_>, phrase: &Phrase) -> Result<(), Diagnostic> {
     for (index, item) in phrase.items.iter().enumerate() {
-        if index > 0 {
+        if index > 0 && phrase_space(&phrase.items[index - 1], item) {
             sink.ws(" ");
         }
         match item {
             PhraseItem::Word { entry, form } => {
                 sink.form_surface(&entry.package, &entry.entry, form)?;
             }
-            PhraseItem::Math(term) => island(sink, term, false)?,
+            PhraseItem::Math(term) => term_phrase(sink, term, false)?,
             PhraseItem::Punctuation(entry) => {
                 let text = match entry.entry.as_str() {
                     "colon" => ":",
@@ -1271,7 +1548,7 @@ pub fn render_module(checked: &CheckedModule, closure: &Closure) -> Result<Emitt
     for (id, spelling) in &checked.proof_spellings {
         spellings.entry(*id).or_insert_with(|| spelling.clone());
     }
-    let ctx = Ctx { closure, spellings };
+    let ctx = Ctx::new(closure, &checked.visible, spellings);
     let mut emitter = Emitter::new();
     let preamble_node = emitter.node("latex-preamble");
     {
@@ -1617,11 +1894,7 @@ fn definition_prose(
                 .unwrap_or_else(|| "article-a".to_owned());
             sink.word(if article == "article-an" { "an" } else { "a" }, initial)?;
             sink.ws(" ");
-            sink.form_surface(
-                &entry.package,
-                &entry.entry,
-                &canonical_text_form(glossary_entry)?,
-            )?;
+            text_frame(sink, entry, glossary_entry, &[], false)?;
             sink.ws(" ");
             for word in ["is", "defined", "as"] {
                 sink.word(word, false)?;
@@ -1631,7 +1904,7 @@ fn definition_prose(
             period(sink);
         }
         DeclKind::TermDefinition => {
-            self_head_prose(sink, entry, glossary_entry, &binders)?;
+            self_head_prose(sink, entry, glossary_entry, &binders, initial)?;
             sink.ws(" ");
             for word in ["is", "defined", "as"] {
                 sink.word(word, false)?;
@@ -1641,7 +1914,7 @@ fn definition_prose(
             period(sink);
         }
         DeclKind::PredicateDefinition => {
-            self_head_prose(sink, entry, glossary_entry, &binders)?;
+            self_head_prose(sink, entry, glossary_entry, &binders, initial)?;
             sink.ws(" ");
             for word in ["holds", "exactly", "when"] {
                 sink.word(word, false)?;
@@ -1661,25 +1934,25 @@ fn definition_prose(
     Ok(())
 }
 
-fn canonical_text_form(entry: &Entry) -> Result<String, Diagnostic> {
-    entry
-        .forms
-        .iter()
-        .find(|form| form.canonical_source && form.channel.covers(Channel::Text))
-        .map(|form| form.id.clone())
-        .ok_or_else(|| Diagnostic::new(code!("LLB6002"), "the entry has no canonical text form"))
-}
-
+/// The definition self head (§15.7 rule 4): the entry's text frame over
+/// its signature binders when the entry is text-canonical, otherwise a
+/// self application island through the entry's math render.
 fn self_head_prose(
     sink: &mut Sink<'_, '_>,
     entry_id: &QualifiedId,
     entry: &Entry,
     binders: &[Binder],
+    initial: bool,
 ) -> Result<(), Diagnostic> {
-    if binders.is_empty() {
-        if let Ok(form) = canonical_text_form(entry) {
-            return sink.form_surface(&entry_id.package, &entry_id.entry, &form);
-        }
+    if TEXT_FRAMES.contains(&entry.frame)
+        && entry.surface_arity as usize == binders.len()
+        && text_form_id(entry).is_some()
+    {
+        let args: Vec<Term> = binders
+            .iter()
+            .map(|binder| Term::Local(binder.id))
+            .collect();
+        return text_frame(sink, entry_id, entry, &args, initial);
     }
     // A self application island through the entry's math render.
     sink.structural("\\(", "math-open", "control");

@@ -11,6 +11,9 @@ const PREAMBLE: &str = "\\documentclass[11pt]{article}\n\\usepackage[T1]{fontenc
 /// The §29.4 body of the literal example, byte for byte.
 const EXAMPLE_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition}\n\\end{center}\n\\begin{theorem}\n\\label{ll:main:add-zero}\nFor every natural number \\(n\\), \\(n + 0 = n\\).\n\\end{theorem}\n\\begin{proof}\nThe goal follows by reflexivity.\n\\end{proof}\n\\end{document}\n";
 
+/// The exact canonical LaTeX body of [`support::FRAMES_MODULE`].
+const FRAMES_TEX_BODY: &str = "\\begin{center}\n{\\LARGE Natural number addition: parity (order)}\n\\end{center}\n\\section{Natural number order-parity: sums}\n\\label{ll:main:frames}\n\\begin{definition}\n\\label{ll:main:even}\nFor every natural number \\(n\\), \\(n\\) is even holds exactly when there exists a natural number \\(k\\) such that \\(n = k + k\\).\n\\end{definition}\n\\begin{definition}\n\\label{ll:main:vanishes}\nFor every natural number \\(n\\), \\(n\\) vanishes holds exactly when \\(n = 0\\).\n\\end{definition}\n\\begin{definition}\n\\label{ll:main:precedes}\nFor every natural number \\(n\\) and natural number \\(m\\), \\(n\\) precedes \\(m\\) holds exactly when there exists a natural number \\(k\\) such that \\(n + k = m\\).\n\\end{definition}\n\\begin{definition}\n\\label{ll:main:double}\nFor every natural number \\(n\\), the double of \\(n\\) is defined as \\(n + n\\).\n\\end{definition}\n\\begin{definition}\n\\label{ll:main:total}\nFor every natural number \\(a\\) and natural number \\(b\\), the total of \\(a\\) and \\(b\\) is defined as \\(a + b\\).\n\\end{definition}\n\\begin{theorem}\n\\label{ll:main:double-even}\nFor every natural number \\(n\\), the double of \\(n\\) is even.\n\\end{theorem}\n\\begin{proof}\nUse \\(n\\) as the witness.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:sum-even}\nFor every natural number \\(n\\), the sum of \\(n\\) and \\(n\\) is even.\n\\end{theorem}\n\\begin{proof}\nUse \\(n\\) as the witness.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:total-even}\nFor every natural number \\(n\\), the total of \\(n\\) and \\(n\\) is even.\n\\end{theorem}\n\\begin{proof}\nUse \\(n\\) as the witness.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:self-precedes}\nFor every natural number \\(n\\), \\(n\\) precedes \\(n\\).\n\\end{theorem}\n\\begin{proof}\nUse \\(0\\) as the witness.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:successor-precedes}\nThe successor of \\(0\\) precedes the successor of the double of \\(0\\).\n\\end{theorem}\n\\begin{proof}\nUse \\(0\\) as the witness.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:vanishes-conditional}\nFor every natural number \\(n\\), if \\(n\\) vanishes, then \\(n\\) precedes \\(n\\).\n\\end{theorem}\n\\begin{proof}\nAssume \\(h\\).\nUse \\(0\\) as the witness.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:even-and-precedes}\n\\(0\\) is even and \\(0\\) precedes \\(0\\).\n\\end{theorem}\n\\begin{proof}\nBranch \\(1\\):\nUse \\(0\\) as the witness.\nThe goal follows by reflexivity.\nBranch \\(2\\):\nUse \\(0\\) as the witness.\nThe goal follows by reflexivity.\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:bounded-self}\nFor every natural number \\(n\\), \\(n\\) is bounded by the successor of \\(n\\) or \\(n\\) is bounded by \\(n\\).\n\\end{theorem}\n\\begin{proof}\nSelect the right alternative.\nThe goal follows from \\(\\operatorname{lerefl}(n)\\).\n\\end{proof}\n\\begin{theorem}\n\\label{ll:main:cases-conjunction}\nFor every natural number \\(n\\), if \\(n\\) is even and \\(n\\) vanishes, then \\(n\\) precedes \\(n\\).\n\\end{theorem}\n\\begin{proof}\nAssume \\(h\\).\nConsider the cases of \\(h\\).\nCase \\(\\operatorname{andintro}\\) with \\(he\\), \\(hv\\):\nUse \\(0\\) as the witness.\nThe goal follows by reflexivity.\n\\end{proof}\n\\end{document}\n";
+
 /// The default stub provider body: records its working directory, its
 /// listing, and its environment into the PDF stream.
 const STUB_BODY: &str =
@@ -113,6 +116,13 @@ pub(crate) fn run(id: &str) {
                 support::LRE_TEX_BODY,
                 "LRE sup, sub, and frac lower to `^{{}}`, `_{{}}`, and `\\frac{{}}{{}}`"
             );
+            // §13.4 text frames render as canonical prose in statements and
+            // definition heads over a Lean-verified module: adjective,
+            // intransitive, transitive, noun-of, and binary-noun-of, with
+            // math arguments as islands and noun-phrase arguments nested,
+            // and a text render template honored over the fixed pattern.
+            let frames = support::verified_frames();
+            assert_eq!(body_of(&frames.project), FRAMES_TEX_BODY);
         }
         // §19.5: proof prose from proof IR with fixed core forms: every
         // variant, branches visible, calculations aligned.
@@ -127,11 +137,63 @@ pub(crate) fn run(id: &str) {
             assert_eq!(body_of(&project), support::PROOF_FORMS_TEX_BODY);
             let unique = support::ext_project(support::UNIQUE_MODULE);
             assert_eq!(body_of(&unique), support::UNIQUE_TEX_BODY);
+            // Case labels name the constructor by its canonical form: a
+            // constructor with surface arguments is an operator name in
+            // math, an atom its plain surface; introduced locals are math
+            // islands. Proof prose over the Lean-verified frames module.
+            let frames = support::verified_frames();
+            let frames_body = body_of(&frames.project);
+            assert_eq!(frames_body, FRAMES_TEX_BODY);
+            assert!(
+                frames_body.contains(
+                    "Consider the cases of \\(h\\).\nCase \\(\\operatorname{andintro}\\) with \\(he\\), \\(hv\\):\n"
+                ),
+                "the case label of a core constructor: {frames_body}"
+            );
+            let corpus_body = body_of(&support::verified_corpus().project);
+            assert!(
+                corpus_body
+                    .contains("\nCase \\(\\operatorname{cintro}\\) with \\(l\\), \\(r\\):\n"),
+                "the case label of a glossary structure constructor: {corpus_body}"
+            );
+            assert!(
+                corpus_body.contains("\nCase zero:\n")
+                    && corpus_body.contains("\nCase \\(\\operatorname{succ}\\) with \\("),
+                "atom and operator constructors: {corpus_body}"
+            );
         }
         // §19.3: exact document structure, numbering, labels, sections
         // three deep, and parameters.
         "TX-05" => {
             assert_eq!(body_of(&P::example()), EXAMPLE_BODY);
+            // Phrase punctuation (§15.3) is spaced as canonical source
+            // spells it: no space before `:` or `)`, none after `(`, and a
+            // tight hyphen; a noun-of term phrase in a heading is prose.
+            let frames = support::verified_frames();
+            let frames_body = body_of(&frames.project);
+            assert_eq!(frames_body, FRAMES_TEX_BODY);
+            assert!(
+                frames_body.contains("{\\LARGE Natural number addition: parity (order)}\n"),
+                "title punctuation: {frames_body}"
+            );
+            assert!(
+                frames_body.contains(
+                    "\\section{Natural number order-parity: sums}\n\\label{ll:main:frames}\n"
+                ),
+                "heading punctuation: {frames_body}"
+            );
+            let project = support::frames_project();
+            project.edit(
+                "src/Main.lex.tex",
+                "\\heading{Natural number order - parity: sums}",
+                "\\heading{Natural number order (the successor of \\(0\\)): sums}",
+            );
+            let heading_body = body_of(&project);
+            assert!(
+                heading_body
+                    .contains("\\section{Natural number order (the successor of \\(0\\)): sums}\n"),
+                "a heading term phrase renders as prose: {heading_body}"
+            );
             let project = P::example();
             project.write("src/Main.lex.tex", support::SECTIONS_MODULE);
             assert_eq!(body_of(&project), support::SECTIONS_TEX_BODY);
@@ -156,6 +218,8 @@ pub(crate) fn run(id: &str) {
                     project.write("src/Main.lex.tex", support::PROOF_FORMS_MODULE);
                     project
                 },
+                support::frames_project(),
+                support::corpus_project(),
             ] {
                 let build = support::rendered(&project);
                 let module = &build.modules[0];
