@@ -411,6 +411,49 @@ pub(crate) fn run(id: &str) {
                     "lean byte {index} has a mapping"
                 );
             }
+
+            // An inlined defined lexicon value (§13.6) is a whole term, not
+            // an identifier: `two` inlines as `(Nat.succ (Nat.succ
+            // Nat.zero))`. It is covered token by token, so a Lean
+            // diagnostic inside it remaps to a token-sized range rather
+            // than to the entire inlined value (§20.3, §20.4).
+            let inlined = support::rendered(&support::ext_project(support::DEFINED_MODULE));
+            let module = &inlined.modules[0];
+            let rows: Vec<&lexlean::source::coverage::OutputRow> = module
+                .coverage
+                .lean
+                .iter()
+                .filter(|row| {
+                    matches!(
+                        &row.origin,
+                        lexlean::source::coverage::Origin::Form { package, entry, .. }
+                            if package == "test.ext" && entry == "two"
+                    )
+                })
+                .collect();
+            let spelled: Vec<&str> = rows
+                .iter()
+                .map(|row| &module.lean_text[row.byte_start..row.byte_end])
+                .collect();
+            assert_eq!(
+                spelled,
+                vec![
+                    "(", "Nat.succ", "(", "Nat.succ", "Nat.zero", ")", ")", "(", "Nat.succ", "(",
+                    "Nat.succ", "Nat.zero", ")", ")"
+                ],
+                "both occurrences of the inlined value are covered token by token: {}",
+                module.lean_text
+            );
+            for row in rows {
+                let mapping = module
+                    .map
+                    .remap(0, row.byte_start)
+                    .expect("every inlined token has a mapping");
+                assert!(
+                    mapping.gen_end - mapping.gen_start <= row.byte_end - row.byte_start,
+                    "the smallest enclosing mapping is the token, not the whole inlined value"
+                );
+            }
         }
         // §18.2: the generated-source audit is a token lexer.
         "LN-11" => {

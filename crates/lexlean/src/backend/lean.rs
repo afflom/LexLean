@@ -136,6 +136,19 @@ impl Sink<'_> {
         );
     }
 
+    /// A symbol whose origin is not Lean syntax the backend chose but the
+    /// glossary value it was inlined from (`emit_global`).
+    fn emit_symbol(&mut self, text: &str, origin: Origin) {
+        self.emitter.piece(
+            text,
+            "symbol",
+            origin,
+            self.source.clone(),
+            self.role,
+            self.node,
+        );
+    }
+
     fn ws(&mut self, text: &str) {
         self.emitter.ws(text);
     }
@@ -183,6 +196,62 @@ fn global_lean_name(global: &GlobalRef, closure: &Closure) -> Result<String, Dia
             print_defined_value(value, closure)
         }
     }
+}
+
+/// Emit one global's generated Lean.
+///
+/// Every global but a defined lexicon value prints as one identifier. A
+/// defined value (§13.6) is *inlined*: its Lean text is a complete term,
+/// often a lambda or an application, and emitting it as a single
+/// identifier token would give the whole inlined term one coverage row and
+/// one source mapping (§20.3, §20.5) — the granularity of the smallest
+/// enclosing mapping a Lean diagnostic can be remapped to (§20.4) would
+/// then be the entire inlined value. It is therefore emitted token by
+/// token. The split is lexical and total, so the concatenated bytes are
+/// exactly the printed value; every token carries the glossary form the
+/// value denotes, because that is where each of them comes from.
+fn emit_global(sink: &mut Sink<'_>, global: &GlobalRef, text: &str) {
+    let origin = global_origin(global);
+    if !matches!(global, GlobalRef::DefinedLexicon(_)) {
+        sink.ident(text, origin);
+        return;
+    }
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '.' || c == '\'' || c == '!';
+    let mut rest = text;
+    while !rest.is_empty() {
+        let width = |predicate: fn(char) -> bool| {
+            rest.chars()
+                .take_while(|c| predicate(*c))
+                .map(char::len_utf8)
+                .sum::<usize>()
+        };
+        let (piece, kind) = if rest.starts_with(char::is_whitespace) {
+            (&rest[..width(char::is_whitespace)], TokenKind::Space)
+        } else if rest.starts_with(|c: char| c.is_ascii_digit()) {
+            (&rest[..width(|c| c.is_ascii_digit())], TokenKind::Numeral)
+        } else if rest.starts_with(is_ident) {
+            (&rest[..width(is_ident)], TokenKind::Identifier)
+        } else {
+            let width = rest.chars().next().map_or(0, char::len_utf8);
+            (&rest[..width], TokenKind::Symbol)
+        };
+        match kind {
+            TokenKind::Space => sink.ws(piece),
+            TokenKind::Numeral => sink.numeral(piece),
+            TokenKind::Identifier => sink.ident(piece, origin.clone()),
+            TokenKind::Symbol => sink.emit_symbol(piece, origin.clone()),
+        }
+        rest = &rest[piece.len()..];
+    }
+}
+
+/// The lexical classes an inlined defined value splits into.
+#[derive(Clone, Copy)]
+enum TokenKind {
+    Space,
+    Numeral,
+    Identifier,
+    Symbol,
 }
 
 fn global_origin(global: &GlobalRef) -> Origin {
@@ -890,7 +959,7 @@ fn print_term(
         }
         Term::Global(global, _) => {
             let name = global_lean_name(global, ctx.closure)?;
-            sink.ident(&name, global_origin(global));
+            emit_global(sink, global, &name);
         }
         Term::Sort(universe) => match universe {
             Universe::Num(0) => sink.kw("Prop"),
