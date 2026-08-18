@@ -381,10 +381,14 @@ public theorem isD9_iff (y : Vec 8 Int) : isD9 y = true ↔ D9 y := by
   constructor
   · intro h
     rw [isD9, Bool.and_eq_true] at h
-    exact ⟨fun i => of_decide_eq_true (allFin_true _ h.1 i), of_decide_eq_true h.2⟩
+    refine ⟨fun i => of_decide_eq_true (allFin_true _ h.1 i), ?_⟩
+    have h2 := of_decide_eq_true h.2
+    rwa [sum8_eq] at h2
   · intro h
     rw [isD9, Bool.and_eq_true]
-    exact ⟨allFin_of _ (fun i => decide_eq_true (h.1 i)), decide_eq_true h.2⟩
+    refine ⟨allFin_of _ (fun i => decide_eq_true (h.1 i)), decide_eq_true ?_⟩
+    rw [sum8_eq]
+    exact h.2
 
 public theorem isD10_iff (y : Vec 8 Int) : isD10 y = true ↔ D10 y := by
   rw [isD10, Bool.or_eq_true, isD9_iff, isD9_iff]; rfl
@@ -546,10 +550,13 @@ public theorem exists_decOdd (y : Vec 8 Int) (h : ∀ i : Fin 8, y i = -1 ∨ y 
 coordinate bound they say that every root is the signed image of exactly one
 table entry, which is `master`. -/
 
-/-- The all-even branch of the search, cut into nine blocks of `729`. The
-kernel holds every intermediate value of a `decide` until the declaration is
-finished, so one block of `6561` peaks at some `2.3 GB`; nine independent
-blocks peak at a ninth of that and cost the same in total. -/
+/-- The all-even branch of the search, cut into nine blocks of `729`.
+
+The kernel holds every intermediate value of a `decide` until the declaration
+it belongs to is finished, and releases them afterwards. Measured on this
+module: the search as one block of `6561` peaks at `1.8 GB` of resident
+memory, the same search as nine blocks at `0.8 GB`, for the same total work.
+The split is a memory bound, not a speed one. -/
 @[expose] public def chkEven (b n : Nat) : Bool := chk (decEven (b + n))
 
 public theorem boxEven0 : allLt (chkEven 0) 729 = true := by decide +kernel
@@ -816,11 +823,11 @@ kernel evaluates the `7140` distinct inner products once rather than twice. -/
   if i = j then 0 else if i < j then adjRaw i j else adjRaw j i
 
 public theorem adjRaw_comm (i j : Nat) : adjRaw i j = adjRaw j i := by
-  show (if dot (repN i) (repN j) = 4 then 1
-    else if dot (repN i) (repN j) = -4 then 1 else 0)
-      = (if dot (repN j) (repN i) = 4 then 1
-    else if dot (repN j) (repN i) = -4 then 1 else 0)
-  rw [dot_comm (repN i) (repN j)]
+  show (if dot8 (repN i) (repN j) = 4 then 1
+    else if dot8 (repN i) (repN j) = -4 then 1 else 0)
+      = (if dot8 (repN j) (repN i) = 4 then 1
+    else if dot8 (repN j) (repN i) = -4 then 1 else 0)
+  rw [dot8_eq, dot8_eq, dot_comm (repN i) (repN j)]
 
 /-- `D13`. `G := (K,E)` where `{u,v} in E iff u != v and |<u,v>| = 1`. -/
 @[expose] public def D13 (u v : K) : Prop :=
@@ -900,14 +907,14 @@ multiply-adds; `tgtPk i` is the strongly regular target `24J + 4A + 32I`.
 `pk_inj` turns the single packed equation back into the `120` entrywise ones,
 because every entry involved is below `2^16`. -/
 
-@[expose] public def Bse : Nat := 65536
+@[expose] public def packBase : Nat := 65536
 
-@[expose] public def rowPk (i : Nat) : Nat := pk Bse (adjN i) 120
+@[expose] public def rowPk (i : Nat) : Nat := pk packBase (adjN i) 120
 
 @[expose] public def sqPk (i : Nat) : Nat := sumN (fun k => adjN i k * rowPk k) 120
 
 @[expose] public def tgtPk (i : Nat) : Nat :=
-  pk Bse (fun j => 24 + 4 * adjN i j + (if i = j then 32 else 0)) 120
+  pk packBase (fun j => 24 + 4 * adjN i j + (if i = j then 32 else 0)) 120
 
 @[expose] public def commonN (i j : Nat) : Nat := sumN (fun k => adjN i k * adjN k j) 120
 
@@ -924,27 +931,27 @@ public theorem graphFacts (i : Nat) (hi : i < 120) :
   rw [Bool.and_eq_true] at h
   exact ⟨of_decide_eq_true h.1, of_decide_eq_true h.2⟩
 
-public theorem commonN_lt (i j : Nat) : commonN i j < Bse := by
+public theorem commonN_lt (i j : Nat) : commonN i j < packBase := by
   have h := sumN_le_of_le_one (fun k => adjN i k * adjN k j)
     (fun k => Nat.le_trans (Nat.mul_le_mul (adjN_le_one i k) (adjN_le_one k j))
       (Nat.le_refl 1)) 120
   show sumN (fun k => adjN i k * adjN k j) 120 < 65536
   omega
 
-public theorem tgt_lt (i j : Nat) : 24 + 4 * adjN i j + (if i = j then 32 else 0) < Bse := by
+public theorem tgt_lt (i j : Nat) : 24 + 4 * adjN i j + (if i = j then 32 else 0) < packBase := by
   have h := adjN_le_one i j
   show 24 + 4 * adjN i j + (if i = j then 32 else 0) < 65536
   split <;> omega
 
-public theorem sqPk_eq (i : Nat) : sqPk i = pk Bse (fun j => commonN i j) 120 :=
-  pk_sumN Bse (adjN i) adjN 120 120
+public theorem sqPk_eq (i : Nat) : sqPk i = pk packBase (fun j => commonN i j) 120 :=
+  pk_sumN packBase (adjN i) adjN 120 120
 
 public theorem commonN_eq (i j : Nat) (hi : i < 120) (hj : j < 120) :
     commonN i j = 24 + 4 * adjN i j + (if i = j then 32 else 0) := by
-  have heq : pk Bse (fun m => commonN i m) 120
-      = pk Bse (fun m => 24 + 4 * adjN i m + (if i = m then 32 else 0)) 120 := by
+  have heq : pk packBase (fun m => commonN i m) 120
+      = pk packBase (fun m => 24 + 4 * adjN i m + (if i = m then 32 else 0)) 120 := by
     rw [← sqPk_eq]; exact (graphFacts i hi).2
-  exact pk_inj Bse (by decide) _ _ 120 (fun k _ => commonN_lt i k) (fun k _ => tgt_lt i k) heq j hj
+  exact pk_inj packBase (by decide) _ _ 120 (fun k _ => commonN_lt i k) (fun k _ => tgt_lt i k) heq j hj
 
 public theorem common_eq (u v : K) :
     common u v = 24 + 4 * A u v + (if u = v then 32 else 0) := by
@@ -1076,7 +1083,9 @@ public theorem AmC_mul_apply (c d : Int) (u v : K) :
     isum_ite u (fun k => if k = v then c * d else 0)]
   rfl
 
-public theorem mid (u v : K) : Mat.mul (AmC 8) (AmC (-4)) u v = 24 := by
+/-- `(A - 8I)(A + 4I) = 24 J`: this is `T8` read as one matrix identity, and it
+is the whole of `T9a` once `T7` kills the last factor. -/
+public theorem mid_eq_24 (u v : K) : Mat.mul (AmC 8) (AmC (-4)) u v = 24 := by
   rw [AmC_mul_apply, AA_apply, common_eq]
   by_cases h : u = v
   · subst h
@@ -1103,7 +1112,7 @@ public theorem T9a : ∀ u v : K, Mat.mul (Mat.mul (AmC 56) (AmC 8)) (AmC (-4)) 
   rw [Mat.mul_assoc_apply]
   show Vec.sum (fun k => AmC 56 u k * Mat.mul (AmC 8) (AmC (-4)) k v) = 0
   rw [Vec.sum_congr (fun k => show AmC 56 u k * Mat.mul (AmC 8) (AmC (-4)) k v
-      = AmC 56 u k * 24 from by rw [mid k v]),
+      = AmC 56 u k * 24 from by rw [mid_eq_24 k v]),
     ← isum_mul_right (fun k => AmC 56 u k) 24, hrow]
   decide
 
@@ -1234,7 +1243,7 @@ public theorem Link.trans {i j k : Fin 8} (h1 : Link i j) (h2 : Link j k) : Link
   | refl => exact h1
   | tail _ hn ih => exact Link.tail ih hn
 
-public theorem Link.symmetric {i j : Fin 8} (h : Link i j) : Link j i := by
+public theorem Link.symm {i j : Fin 8} (h : Link i j) : Link j i := by
   induction h with
   | refl => exact Link.refl _
   | tail _ hn ih => exact Link.trans (Link.tail (Link.refl _) hn.symm) ih
@@ -1262,7 +1271,7 @@ public theorem link0 : ∀ (v : Nat) (h : v < 8), Link 0 ⟨v, h⟩ := by
 /-- `V65b`. The nonorthogonality graph of `Sim` is connected. -/
 public theorem V65b : ∀ i j : Fin 8, Link i j := by
   intro i j
-  exact Link.trans (Link.symmetric (link0 i.val i.isLt)) (link0 j.val j.isLt)
+  exact Link.trans (Link.symm (link0 i.val i.isLt)) (link0 j.val j.isLt)
 
 /-- The Gram matrix of `Sim` in the document's normalisation. The 2x scaling
 multiplies every inner product by `4`; `gram_exact` certifies that the

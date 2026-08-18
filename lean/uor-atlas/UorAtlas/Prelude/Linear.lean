@@ -1,6 +1,7 @@
 module
 public import Init
 public import UorAtlas.Prelude.Algebra
+public import UorAtlas.Prelude.NumInstances
 
 /-!
 Vectors, finite sums and matrices: the computational spine of the vendored
@@ -338,23 +339,11 @@ public theorem hom_map_sum [CommRing α] [CommRing β] (φ : RingHom α β) (x :
 
 The document computes in exactly one ring: `D9`'s lattice sits in `Z^O`,
 `D11`'s roots are integral, and `D55`'s Gram matrices are integer matrices.
-`Algebra.lean` states the ambient classes and instantiates none of them, so
-the instantiation is made here, in the first module that needs a concrete ring
-to multiply matrices over. -/
-public instance instCommRingInt : CommRing Int where
-  zero := 0
-  add := Int.add
-  neg := Int.neg
-  add_assoc := Int.add_assoc
-  add_comm := Int.add_comm
-  add_zero := Int.add_zero
-  add_neg := Int.add_right_neg
-  one := 1
-  mul := Int.mul
-  mul_assoc := Int.mul_assoc
-  mul_comm := Int.mul_comm
-  one_mul := Int.one_mul
-  left_distrib := Int.mul_add
+The `CommRing Int` instance itself lives in `NumInstances`, which shares its
+additive structure with `instAddCommGroupInt` so no diamond arises; declaring
+a second one here would be a *different* constant, and lemmas proved under it
+would silently fail to rewrite against the one the assembled library resolves.
+-/
 
 namespace Vec
 
