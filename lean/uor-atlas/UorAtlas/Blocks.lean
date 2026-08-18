@@ -10,14 +10,14 @@ public import UorAtlas.Roots
 /-!
 Sections 3, 4 and 6 of `UOR-ATLAS-FORMAL-001`: the bound `D14`-`D15`, the
 Atlas layer `D16`-`D19`, `D22`, `D22a`, `D46a`, and the theorems `T10a`-`T10c`,
-`T11`-`T19`, `T16x`, `T61a`.
+`T11`-`T21`, `T16x`, `T20a`, `T61a`.
 
 ## What is proved and what is not
 
 `T22`, `T23` and `T24` -- the counts `|Blk| = 3150`, `|Frm| = 1575`,
 `|Atl| = 75600` -- are **not** in this module, and neither are the statements
-that quantify over the whole census (`T20`, `T20a`, `T21`, `T25`, `T25x`,
-`T26`, `T26x`, `T26a`, `T26b`, `T22a`). The reason is stated once here rather
+that quantify over the whole census (`T25`, `T25x`, `T26`, `T26x`, `T26a`,
+`T26b`, `T22a`). The reason is stated once here rather
 than repeated: a census needs a *completeness* proof, and the cheapest complete
 enumeration of `D16` blocks runs over the `C(120,4) = 8214570` four-element
 subsets of `K`, because `rank_Q = 4` gives a spanning four-subset and nothing
@@ -34,6 +34,14 @@ Everything below is therefore either a general theorem about all
 AtlasPresentations (`T12`, `T13`), a general theorem about all class subsets
 (`T10a`, `T10c`), or a verified statement about the exhibited witness, which is
 exactly the scope the document gives `T11` and `T14`-`T19`.
+
+`T18`, `T20`, `T20a` and `T21` are in that last group. All four are about the
+graph `G` induces on `V(A_0)`, and `atl_A0` certifies that `V(A_0)` is a
+member of `Atl`, so all four are statements about an exhibited AtlasInstance.
+For `T18` that is the scope the document gives it. For `T20`, `T20a` and `T21`
+it is a restriction of scope, disclosed here and repeated in each statement's
+own comment: their universally quantified forms range over `Atl`, and `Atl` is
+the census.
 
 ## Coordinates
 
@@ -826,3 +834,748 @@ public theorem T19 : ∃ x y : Vec 8 Int, Rt A0 x ∧ Rt A0 y ∧ dot x y = -4
   · decide +kernel
   · exact (isD11_iff _).mp (by decide +kernel)
   · exact fun h => absurd h.2 (by decide +kernel)
+
+/-! ## `T18`, `T20`, `T20a`, `T21`: the AtlasInstance graph and its spectrum
+
+The four labels below speak about the graph `G` induces on the AtlasInstance
+`V(A_0)`, which `atl_A0` certifies is a member of `Atl`. Their scope is that
+one AtlasInstance, for the reason given at the top of this module: a statement
+about *every* member of `Atl` needs the census, and the census is not
+available. `T18` is witness-scoped in the document itself; `T20`, `T20a` and
+`T21` are stated here for the exhibited AtlasInstance, which is the scope
+`T11` and `T14`-`T19` already have.
+
+The spectrum is established exactly as `D56` and `S32` prescribe and exactly
+as `T9` does it for `G` itself: an annihilating polynomial over `Z` confines
+the spectrum to five integers and makes the matrix diagonalisable, and the
+five integer traces `tr I`, `tr A_X`, `tr A_X^2`, `tr A_X^3`, `tr A_X^4` then
+pin the multiplicities, their linear system having exactly one nonnegative
+integer solution. No real number is constructed anywhere.
+
+`T20a` is derived rather than computed as a fifth matrix power. One kernel
+computation gives the cube, `A_X^3 = 16 A_X + 160 J + 16 N - 16 P`, where `N`
+is the "same block of `A_0`" matrix and `P` the "opposite blocks" matrix in
+the sense of `T17`'s `p(a) = 3 - a`; two more give the degrees, which say that
+`A_0`'s four blocks are an equitable partition and hence that
+`A_X J = 20 J`, `A_X N = 6J + 2N - 6P` and `A_X P = 6J - 6N + 2P`. Since
+`x(x-4)(x+4) = x^3 - 16x`, the cube says `(A_X - 4)A_X(A_X + 4) = S` with
+`S := 160J + 16N - 16P`, and the three products then give
+`(A_X - 8)S = 1920 J` and `(A_X - 20)J = 0`. That is the whole of `T20a`: no
+`A_X^4` and no `A_X^5` is ever formed, because the two outer factors act on
+the three-dimensional span of `J`, `N` and `P`.
+-/
+
+/-- The `48` classes of `V(A_0)` in increasing order, one byte each. -/
+@[expose] public def vIdxTable : Nat :=
+  17923429779227654247475788590940897806682391243105031738009533080962623398245970192080746164103443061647390340677888
+
+@[expose] public def vIdx (i : Nat) : Nat := (vIdxTable >>> (8 * i)) &&& 255
+
+/-- Linear search for the position of a class in the table, `48` when the
+class is not listed. This is what makes the enumeration's surjectivity a
+finite check rather than a pigeonhole argument. -/
+@[expose] public def vFind (c : Nat) : Nat :=
+  Nat.rec (motive := fun _ => Nat) 48 (fun k ih => if vIdx k = c then k else ih) 48
+
+/-- Nothing about the table is assumed: its entries are classes of `V(A_0)`,
+they strictly increase, and every class of `V(A_0)` is one of them. -/
+public theorem vIdxComp :
+    allLt (fun i => decide (vIdx i < 120) && Bitset.mem (V A0) (vIdx i)) 48 = true
+      ∧ allLt (fun i => decide (vIdx i < vIdx (i + 1))) 47 = true
+      ∧ allLt (fun c => !(Bitset.mem (V A0) c)
+          || (decide (vFind c < 48) && decide (vIdx (vFind c) = c))) 120 = true :=
+  ⟨by decide +kernel, by decide +kernel, by decide +kernel⟩
+
+public theorem vIdx_lt (i : Nat) (hi : i < 48) : vIdx i < 120 :=
+  of_decide_eq_true (Bool.and_eq_true _ _ |>.mp (allLt_true _ _ vIdxComp.1 i hi)).1
+
+/-- The `i`-th class of the AtlasInstance. -/
+@[expose] public def vClass (i : Fin 48) : K := ⟨vIdx i.val % 120, Nat.mod_lt _ (by decide)⟩
+
+public theorem vClass_val (i : Fin 48) : (vClass i).val = vIdx i.val :=
+  Nat.mod_eq_of_lt (vIdx_lt i.val i.isLt)
+
+public theorem vClass_mem (i : Fin 48) : (vClass i).val ∈ V A0 := by
+  rw [vClass_val]
+  exact (Bool.and_eq_true _ _ |>.mp (allLt_true _ _ vIdxComp.1 i.val i.isLt)).2
+
+/-- Every class of the AtlasInstance is listed: the enumeration is onto. -/
+public theorem vClass_onto {u : K} (h : u.val ∈ V A0) : ∃ i : Fin 48, vClass i = u := by
+  have hb : Bitset.mem (V A0) u.val = true := h
+  have h1 := allLt_true _ _ vIdxComp.2.2 u.val u.isLt
+  rw [hb] at h1
+  have h2 : (decide (vFind u.val < 48) && decide (vIdx (vFind u.val) = u.val)) = true := by
+    simpa using h1
+  rw [Bool.and_eq_true] at h2
+  refine ⟨⟨vFind u.val, of_decide_eq_true h2.1⟩, Fin.eq_of_val_eq ?_⟩
+  rw [vClass_val]
+  exact of_decide_eq_true h2.2
+
+/-- The enumeration is injective, so it is a bijection onto the AtlasInstance. -/
+public theorem vClass_inj {i j : Fin 48} (h : vClass i = vClass j) : i = j := by
+  have hmono : ∀ a b : Nat, a < b → b < 48 → vIdx a < vIdx b := by
+    intro a b hab hb
+    induction b with
+    | zero => omega
+    | succ c ih =>
+      have hstep : vIdx c < vIdx (c + 1) :=
+        of_decide_eq_true (allLt_true _ _ vIdxComp.2.1 c (by omega))
+      rcases Nat.lt_or_ge a c with hlt | hge
+      · exact Nat.lt_trans (ih hlt (by omega)) hstep
+      · exact (show a = c from by omega) ▸ hstep
+  have hval : vIdx i.val = vIdx j.val := by
+    have h1 := congrArg Fin.val h
+    rw [vClass_val, vClass_val] at h1
+    exact h1
+  refine Fin.eq_of_val_eq ?_
+  rcases Nat.lt_trichotomy i.val j.val with hlt | heq | hgt
+  · exact absurd hval (by have := hmono i.val j.val hlt j.isLt; omega)
+  · exact heq
+  · exact absurd hval (by have := hmono j.val i.val hgt i.isLt; omega)
+
+/-- `vClass` enumerates `V(A_0)` exactly once each: this is what makes the
+`48 x 48` matrix below *the* graph induced on the AtlasInstance rather than a
+matrix attached to some list of classes. -/
+public theorem vEnum : (∀ i j : Fin 48, vClass i = vClass j → i = j)
+    ∧ (∀ u : K, u.val ∈ V A0 ↔ ∃ i : Fin 48, vClass i = u) :=
+  ⟨fun _ _ h => vClass_inj h,
+    fun _ => ⟨fun h => vClass_onto h, fun ⟨i, hi⟩ => hi ▸ vClass_mem i⟩⟩
+
+/-! ### The induced adjacency matrix
+
+`AV` is `G` restricted to the `48` classes `vClass` enumerates and `AVint` is
+the same matrix over `Z`. `mMask` holds row `i` of it as a `48`-bit numeral;
+`mMaskComp` checks the whole table against `adjN`, and `mEnt_eq` is the only
+bridge from the table to the graph that the arithmetic below needs. Packing
+the rows is what keeps the cube of a `48 x 48` matrix inside the kernel: a row
+of `A_X^2` is `48` additions of packed rows rather than `48^2` scalar
+multiply-adds, and `pk_sumN` turns each packed identity back into the `48`
+entrywise ones. -/
+
+@[expose] public def vAdj (i j : Nat) : Nat := adjN (vIdx i) (vIdx j)
+
+/-- The adjacency matrix of the graph induced on the AtlasInstance. -/
+@[expose] public def AV (i j : Fin 48) : Nat := A (vClass i) (vClass j)
+
+public theorem AV_eq_vAdj (i j : Fin 48) : AV i j = vAdj i.val j.val := by
+  show adjN (vClass i).val (vClass j).val = adjN (vIdx i.val) (vIdx j.val)
+  rw [vClass_val, vClass_val]
+
+/-- The AtlasInstance graph over `Z`, the matrix `T18`, `T20` and `T20a`
+speak about. -/
+@[expose] public def AVint : Mat 48 48 Int := fun i j => ((AV i j : Nat) : Int)
+
+/-- `A_X - c I`. -/
+@[expose] public def AVmC (c : Int) : Mat 48 48 Int :=
+  fun i j => AVint i j - c * (Mat.id : Mat 48 48 Int) i j
+
+/-- The `48` rows of `A_X`, one `48`-bit numeral each. -/
+@[expose] public def mMaskWords : List Nat :=
+  [
+    0x00ff00003ffc, 0xff0000003ffc, 0x0f0f0003c3f3, 0xf0f00003c3f3,
+    0x3333000ccccf, 0xcccc000ccccf, 0x555503f0003f, 0xaaaa03f0003f,
+    0xf00f0003fc0f, 0x0ff00003fc0f, 0xcc33000cf333, 0x33cc000cf333,
+    0x55553c300f03, 0xaaaa3c300f03, 0xc3c3000f0f3c, 0x3c3c000f0f3c,
+    0x5555ccc0c30c, 0xaaaaccc0c30c, 0x5555f300cc30, 0xaaaaf300cc30,
+    0x00ff3fc030c0, 0xff003fc030c0, 0x0f0fcf3300c0, 0xf0f0cf3300c0,
+    0x3333f0fc00c0, 0xccccf0fc00c0, 0xf00ff0f33000, 0x0ff0f0f33000,
+    0xcc33cf3c3000, 0x33cccf3c3000, 0xc3c33fcf0000, 0x3c3c3fcf0000,
+    0x411455555555, 0x8228555a6595, 0x1441a6559965, 0x2882a65aa9a5,
+    0x144199959659, 0x2882999aa699, 0x41146a955a69, 0x82286a9a6aa9,
+    0x144169655a56, 0x2882696a6a96, 0x41149a659666, 0x82289a6aa6a6,
+    0x4114a5a5995a, 0x8228a5aaa99a, 0x144156a5556a, 0x288256aa65aa
+  ]
+
+@[expose] public def mMaskTable : Nat :=
+  mMaskWords.foldr (fun v acc => acc * 281474976710656 + v) 0
+
+@[expose] public def mMask (i : Nat) : Nat := (mMaskTable >>> (48 * i)) &&& 281474976710655
+
+/-- Entry `(i,j)` of `A_X`, read off the table. -/
+@[expose] public def mEnt (i j : Nat) : Nat := mMask i / 2 ^ j % 2
+
+/-- The table is the adjacency matrix: nothing about it is assumed. -/
+public theorem mMaskComp : allLt (fun i => decide (mMask i = pk 2 (vAdj i) 48)) 48 = true := by
+  decide +kernel
+
+public theorem vAdj_lt_two (i j : Nat) : vAdj i j < 2 := by
+  have h := adjN_le_one (vIdx i) (vIdx j)
+  show adjN (vIdx i) (vIdx j) < 2
+  omega
+
+public theorem mEnt_eq {i j : Nat} (hi : i < 48) (hj : j < 48) : mEnt i j = vAdj i j := by
+  have hm : mMask i = pk 2 (vAdj i) 48 := of_decide_eq_true (allLt_true _ _ mMaskComp i hi)
+  show mMask i / 2 ^ j % 2 = vAdj i j
+  rw [hm]
+  exact pk_digit 2 (by decide) (vAdj i) 48 (fun k _ => vAdj_lt_two i k) j hj
+
+public theorem mEnt_le_one (i j : Nat) : mEnt i j ≤ 1 := by
+  have h : mMask i / 2 ^ j % 2 < 2 := Nat.mod_lt _ (by decide)
+  show mMask i / 2 ^ j % 2 ≤ 1
+  omega
+
+/-! ### `A_X^3`, in one packed kernel computation
+
+`packV = 4096` is the packing base. It has to hold a digit of `A_X^3` plus the
+correction `16 P`, and the bound the proof can afford to prove without a
+second computation is the crude one: an entry of `A_X^2` is at most `48` and
+an entry of `A_X^3` at most `48 * 48`, so `2304 + 16 < 4096`. -/
+
+@[expose] public def packV : Nat := 4096
+
+@[expose] public def mRow (i : Nat) : Nat := pk packV (mEnt i) 48
+
+@[expose] public def sqRow (i : Nat) : Nat := sumN (fun k => mEnt i k * mRow k) 48
+
+@[expose] public def cubeRow (i : Nat) : Nat := sumN (fun k => mEnt i k * sqRow k) 48
+
+/-- Which block of `A_0` a vertex of the AtlasInstance lies in. On `V(A_0)`
+the last branch really is block `3`: the four blocks are disjoint by
+`blkDisjoint` and their union is `V(A_0)` by construction. That is a remark,
+not a hypothesis -- `N` and `P` are scaffolding for `T20a`, which mentions
+neither, so the theorems below are insensitive to how the last branch reads
+off `V(A_0)`. -/
+@[expose] public def vBlk (i : Nat) : Nat :=
+  if Bitset.mem (blkSet 0) (vIdx i) then 0
+  else if Bitset.mem (blkSet 1) (vIdx i) then 1
+  else if Bitset.mem (blkSet 2) (vIdx i) then 2 else 3
+
+/-- The indicator of "same block", the matrix `N`. -/
+@[expose] public def nInd (i j : Nat) : Nat := if vBlk i = vBlk j then 1 else 0
+
+/-- The indicator of "opposite blocks" in the sense of `T17`'s `p(a) = 3 - a`,
+the matrix `P`. -/
+@[expose] public def pInd (i j : Nat) : Nat := if vBlk i + vBlk j = 3 then 1 else 0
+
+public theorem vBlk_le (i : Nat) : vBlk i ≤ 3 := by
+  show (if Bitset.mem (blkSet 0) (vIdx i) then 0
+    else if Bitset.mem (blkSet 1) (vIdx i) then 1
+    else if Bitset.mem (blkSet 2) (vIdx i) then 2 else 3) ≤ 3
+  split
+  · decide
+  · split
+    · decide
+    · split <;> decide
+
+public theorem nInd_le_one (i j : Nat) : nInd i j ≤ 1 := by
+  show (if vBlk i = vBlk j then 1 else 0) ≤ 1
+  split <;> decide
+
+public theorem pInd_le_one (i j : Nat) : pInd i j ≤ 1 := by
+  show (if vBlk i + vBlk j = 3 then 1 else 0) ≤ 1
+  split <;> decide
+
+/-- The one kernel computation behind `T20a`: `A_X^3 + 16 P = 16 A_X + 160 J + 16 N`,
+row by row and packed base `4096`. -/
+public theorem cubeComp : allLt (fun i => decide (cubeRow i + 16 * pk packV (pInd i) 48
+    = 16 * mRow i + pk packV (fun j => 160 + 16 * nInd i j) 48)) 48 = true := by
+  decide +kernel
+
+/-- Entry `(i,j)` of `A_X^2`. -/
+@[expose] public def comE (i j : Nat) : Nat := sumN (fun k => mEnt i k * mEnt k j) 48
+
+/-- Entry `(i,j)` of `A_X^3`. -/
+@[expose] public def cubE (i j : Nat) : Nat := sumN (fun k => mEnt i k * comE k j) 48
+
+public theorem sqRow_eq (i : Nat) : sqRow i = pk packV (comE i) 48 :=
+  pk_sumN packV (mEnt i) mEnt 48 48
+
+public theorem cubeRow_eq (i : Nat) : cubeRow i = pk packV (cubE i) 48 := by
+  have h : ∀ k, k < 48 → mEnt i k * sqRow k = mEnt i k * pk packV (comE k) 48 :=
+    fun k _ => congrArg (fun t => mEnt i k * t) (sqRow_eq k)
+  show sumN (fun k => mEnt i k * sqRow k) 48 = _
+  rw [sumN_congr_lt _ _ 48 h]
+  exact pk_sumN packV (mEnt i) comE 48 48
+
+public theorem sumN_le_of_le (f : Nat → Nat) (c : Nat) (h : ∀ k, f k ≤ c) :
+    ∀ m, sumN f m ≤ m * c := by
+  intro m
+  induction m with
+  | zero => show (0 : Nat) ≤ 0 * c; omega
+  | succ n ih =>
+    rw [sumN_succ, Nat.succ_mul]
+    exact Nat.le_trans (Nat.add_le_add (h n) ih) (Nat.le_of_eq (Nat.add_comm _ _))
+
+public theorem comE_le (i j : Nat) : comE i j ≤ 48 :=
+  sumN_le_of_le_one (fun k => mEnt i k * mEnt k j)
+    (fun k => Nat.le_trans (Nat.mul_le_mul (mEnt_le_one i k) (mEnt_le_one k j)) (Nat.le_refl 1)) 48
+
+public theorem cubE_le (i j : Nat) : cubE i j ≤ 2304 :=
+  sumN_le_of_le (fun k => mEnt i k * comE k j) 48
+    (fun k => Nat.le_trans (Nat.mul_le_mul (mEnt_le_one i k) (comE_le k j))
+      (Nat.le_of_eq (Nat.one_mul 48))) 48
+
+public theorem cube_pk (i : Nat) (hi : i < 48) :
+    pk packV (fun j => cubE i j + 16 * pInd i j) 48
+      = pk packV (fun j => 16 * mEnt i j + (160 + 16 * nInd i j)) 48 := by
+  have hrow : cubeRow i + 16 * pk packV (pInd i) 48
+      = 16 * mRow i + pk packV (fun j => 160 + 16 * nInd i j) 48 :=
+    of_decide_eq_true (allLt_true _ _ cubeComp i hi)
+  rw [pk_add packV (fun j => cubE i j) (fun j => 16 * pInd i j) 48,
+    pk_smul packV 16 (pInd i) 48, ← cubeRow_eq i,
+    pk_add packV (fun j => 16 * mEnt i j) (fun j => 160 + 16 * nInd i j) 48,
+    pk_smul packV 16 (mEnt i) 48]
+  exact hrow
+
+/-- `A_X^3 + 16 P = 16 A_X + 160 J + 16 N`, entry by entry over `Nat`. -/
+public theorem cube_entry {i j : Nat} (hi : i < 48) (hj : j < 48) :
+    cubE i j + 16 * pInd i j = 16 * mEnt i j + (160 + 16 * nInd i j) :=
+  pk_inj packV (by decide) _ _ 48
+    (fun k _ => by have h1 := cubE_le i k; have h2 := pInd_le_one i k; show _ < 4096; omega)
+    (fun k _ => by have h1 := mEnt_le_one i k; have h2 := nInd_le_one i k; show _ < 4096; omega)
+    (cube_pk i hi) j hj
+
+/-! ### From the table to the matrix over `Z`
+
+`J`, `N` and `P` are the all-ones matrix, the "same block of `A_0`" matrix and
+the "opposite blocks" matrix. Every product with `A_X` below is a weighted row
+sum, so one lemma -- `sum_weight` -- carries all of them across from `Nat` to
+`Z`. -/
+
+/-- `J`, the all-ones matrix. -/
+@[expose] public def Jm : Mat 48 48 Int := fun _ _ => 1
+
+/-- `N`, the indicator of "same block of `A_0`". -/
+@[expose] public def Nm : Mat 48 48 Int := fun i j => ((nInd i.val j.val : Nat) : Int)
+
+/-- `P`, the indicator of "opposite blocks of `A_0`". -/
+@[expose] public def Pm : Mat 48 48 Int := fun i j => ((pInd i.val j.val : Nat) : Int)
+
+public theorem AVint_eq (i j : Fin 48) : AVint i j = ((mEnt i.val j.val : Nat) : Int) := by
+  show ((AV i j : Nat) : Int) = _
+  rw [AV_eq_vAdj, ← mEnt_eq i.isLt j.isLt]
+
+/-- A row of `A_X` against any `Nat`-valued column, over `Z`. -/
+public theorem sum_weight (i : Fin 48) (g : Nat → Nat) :
+    Vec.sum (fun k : Fin 48 => AVint i k * ((g k.val : Nat) : Int))
+      = ((sumN (fun k => mEnt i.val k * g k) 48 : Nat) : Int) := by
+  have hterm : ∀ k : Fin 48, AVint i k * ((g k.val : Nat) : Int)
+      = ((mEnt i.val k.val * g k.val : Nat) : Int) := fun k => by rw [AVint_eq]; rfl
+  rw [Vec.sum_congr hterm, ← sumNat_cast (fun k : Fin 48 => mEnt i.val k.val * g k.val)]
+  exact congrArg (fun n : Nat => (n : Int)) (sumNat_eq_sumN 48 (fun k => mEnt i.val k * g k))
+
+public theorem mulAA_entry (i j : Fin 48) :
+    Mat.mul AVint AVint i j = ((comE i.val j.val : Nat) : Int) := by
+  show Vec.sum (fun k : Fin 48 => AVint i k * AVint k j) = _
+  rw [Vec.sum_congr (fun k : Fin 48 => congrArg (fun t => AVint i k * t) (AVint_eq k j))]
+  exact sum_weight i (fun k => mEnt k j.val)
+
+public theorem mulAAA_entry (i j : Fin 48) :
+    Mat.mul AVint (Mat.mul AVint AVint) i j = ((cubE i.val j.val : Nat) : Int) := by
+  show Vec.sum (fun k : Fin 48 => AVint i k * Mat.mul AVint AVint k j) = _
+  rw [Vec.sum_congr (fun k : Fin 48 => congrArg (fun t => AVint i k * t) (mulAA_entry k j))]
+  exact sum_weight i (fun k => comE k j.val)
+
+/-- `A_X^3 = 16 A_X + 160 J + 16 N - 16 P` over `Z`: `cube_entry` cast up. -/
+public theorem cube_id (i j : Fin 48) :
+    Mat.mul AVint (Mat.mul AVint AVint) i j
+      = 16 * AVint i j + (160 * Jm i j + (16 * Nm i j - 16 * Pm i j)) := by
+  have h := cube_entry i.isLt j.isLt
+  rw [mulAAA_entry, AVint_eq]
+  show ((cubE i.val j.val : Nat) : Int)
+    = 16 * ((mEnt i.val j.val : Nat) : Int)
+      + (160 * 1 + (16 * ((nInd i.val j.val : Nat) : Int) - 16 * ((pInd i.val j.val : Nat) : Int)))
+  omega
+
+/-! ### `A_0`'s four blocks are an equitable partition
+
+A vertex has `8` neighbours in its own block, none in the opposite block and
+`6` in each of the other two -- `20` in all, the same `20` as `D15`'s
+tightness, recomputed here in the enumeration's coordinates rather than
+transported through the bijection. Equitability is what makes `J`, `N` and `P`
+an `A_X`-invariant triple, and that is what keeps the spectral argument
+three-dimensional. -/
+
+public theorem degComp : allLt (fun i => decide (sumN (mEnt i) 48 = 20)) 48 = true := by
+  decide +kernel
+
+public theorem blkDegComp : allLt (fun i => allLt (fun b =>
+    decide (sumN (fun k => mEnt i k * (if vBlk k = b then 1 else 0)) 48
+      = (if vBlk i = b then 8 else if vBlk i + b = 3 then 0 else 6))) 4) 48 = true := by
+  decide +kernel
+
+public theorem blkDeg_eq {i : Nat} (hi : i < 48) {b : Nat} (hb : b < 4) :
+    sumN (fun k => mEnt i k * (if vBlk k = b then 1 else 0)) 48
+      = (if vBlk i = b then 8 else if vBlk i + b = 3 then 0 else 6) :=
+  of_decide_eq_true (allLt_true _ _ (allLt_true _ _ blkDegComp i hi) b hb)
+
+public theorem blkDegN {i : Nat} (hi : i < 48) (j : Nat) :
+    sumN (fun k => mEnt i k * nInd k j) 48
+      = (if vBlk i = vBlk j then 8 else if vBlk i + vBlk j = 3 then 0 else 6) :=
+  blkDeg_eq hi (b := vBlk j) (by have := vBlk_le j; omega)
+
+public theorem blkDegP {i : Nat} (hi : i < 48) (j : Nat) :
+    sumN (fun k => mEnt i k * pInd k j) 48
+      = (if vBlk i = vBlk j then 0 else if vBlk i + vBlk j = 3 then 8 else 6) := by
+  have hi' := vBlk_le i
+  have hj := vBlk_le j
+  have hcong : ∀ k, k < 48 →
+      mEnt i k * pInd k j = mEnt i k * (if vBlk k = 3 - vBlk j then 1 else 0) := by
+    intro k _
+    refine congrArg (fun t => mEnt i k * t) ?_
+    have hk := vBlk_le k
+    show (if vBlk k + vBlk j = 3 then 1 else 0) = _
+    by_cases h : vBlk k + vBlk j = 3
+    · rw [if_pos h, if_pos (by omega)]
+    · rw [if_neg h, if_neg (by omega)]
+  rw [sumN_congr_lt _ _ 48 hcong, blkDeg_eq hi (b := 3 - vBlk j) (by omega)]
+  by_cases h1 : vBlk i = vBlk j
+  · rw [if_pos h1, if_neg (show ¬ (vBlk i = 3 - vBlk j) by omega),
+      if_pos (show vBlk i + (3 - vBlk j) = 3 by omega)]
+  · rw [if_neg h1]
+    by_cases h2 : vBlk i + vBlk j = 3
+    · rw [if_pos h2, if_pos (show vBlk i = 3 - vBlk j by omega)]
+    · rw [if_neg h2, if_neg (show ¬ (vBlk i = 3 - vBlk j) by omega),
+        if_neg (show ¬ (vBlk i + (3 - vBlk j) = 3) by omega)]
+
+/-- `A_X J = 20 J`: every vertex of the AtlasInstance has `20` neighbours in
+it. This is `D15`'s `deg_W(v) = 20` for the classes of `V(A_0)`, in the
+enumeration's coordinates. -/
+public theorem mulAJ (i j : Fin 48) : Mat.mul AVint Jm i j = 20 := by
+  have h := sum_weight i (fun _ => 1)
+  rw [sumN_congr_lt _ _ 48 (fun k _ => Nat.mul_one (mEnt i.val k)),
+    of_decide_eq_true (allLt_true _ _ degComp i.val i.isLt)] at h
+  exact h
+
+/-- `A_X N = 6 J + 2 N - 6 P`. -/
+public theorem mulAN (i j : Fin 48) :
+    Mat.mul AVint Nm i j = 6 + (2 * Nm i j - 6 * Pm i j) := by
+  have h := sum_weight i (fun k => nInd k j.val)
+  rw [blkDegN i.isLt j.val] at h
+  show Vec.sum (fun k : Fin 48 => AVint i k * ((nInd k.val j.val : Nat) : Int))
+    = 6 + (2 * ((nInd i.val j.val : Nat) : Int) - 6 * ((pInd i.val j.val : Nat) : Int))
+  rw [h]
+  show ((if vBlk i.val = vBlk j.val then 8
+      else if vBlk i.val + vBlk j.val = 3 then 0 else 6 : Nat) : Int)
+    = 6 + (2 * ((if vBlk i.val = vBlk j.val then 1 else 0 : Nat) : Int)
+      - 6 * ((if vBlk i.val + vBlk j.val = 3 then 1 else 0 : Nat) : Int))
+  have hi := vBlk_le i.val
+  have hj := vBlk_le j.val
+  by_cases h1 : vBlk i.val = vBlk j.val
+  · rw [if_pos h1, if_pos h1, if_neg (show ¬ (vBlk i.val + vBlk j.val = 3) by omega)]
+    decide
+  · rw [if_neg h1, if_neg h1]
+    by_cases h2 : vBlk i.val + vBlk j.val = 3
+    · rw [if_pos h2, if_pos h2]; decide
+    · rw [if_neg h2, if_neg h2]; decide
+
+/-- `A_X P = 6 J - 6 N + 2 P`. -/
+public theorem mulAP (i j : Fin 48) :
+    Mat.mul AVint Pm i j = 6 + (-6 * Nm i j + 2 * Pm i j) := by
+  have h := sum_weight i (fun k => pInd k j.val)
+  rw [blkDegP i.isLt j.val] at h
+  show Vec.sum (fun k : Fin 48 => AVint i k * ((pInd k.val j.val : Nat) : Int))
+    = 6 + (-6 * ((nInd i.val j.val : Nat) : Int) + 2 * ((pInd i.val j.val : Nat) : Int))
+  rw [h]
+  show ((if vBlk i.val = vBlk j.val then 0
+      else if vBlk i.val + vBlk j.val = 3 then 8 else 6 : Nat) : Int)
+    = 6 + (-6 * ((if vBlk i.val = vBlk j.val then 1 else 0 : Nat) : Int)
+      + 2 * ((if vBlk i.val + vBlk j.val = 3 then 1 else 0 : Nat) : Int))
+  have hi := vBlk_le i.val
+  have hj := vBlk_le j.val
+  by_cases h1 : vBlk i.val = vBlk j.val
+  · rw [if_pos h1, if_pos h1, if_neg (show ¬ (vBlk i.val + vBlk j.val = 3) by omega)]
+    decide
+  · rw [if_neg h1, if_neg h1]
+    by_cases h2 : vBlk i.val + vBlk j.val = 3
+    · rw [if_pos h2, if_pos h2]; decide
+    · rw [if_neg h2, if_neg h2]; decide
+
+/-! ### `T20a`: the annihilating polynomial
+
+`mulL` and `mulR` peel one factor `A_X - cI` off a product, `mul_congr_right`
+replaces a factor by an entrywise equal one, and `mul_add_smul` and `mul_lin3`
+are the two instances of bilinearity the chain needs. The chain itself is four
+steps: `A_X(A_X + 4) = A_X^2 + 4A_X`, then `(A_X - 4)A_X(A_X + 4) = S`, then
+`(A_X - 8)S = 1920 J`, then `(A_X - 20)J = 0`. -/
+
+public theorem Jm_apply (i j : Fin 48) : Jm i j = 1 := rfl
+
+public theorem mul_congr_right (Y Z : Mat 48 48 Int) (h : ∀ p q, Y p q = Z p q) (i j : Fin 48) :
+    Mat.mul AVint Y i j = Mat.mul AVint Z i j :=
+  Vec.sum_congr (fun k => congrArg (fun t => AVint i k * t) (h k j))
+
+public theorem mul_swap3 (x y z : Int) : x * (y * z) = y * (x * z) := by
+  rw [← Int.mul_assoc, Int.mul_comm x y, Int.mul_assoc]
+
+/-- `Vec.mul_sum` in the `*` notation the matrix proofs below are written in. -/
+public theorem isum_scale {n : Nat} (c : Int) (x : Vec n Int) :
+    c * Vec.sum x = Vec.sum (fun i => c * x i) := Vec.mul_sum c x
+
+public theorem mul_add_smul (Y Z : Mat 48 48 Int) (c : Int) (i j : Fin 48) :
+    Mat.mul AVint (fun p q => Y p q + c * Z p q) i j
+      = Mat.mul AVint Y i j + c * Mat.mul AVint Z i j := by
+  have hterm : ∀ k : Fin 48, AVint i k * (Y k j + c * Z k j)
+      = AVint i k * Y k j + c * (AVint i k * Z k j) := by
+    intro k
+    rw [Int.mul_add, mul_swap3 (AVint i k) c (Z k j)]
+  show Vec.sum (fun k : Fin 48 => AVint i k * (Y k j + c * Z k j)) = _
+  rw [Vec.sum_congr hterm,
+    isum_add (fun k : Fin 48 => AVint i k * Y k j) (fun k : Fin 48 => c * (AVint i k * Z k j)),
+    ← isum_scale c (fun k : Fin 48 => AVint i k * Z k j)]
+  rfl
+
+public theorem mul_lin3 (a b c : Int) (i j : Fin 48) :
+    Mat.mul AVint (fun p q => a * Jm p q + (b * Nm p q + c * Pm p q)) i j
+      = a * Mat.mul AVint Jm i j
+        + (b * Mat.mul AVint Nm i j + c * Mat.mul AVint Pm i j) := by
+  have hterm : ∀ k : Fin 48, AVint i k * (a * Jm k j + (b * Nm k j + c * Pm k j))
+      = a * (AVint i k * Jm k j)
+        + (b * (AVint i k * Nm k j) + c * (AVint i k * Pm k j)) := by
+    intro k
+    rw [Int.mul_add, Int.mul_add, mul_swap3 (AVint i k) a (Jm k j),
+      mul_swap3 (AVint i k) b (Nm k j), mul_swap3 (AVint i k) c (Pm k j)]
+  show Vec.sum (fun k : Fin 48 => AVint i k * (a * Jm k j + (b * Nm k j + c * Pm k j))) = _
+  rw [Vec.sum_congr hterm,
+    isum_add (fun k : Fin 48 => a * (AVint i k * Jm k j))
+      (fun k : Fin 48 => b * (AVint i k * Nm k j) + c * (AVint i k * Pm k j)),
+    isum_add (fun k : Fin 48 => b * (AVint i k * Nm k j))
+      (fun k : Fin 48 => c * (AVint i k * Pm k j)),
+    ← isum_scale a (fun k : Fin 48 => AVint i k * Jm k j),
+    ← isum_scale b (fun k : Fin 48 => AVint i k * Nm k j),
+    ← isum_scale c (fun k : Fin 48 => AVint i k * Pm k j)]
+  rfl
+
+/-- Peeling `A_X - cI` off the left of a product. -/
+public theorem mulL (c : Int) (X : Mat 48 48 Int) (i j : Fin 48) :
+    Mat.mul (AVmC c) X i j = Mat.mul AVint X i j - c * X i j := by
+  have hterm : ∀ k : Fin 48, AVmC c i k * X k j
+      = AVint i k * X k j + (if i = k then -(c * X k j) else 0) := by
+    intro k
+    show (AVint i k - c * (if i = k then 1 else 0)) * X k j = _
+    by_cases h : i = k
+    · rw [if_pos h, if_pos h, Int.mul_one, Int.sub_mul, Int.sub_eq_add_neg]
+    · rw [if_neg h, if_neg h, Int.mul_zero, Int.sub_zero, Int.add_zero]
+  show Vec.sum (fun k : Fin 48 => AVmC c i k * X k j) = _
+  rw [Vec.sum_congr hterm,
+    isum_add (fun k : Fin 48 => AVint i k * X k j)
+      (fun k : Fin 48 => if i = k then -(c * X k j) else 0),
+    isum_ite i (fun k : Fin 48 => -(c * X k j))]
+  exact Int.sub_eq_add_neg.symm
+
+/-- Peeling `A_X - cI` off the right of a product. -/
+public theorem mulR (c : Int) (X : Mat 48 48 Int) (i j : Fin 48) :
+    Mat.mul X (AVmC c) i j = Mat.mul X AVint i j - c * X i j := by
+  have hterm : ∀ k : Fin 48, X i k * AVmC c k j
+      = X i k * AVint k j + (if k = j then -(c * X i k) else 0) := by
+    intro k
+    show X i k * (AVint k j - c * (if k = j then 1 else 0)) = _
+    by_cases h : k = j
+    · rw [if_pos h, if_pos h, Int.mul_one, Int.mul_sub, Int.mul_comm (X i k) c,
+        Int.sub_eq_add_neg]
+    · rw [if_neg h, if_neg h, Int.mul_zero, Int.sub_zero, Int.add_zero]
+  show Vec.sum (fun k : Fin 48 => X i k * AVmC c k j) = _
+  rw [Vec.sum_congr hterm,
+    isum_add (fun k : Fin 48 => X i k * AVint k j)
+      (fun k : Fin 48 => if k = j then -(c * X i k) else 0),
+    isum_ite' j (fun k : Fin 48 => -(c * X i k))]
+  exact Int.sub_eq_add_neg.symm
+
+/-- `A_X(A_X + 4) = A_X^2 + 4 A_X`. -/
+public theorem stepA (i j : Fin 48) :
+    Mat.mul (AVmC 0) (AVmC (-4)) i j = Mat.mul AVint AVint i j + 4 * AVint i j := by
+  rw [mulL 0 (AVmC (-4)) i j, mulR (-4) AVint i j]
+  omega
+
+/-- `(A_X - 4)A_X(A_X + 4) = S`, where `S = 160 J + 16 N - 16 P`. -/
+public theorem stepB (i j : Fin 48) :
+    Mat.mul (AVmC 4) (Mat.mul (AVmC 0) (AVmC (-4))) i j
+      = 160 * Jm i j + (16 * Nm i j + (-16) * Pm i j) := by
+  rw [mulL 4 (Mat.mul (AVmC 0) (AVmC (-4))) i j,
+    mul_congr_right (Mat.mul (AVmC 0) (AVmC (-4)))
+      (fun p q => Mat.mul AVint AVint p q + 4 * AVint p q) (fun p q => stepA p q) i j,
+    mul_add_smul (Mat.mul AVint AVint) AVint 4 i j, cube_id i j, stepA i j, Jm_apply]
+  omega
+
+/-- `(A_X - 8)S = 1920 J`. -/
+public theorem stepC (i j : Fin 48) :
+    Mat.mul (AVmC 8) (Mat.mul (AVmC 4) (Mat.mul (AVmC 0) (AVmC (-4)))) i j
+      = 1920 * Jm i j := by
+  rw [mulL 8 (Mat.mul (AVmC 4) (Mat.mul (AVmC 0) (AVmC (-4)))) i j,
+    mul_congr_right (Mat.mul (AVmC 4) (Mat.mul (AVmC 0) (AVmC (-4))))
+      (fun p q => 160 * Jm p q + (16 * Nm p q + (-16) * Pm p q)) (fun p q => stepB p q) i j,
+    mul_lin3 160 16 (-16) i j, mulAJ, mulAN, mulAP, stepB i j, Jm_apply]
+  omega
+
+/-- `T20a`. `(x - 20)(x - 8)(x - 4)x(x + 4)` annihilates the AtlasInstance
+graph over `Z`. The factor `x` is written `A_X - 0I` so that all five roots of
+the polynomial are visible in the statement. -/
+public theorem T20a : ∀ i j : Fin 48,
+    Mat.mul (Mat.mul (Mat.mul (Mat.mul (AVmC 20) (AVmC 8)) (AVmC 4)) (AVmC 0)) (AVmC (-4)) i j
+      = 0 := by
+  intro i j
+  rw [Mat.mul_assoc_apply, Mat.mul_assoc_apply, Mat.mul_assoc_apply,
+    mulL 20 (Mat.mul (AVmC 8) (Mat.mul (AVmC 4) (Mat.mul (AVmC 0) (AVmC (-4))))) i j,
+    mul_congr_right (Mat.mul (AVmC 8) (Mat.mul (AVmC 4) (Mat.mul (AVmC 0) (AVmC (-4)))))
+      (fun p q => 1920 * Jm p q + (0 * Nm p q + 0 * Pm p q))
+      (fun p q => by rw [stepC p q]; omega) i j,
+    mul_lin3 1920 0 0 i j, mulAJ, mulAN, mulAP, stepC i j, Jm_apply]
+  omega
+
+/-! ### The five integer traces
+
+`tr I` and `tr A_X` are immediate, `tr A_X^2` is one kernel computation over
+the table, and `tr A_X^4` is the same computation one level up:
+`A_X^4 = A_X^2 A_X^2`, so its diagonal is a sum of products of entries of
+`A_X^2`. `tr A_X^3` needs no computation at all -- `cube_id` gives the whole
+diagonal of `A_X^3` as `160 + 16` at every vertex. -/
+
+/-- `tr I` on the AtlasInstance. -/
+@[expose] public def trV0 : Int := Vec.sum (fun _ : Fin 48 => (1 : Int))
+
+/-- `tr A_X`. -/
+@[expose] public def trV1 : Int := Vec.sum (fun u : Fin 48 => AVint u u)
+
+/-- `tr A_X^2`. -/
+@[expose] public def trV2 : Int := Vec.sum (fun u : Fin 48 => Mat.mul AVint AVint u u)
+
+/-- `tr A_X^3`. -/
+@[expose] public def trV3 : Int :=
+  Vec.sum (fun u : Fin 48 => Mat.mul AVint (Mat.mul AVint AVint) u u)
+
+/-- `tr A_X^4`. -/
+@[expose] public def trV4 : Int :=
+  Vec.sum (fun u : Fin 48 => Mat.mul AVint (Mat.mul AVint (Mat.mul AVint AVint)) u u)
+
+public theorem AVint_diag (u : Fin 48) : AVint u u = 0 := by
+  show ((A (vClass u) (vClass u) : Nat) : Int) = 0
+  rw [A_diag]
+  rfl
+
+public theorem Nm_diag (u : Fin 48) : Nm u u = 1 := by
+  show ((if vBlk u.val = vBlk u.val then 1 else 0 : Nat) : Int) = 1
+  rw [if_pos rfl]
+  rfl
+
+public theorem Pm_diag (u : Fin 48) : Pm u u = 0 := by
+  have h := vBlk_le u.val
+  show ((if vBlk u.val + vBlk u.val = 3 then 1 else 0 : Nat) : Int) = 0
+  rw [if_neg (show ¬ (vBlk u.val + vBlk u.val = 3) by omega)]
+  rfl
+
+public theorem trV0_eq : trV0 = 48 := by
+  show Vec.sum (fun _ : Fin 48 => (1 : Int)) = 48
+  rw [isum_const]
+  decide
+
+public theorem trV1_eq : trV1 = 0 := by
+  show Vec.sum (fun u : Fin 48 => AVint u u) = 0
+  rw [Vec.sum_congr AVint_diag]
+  exact Vec.sum_zero
+
+public theorem trComp2 : sumN (fun i => comE i i) 48 = 960 := by decide +kernel
+
+public theorem trV2_eq : trV2 = 960 := by
+  show Vec.sum (fun u : Fin 48 => Mat.mul AVint AVint u u) = 960
+  rw [Vec.sum_congr (fun u : Fin 48 => mulAA_entry u u),
+    ← sumNat_cast (fun u : Fin 48 => comE u.val u.val),
+    sumNat_eq_sumN 48 (fun i => comE i i), trComp2]
+  rfl
+
+public theorem trV3_eq : trV3 = 8448 := by
+  have h : ∀ u : Fin 48, Mat.mul AVint (Mat.mul AVint AVint) u u = 176 := by
+    intro u
+    rw [cube_id u u, AVint_diag u, Jm_apply, Nm_diag u, Pm_diag u]
+    decide
+  show Vec.sum (fun u : Fin 48 => Mat.mul AVint (Mat.mul AVint AVint) u u) = 8448
+  rw [Vec.sum_congr h, isum_const]
+  decide
+
+/-- A row of `A_X^2` against any `Nat`-valued column, over `Z`. -/
+public theorem sum_weight2 (i : Fin 48) (g : Nat → Nat) :
+    Vec.sum (fun k : Fin 48 => Mat.mul AVint AVint i k * ((g k.val : Nat) : Int))
+      = ((sumN (fun k => comE i.val k * g k) 48 : Nat) : Int) := by
+  have hterm : ∀ k : Fin 48, Mat.mul AVint AVint i k * ((g k.val : Nat) : Int)
+      = ((comE i.val k.val * g k.val : Nat) : Int) := fun k => by rw [mulAA_entry]; rfl
+  rw [Vec.sum_congr hterm, ← sumNat_cast (fun k : Fin 48 => comE i.val k.val * g k.val)]
+  exact congrArg (fun n : Nat => (n : Int)) (sumNat_eq_sumN 48 (fun k => comE i.val k * g k))
+
+public theorem trComp4 : sumN (fun i => sumN (fun k => comE i k * comE k i) 48) 48 = 175104 := by
+  decide +kernel
+
+public theorem trV4_eq : trV4 = 175104 := by
+  have h : ∀ u : Fin 48, Mat.mul AVint (Mat.mul AVint (Mat.mul AVint AVint)) u u
+      = ((sumN (fun k => comE u.val k * comE k u.val) 48 : Nat) : Int) := by
+    intro u
+    rw [← Mat.mul_assoc_apply AVint AVint (Mat.mul AVint AVint) u u]
+    show Vec.sum (fun k : Fin 48 => Mat.mul AVint AVint u k * Mat.mul AVint AVint k u) = _
+    rw [Vec.sum_congr (fun k : Fin 48 =>
+      congrArg (fun t => Mat.mul AVint AVint u k * t) (mulAA_entry k u))]
+    exact sum_weight2 u (fun k => comE k u.val)
+  show Vec.sum (fun u : Fin 48 => Mat.mul AVint (Mat.mul AVint (Mat.mul AVint AVint)) u u) = 175104
+  rw [Vec.sum_congr h,
+    ← sumNat_cast (fun u : Fin 48 => sumN (fun k => comE u.val k * comE k u.val) 48),
+    sumNat_eq_sumN 48 (fun i => sumN (fun k => comE i k * comE k i) 48), trComp4]
+  rfl
+
+/-! ### `T18`, `T20` and `T21` -/
+
+/-- `Spec(A_X) = { 20^1, 8^2, 4^9, 0^18, (-4)^18 }`, spelled the way `D56` and
+`S32` prescribe and `T9` spells it for `G`: the annihilating polynomial over
+`Z`, which confines the spectrum to the five integers and makes `A_X`
+diagonalisable; the five integer traces; and the uniqueness of the nonnegative
+integer multiplicities those traces force. The eigenvalues are never
+constructed as real numbers. -/
+@[expose] public def SpecV : Prop :=
+  (∀ i j : Fin 48,
+      Mat.mul (Mat.mul (Mat.mul (Mat.mul (AVmC 20) (AVmC 8)) (AVmC 4)) (AVmC 0)) (AVmC (-4)) i j
+        = 0)
+    ∧ trV0 = 48 ∧ trV1 = 0 ∧ trV2 = 960 ∧ trV3 = 8448 ∧ trV4 = 175104
+    ∧ (∀ a b c d e : Int, 0 ≤ a → 0 ≤ b → 0 ≤ c → 0 ≤ d → 0 ≤ e →
+        a + b + c + d + e = trV0 →
+        20 * a + 8 * b + 4 * c + 0 * d + (-4) * e = trV1 →
+        20 * 20 * a + 8 * 8 * b + 4 * 4 * c + 0 * 0 * d + (-4) * (-4) * e = trV2 →
+        20 * 20 * 20 * a + 8 * 8 * 8 * b + 4 * 4 * 4 * c + 0 * 0 * 0 * d
+          + (-4) * (-4) * (-4) * e = trV3 →
+        20 * 20 * 20 * 20 * a + 8 * 8 * 8 * 8 * b + 4 * 4 * 4 * 4 * c + 0 * 0 * 0 * 0 * d
+          + (-4) * (-4) * (-4) * (-4) * e = trV4 →
+        a = 1 ∧ b = 2 ∧ c = 9 ∧ d = 18 ∧ e = 18)
+
+public theorem specV : SpecV := by
+  refine ⟨T20a, trV0_eq, trV1_eq, trV2_eq, trV3_eq, trV4_eq, ?_⟩
+  intro a b c d e _ _ _ _ _ h1 h2 h3 h4 h5
+  rw [trV0_eq] at h1
+  rw [trV1_eq] at h2
+  rw [trV2_eq] at h3
+  rw [trV3_eq] at h4
+  rw [trV4_eq] at h5
+  omega
+
+/-- `T18`. For the witness AtlasPresentation `A_0`:
+`Spec(V(A)) = { 20^1, 8^2, 4^9, 0^18, (-4)^18 }`. The first conjunct is what
+makes `A_X` the graph induced on `V(A_0)` and not a matrix attached to some
+list of classes: `vClass` hits every class of `V(A_0)` exactly once, and `AV`
+is `G` read through that enumeration. -/
+public theorem T18 : ((∀ i j : Fin 48, vClass i = vClass j → i = j)
+    ∧ (∀ u : K, u.val ∈ V A0 ↔ ∃ i : Fin 48, vClass i = u)) ∧ SpecV :=
+  ⟨vEnum, specV⟩
+
+/-- `T20`. The AtlasInstance graph has spectrum
+`{ 20^1, 8^2, 4^9, 0^18, (-4)^18 }`. The AtlasInstance is the exhibited one,
+`V(A_0)`, which `atl_A0` certifies is a member of `Atl`; the statement about
+every member of `Atl` is the one that needs the census, which this module does
+not have. `T18` and `T20` therefore share their spectral content and differ in
+what they say the subject is: the support of an AtlasPresentation there, a
+member of `Atl` here. -/
+public theorem T20 : Atl (V A0)
+    ∧ ((∀ i j : Fin 48, vClass i = vClass j → i = j)
+      ∧ (∀ u : K, u.val ∈ V A0 ↔ ∃ i : Fin 48, vClass i = u)) ∧ SpecV :=
+  ⟨atl_A0, vEnum, specV⟩
+
+/-- A set of roots is a **closed root subsystem** when every sum of two of its
+members that is again a root is again a member. This is the closure condition
+`T21` denies; it is not itself a label of the document. -/
+@[expose] public def ClosedRootSet (S : Vec 8 Int → Prop) : Prop :=
+  ∀ x y : Vec 8 Int, S x → S y → D11 (AddCommGroup.add x y) → S (AddCommGroup.add x y)
+
+/-- `T21`. `Rt(W) := { x in R : k(x) in W }` for the exhibited AtlasInstance
+`W = V(A_0)`: there are `x, y in Rt(W)` with `<x,y> = -1` -- `dot x y = -4` in
+the `2x` scaling of this module -- and `x + y in R \ Rt(W)`. So `Rt(W)` is not
+a closed root subsystem. The witnesses are `T19`'s, since `Rt(A_0)` and
+`Rt(V(A_0))` are the same set of roots. -/
+public theorem T21 : Atl (V A0)
+    ∧ (∃ x y : Vec 8 Int, RootsOf (V A0) x ∧ RootsOf (V A0) y ∧ dot x y = -4
+        ∧ D11 (AddCommGroup.add x y) ∧ ¬ RootsOf (V A0) (AddCommGroup.add x y))
+    ∧ ¬ ClosedRootSet (RootsOf (V A0)) := by
+  obtain ⟨x, y, hx, hy, hxy, hr, hnr⟩ := T19
+  exact ⟨atl_A0, ⟨x, y, hx, hy, hxy, hr, hnr⟩, fun hc => hnr (hc x y hx hy hr)⟩
