@@ -10,3 +10,5 @@ public import UorAtlas.Glue
 public import UorAtlas.Roots
 public import UorAtlas.Blocks
 public import UorAtlas.Category
+public import UorAtlas.Places
+public import UorAtlas.Functor
