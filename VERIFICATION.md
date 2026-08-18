@@ -128,6 +128,72 @@ gate failed: R6: crates/lexlean/src/lib.rs must carry the crate-level prohibitio
 
 An `unsafe` block planted in `crates/lexlean/src/error.rs` instead does not even reach the audit: `rustc` refuses the crate under the prohibition (`error: usage of an `unsafe` block`, exit 101). Removed: the attribute was restored; the audit reports the prohibition active.
 
+### audit-surface-disjointness can fail
+
+Planted: `language/std/int/entries/add.toml`'s math surface changed from `intplus` to `+`, which `lexlean.std.nat::add` already owns. Command: `cargo xtask validate-model`. Expected: R7 names both owners and why a second one matters.
+
+```text
+gate failed: R7: the surface `+` is owned by 2 entries in the Math channel (lexlean.std.int::add, lexlean.std.nat::add); `fmt` spells a surface bare only when one visible entry owns it, so a second owner changes canonical output and breaks §30.2 byte-compatibility
+```
+
+Removed: the surface was restored; the audit reports 58 spellable surfaces with no two entries sharing one in a channel. The three parser-layer overlaps it counts separately (`-` between `lexlean.core::hyphen` and `lexlean.std.nat::sub`, and `cases`/`induction` between a grammar and a structural entry) are reported rather than hidden, because `structural` and `grammar` entries are never resolved as term atoms.
+
+### audit-atlas-library can fail
+
+Planted: a module `lean/uor-atlas/UorAtlas/Planted.lean` whose theorem is closed `by sorry`. Command: `cargo xtask validate-model`. Expected: R4 names the file and the token.
+
+```text
+gate failed: R4: /workspaces/LexLean/lean/uor-atlas/UorAtlas/Planted.lean: forbidden token `sorry` in the vendored library; the vendored Atlas library admits none of them (§4.4)
+```
+
+Planting an author `axiom` or `native_decide` instead fails the same way, naming that token. The word list is `lexlean::verify::source_audit`'s, shared with the generated-Lean audit so the two spellings cannot drift.
+
+The same gate refuses a module the library root does not reach, which is the hole a word scan alone leaves: the axiom gate walks the environment the root pulls in, so an unimported module is scanned for words and never checked for axioms. Planted: the same file with a harmless theorem, left out of `UorAtlas.lean`.
+
+```text
+gate failed: R4: the vendored Atlas library has 1 module(s) no import reaches from `UorAtlas`, so the axiom gate never sees them: UorAtlas.Planted
+```
+
+Removed: the file was deleted; the audit reports every vendored module free of forbidden constructs and reachable from the root. This check has caught agent scratch files twice.
+
+### audit-atlas-registers can fail
+
+Planted: a module declaring `T48`, which section 20.1 records as retracted. Command: `cargo xtask validate-model`. Expected: R4 names the label and its disposition.
+
+```text
+gate failed: R4: /workspaces/LexLean/lean/uor-atlas/UorAtlas/Planted.lean declares `T48`, which the registers withhold (retracted, superseded, or non-denotable); citing it is a failure, not a definition
+```
+
+Planting `T10` (superseded) or `L1` (non-denotable) fails the same way. The register keys on exact identifiers, so the negative case matters as much: planting `T57a`, `T10a` and `F12` — live labels whose prefixes are withheld — is ACCEPTED and raises the declared count, which is the property a prefix-matching register would destroy.
+
+The same gate refuses a label declared twice, because a pack entry naming it would then have two constants to denote. Planted: a second `T5` beside the one in `Roots.lean`.
+
+```text
+gate failed: R4: `T5` is declared in both Planted.lean and Roots.lean; a label has one denotation, so a pack entry naming it must have one declaration to name
+```
+
+Removed: the file was deleted; the audit reports 300 registered labels with disjoint dispositions.
+
+### audit-authority-scope can fail
+
+Planted: an authority row for the vendored library, which is repository content. Command: `cargo xtask validate-model`. Expected: R2 refuses the row.
+
+```text
+gate failed: R2: authority `ATLAS-LIBRARY` cites repository content; what this repository builds is a `build` claim with a conformance ID, never a `some-true` citation (§27.4)
+```
+
+A citation naming an existing repository path fails the same way, naming the path. The check reads each citation up to its first semicolon, because a legitimate row may go on to name repository fixtures as the evidence a third party compares against — `PRINT-AXIOMS-4-32-1` does exactly that with `tests/golden/axiom-parser/`, and must not be refused for it. Removed: the row was deleted; the audit reports five rows, none citing repository content.
+
+### audit-atlas-duplication can fail
+
+Planted: `sumInt_congr` re-proved in `Roots.lean`, where `Glue.lean` already proves it and `Roots` imports `Glue`. Command: `cargo xtask validate-model`. Expected: R4 names the lemma and both modules.
+
+```text
+gate failed: R4: `sumInt_congr` is stated identically in lean/uor-atlas/UorAtlas/Glue.lean and lean/uor-atlas/UorAtlas/Roots.lean; one proof of a settled fact, not two that can drift
+```
+
+Removed: the duplicate was deleted; the audit reports every public statement across the vendored modules unrepeated. The comparison is a declaration's name together with the CONCLUSION of its statement: comparing whole statements missed this exact case, because one module binds `{n : Nat}` where the other takes it from a section variable. What it still does not catch is recorded in its docstring — conclusions are compared as text, so one lemma written once fully qualified and once through an `open` reads as two.
+
 ### honesty-vocabulary can fail
 
 Planted: the sentence "The authority `LEAN-REL-4-32-1` proves every generated theorem." appended to `README.md`. Command: `cargo xtask validate-model`. Expected: R2 rejects assertive vocabulary about a cited authority, naming the appended line (its number is the file's last line, so it moves as the README grows).
