@@ -386,9 +386,14 @@ pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
             .is_some_and(|extension| extension == "lean")
     });
     files.sort();
-    let mut declared = 0usize;
+    let mut declared: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     let mut lookalike: Vec<String> = Vec::new();
     for path in &files {
+        let module = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
         for name in declaration_names(&std::fs::read_to_string(path)?) {
             if !is_label_shaped(&name) {
                 continue;
@@ -400,7 +405,13 @@ pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
                 )));
             }
             if live.contains(&name) {
-                declared += 1;
+                if let Some(first) = declared.insert(name.clone(), module.clone()) {
+                    if first != module {
+                        return Err(Fail::from(format!(
+                            "R4: `{name}` is declared in both {first} and {module}; a label has one denotation, so a pack entry naming it must have one declaration to name"
+                        )));
+                    }
+                }
             } else {
                 // Label-shaped but not a label: the library names its own
                 // witnesses and helpers, and `A0` beside the document's `A1` is
@@ -413,11 +424,13 @@ pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
         }
     }
     println!(
-        "audit-atlas-registers: {} labels registered ({} entry, {} ambient, {} withheld), dispositions disjoint, {declared} declared in the library",
+        "audit-atlas-registers: {} labels registered ({} entry, {} ambient, {} withheld), dispositions disjoint, {} of {} declared in the library",
         entry.len() + ambient.len() + non_denotable.len() + retracted.len() + superseded.len(),
         entry.len(),
         ambient.len(),
         non_denotable.len() + retracted.len() + superseded.len(),
+        declared.len(),
+        entry.len() + ambient.len(),
     );
     if !lookalike.is_empty() {
         println!(
@@ -468,9 +481,15 @@ fn declaration_names(text: &str) -> Vec<String> {
             "class ",
         ] {
             if let Some(tail) = rest.strip_prefix(keyword) {
+                // `.` is part of the name: `D13.instDecidable` is a `Decidable`
+                // instance in `D13`'s namespace, not a declaration of the label
+                // `D13`. Stopping at the dot credited the label to its own
+                // helpers and inflated the coverage this gate reports.
                 let name: String = tail
                     .chars()
-                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '\'')
+                    .take_while(|c| {
+                        c.is_ascii_alphanumeric() || *c == '_' || *c == '\'' || *c == '.'
+                    })
                     .collect();
                 if !name.is_empty() {
                     out.push(name);

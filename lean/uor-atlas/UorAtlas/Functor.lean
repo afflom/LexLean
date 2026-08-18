@@ -21,8 +21,8 @@ makes this a machine check rather than a reading."
 This module is that machine check. `NatTrans` below is indexed by **one** pair
 of categories, so writing `loc_v : R_Q => R_v` at all forces `R_Q` and `R_v` to
 share source *and* target; `Across` and `F12` state the law that makes the
-withdrawn pairing unwritable, and `D64.Signature` is the table itself as a
-record whose five field types are the five rows.
+withdrawn pairing unwritable, and `D64` is the table itself as a record whose
+five field types are the five rows.
 
 The document's order is followed exactly, and it says why: "Construction
 precedes typing. `F22`, `F17`, `F19a` and `F15a` establish that `R_Q`, `R_v`,
@@ -82,15 +82,22 @@ whole of what `D39`, `F7`, `F19` and `RP1` use it for. When `UorAtlas.Places`
 lands, its restricted product supplies `LocData.Adr` and these three
 definitions should be merged into it rather than duplicated.
 
-## Labels of the place layer that are *not* claimed here
+## Labels of the place layer, and which of them are claimed here
+
+`T76a` **is** claimed here: it carries a bold entry in section 18 and sits in
+section 18's block of the label register.
 
 `T77a` and `T78`-`T83` lie in section 13's theorem list, which
-`UorAtlas.Places` is tasked with. `F6` and `F16` are section 18's own
-statements of the naturality square that section 13 labels `T79`, and `F20`'s
-naturality equation is section 13's `T80`; those squares are proved here under
-their section-18 labels, and the `T` names are left to the module that owns
-the section they are stated in. `T76a` **is** claimed here: it carries a bold
-entry in section 18 and sits in section 18's block of the label register.
+`UorAtlas.Places` is tasked with; that module records in its own header that
+the text of section 13 was not available to it and that it therefore declares
+none of `T65`-`T83`. Two of them are nonetheless fixed by text this repository
+carries -- `T79` is the naturality of `loc_v`, which `F6` and `F16` state and
+which `UorAtlas.Prelude.RingLemmas` names at `RH1_apply`, and `T80` is the
+naturality equation of `F20` -- and those two are named at the end of this
+module, each as the theorem already proved under its section-18 label rather
+than as a second proof of it. `T77a`, `T78`, `T80p`, `T80a` and `T81`-`T83` are
+left undeclared: a label is a claim about the document, and nothing here fixes
+what those seven say.
 -/
 
 set_option autoImplicit false
@@ -617,14 +624,13 @@ public theorem matHom_mul {L : LocData} (i : QIx L)
     matHom i (Mat.mul A B) = QLin.comp (matHom i A) (matHom i B) :=
   QLin.ext (fun x => apply_mul A B x)
 
-
 /-! ## `D62`: the linear model, and what of it is formalised
 
-Section 17 leaves section 18 four constructions. Three are pure linear algebra
-over `Q` and are given here; the fourth, `component_dims`, is not, and the
-reason is recorded in the module header: eigenvalue multiplicities are not
-expressible over `Z` or `Q` without the spectral machinery of section 16, and
-this library carries no real numbers. `D62` is therefore the record of the
+The linear model section 18 consumes carries four constructions. Three are
+pure linear algebra over `Q` and are given here; the fourth, `component_dims`,
+is not, and the reason is the module header's: eigenvalue multiplicities are
+not expressible over `Z` or `Q` without the spectral machinery of section 16,
+and this library carries no real numbers. `D62` is therefore the record of the
 three that are, with no field standing in for the one that is not. -/
 
 /-- The three constructions of the linear model that section 18 consumes:
@@ -646,7 +652,7 @@ public structure LinModel (L : LocData) where
   /-- `commutant`: the matrices commuting with every element of `WLin`. -/
   commutant : Mat L.rank L.rank Rat → Prop
 
-/-- `D62`. The linear model of section 17 at the data of section 18. -/
+/-- `D62`. The linear model, at the data of section 18. -/
 @[expose] public def D62 (L : LocData) : LinModel L where
   liftLinear t := (L.lift t).val
   sym2Rep g S := Mat.mul (Mat.mul g.val S) (Mat.transpose g.val)
@@ -699,13 +705,12 @@ public theorem F1 (L : LocData) (a b c : L.wlin.El) :
   ⟨M2 a.val b.val c.val, (M3 a.val).1, (M3 a.val).2,
     L.wlin.invOf_mul a.property, L.wlin.mul_invOf a.property⟩
 
-
 /-! ## `F2`-`F7`: extension of scalars, before any of it is called a functor
 
 `D43` writes `g_v` for the extension of scalars of a morphism, and `D35`,
-`D39` write `loc_v` and `Delta`. The six statements here are about those maps
-alone; nothing below `F7` mentions a category, which is the order section 18
-insists on. -/
+`D39` write `loc_v` and `Delta`. Everything here is about those maps alone:
+not one of the seven statements mentions a category, which is the order
+section 18 insists on. -/
 
 /-- `D43`'s `g_v`: the matrix of `g` after extension of scalars along
 `iota_v`. -/
@@ -769,7 +774,6 @@ public theorem F7 (L : LocData) (v : L.Place) (x : Vec L.rank Rat) :
     Vec.map (L.proj v) (Delta L x) = locv L v x :=
   funext fun i => L.proj_str v (x i)
 
-
 /-! ## `D64` and `D65`: the signature table, and the assignments it types
 
 `D64` is the table. Its five fields are the five rows, and their **types** are
@@ -801,7 +805,7 @@ public structure D64 (L : LocData) where
   Pf : CatFunctor (deloop L.aut) (SetCat L)
 
 /-- The object and morphism assignments of the five rows, without their laws.
-`D65` is the one of these section 18 names. -/
+`D65` is the one section 18 names. -/
 public structure Assignments (L : LocData) where
   /-- `R_Q(*)`. -/
   qObj : QIx L
@@ -839,8 +843,9 @@ action on classes and `tau_Addr` on morphisms. -/
   pObj := SIx.paddr
   pMap t := tauAddr L t
 
-/-- The morphism assignment of the third row is the action of `D43` assembled
-over all places, which is how `F19` and `F21` reach `RP1`. -/
+/-- The third row's morphism assignment is exactly the action of `D43`
+assembled over all places. Recording it is what makes `T76a` and `F15a`, which
+are stated of `addrAct` and `tau_Addr`, statements about `R_Addr` and `Pf`. -/
 public theorem D65_aMap_apply (L : LocData) (g : L.wlin.El) (x : Addr L) :
     ((D65 L).aMap g).toFun x = addrAct L g x := rfl
 
@@ -882,7 +887,6 @@ whole of the obstruction, and `D64` supplies it row by row. -/
     (η : ComponentFamily F G) : Across F G where
   same := rfl
   app := η
-
 
 /-! ## `T76a`: the lift may be chosen, and the choice does not matter
 
@@ -1025,7 +1029,6 @@ public theorem F15p (L : LocData) :
           (D65 L).kMap (L.aut.mul s t) κ = (D65 L).kMap s ((D65 L).kMap t κ) :=
   ⟨L.kact_one, L.kact_mul⟩
 
-
 /-! ## The five rows, bundled, and the table inhabited
 
 Only now, with `F22`, `F17`, `F19a`, `F15a` and `F15p` proved, are the
@@ -1122,6 +1125,13 @@ which is `F15p` and `F15a`; without those two this declaration has no type. -/
 @[expose] public def F15 (L : LocData) : ComponentFamily (Kf L) (Pf L) :=
   fun _ => DeltaK L
 
+/-- The family `F13` supplies, read as an `Across`: the identification `F12`
+demands is `rfl` here. That is the whole difference between this pairing and
+the withdrawn one -- `Id` and `Loc_v` had no such `rfl` to offer, and `D64`'s
+second row is what makes this one available. -/
+public theorem locv_across (L : LocData) (v : L.Place) :
+    (Across.ofFamily (F13 L v)).same = rfl := rfl
+
 /-- `F16`. The naturality square of `loc_v`: localising after `g` is `g_v`
 after localising. `F6` is the same equation on vectors; section 13 states it as
 `T79`. -/
@@ -1135,7 +1145,6 @@ its square `F16`. -/
 @[expose] public def locNat (L : LocData) (v : L.Place) : NatTrans (RQ L) (Rv L v) where
   app := F13 L v
   naturality f := F16 L v f
-
 
 /-! ## `D66`, `D67`: the local family and the cone over it
 
@@ -1239,5 +1248,187 @@ once. -/
 public theorem F21 (L : LocData) (v : L.Place) :
     NatTrans.vcomp ((adelicCone L).leg v) (adelicCone L).diag = locNat L v :=
   NatTrans.ext (fun _ => QLin.ext (fun x => F7 L v x))
+
+/-! ## `T79` and `T80`: the two section-13 names for squares proved here
+
+Section 13 states the naturality of `loc_v` as `T79` and the naturality of
+`Delta_K` as `T80`; section 18 states the same two equations as `F6`/`F16` and
+`F20`. `UorAtlas.Places`, which owns section 13, records in its own header that
+the text of that section was not available to it and that it therefore declares
+none of `T65`-`T83`. These two are the ones whose statements this repository
+nevertheless fixes -- `UorAtlas.Prelude.RingLemmas` says of `RH1_apply` that it
+"is `V74` and hence `T79`: applying `g` and then localising is applying `g_v`
+to the localised vector", and `F20`'s equation is `T80` -- so they are named
+here, each as the theorem already proved above and not as a second proof of it.
+The remaining section-13 labels `T77a`, `T78`, `T80p`, `T80a` and `T81`-`T83`
+are left undeclared, for the reason `UorAtlas.Places` gives: a label is a claim
+about the document, and nothing in this tree fixes what those seven say. -/
+
+/-- `T79`. Section 13's name for the equation `F6` states. -/
+public theorem T79 (L : LocData) (v : L.Place) (g : L.wlin.El) (x : Vec L.rank Rat) :
+    locv L v (Mat.apply g.val x) = Mat.apply (locMat L v g) (locv L v x) :=
+  F6 L v g x
+
+/-- `T80`. Section 13's name for the equation `F20` states, read at one class:
+`Delta_K(tau . k) = tau_Addr(tau)(Delta_K(k))`. -/
+public theorem T80 (L : LocData) (t : L.aut.El) (κ : L.KSet) :
+    DeltaK L (L.kact t κ) = tauAddr L t (DeltaK L κ) :=
+  congrFun (F20 L t) κ
+
+/-! ## A witness, so that none of this is true of nothing
+
+Everything above is stated of an arbitrary `LocData`. `TwoPlace.witness` is
+one: two places, `WLin = {+I,-I}` -- the group `V68b`'s `-I in WLin` generates
+-- and `Addr = Q x Q` with `Delta` the diagonal. It is the smallest instance in
+which `T76a` has content, because `I` and `-I` are two *different* elements of
+`WLin` with the same image under `pi`, so `D46`'s "for any `g in Lift(tau)`"
+really does choose, and `T76a` really does close the choice.
+
+`Q x Q` is the coefficient ring of the restricted product over two places, and
+the two projections are the place components of `D39`. -/
+
+namespace TwoPlace
+
+/-- The coefficient ring `Q x Q` of the two-place restricted product. -/
+public structure Pair where
+  /-- The component at the first place. -/
+  fst : Rat
+  /-- The component at the second place. -/
+  snd : Rat
+
+public theorem Pair.ext {a b : Pair} (h1 : a.fst = b.fst) (h2 : a.snd = b.snd) : a = b := by
+  obtain ⟨x, y⟩ := a
+  obtain ⟨u, w⟩ := b
+  show Pair.mk x y = Pair.mk u w
+  rw [show x = u from h1, show y = w from h2]
+
+public instance instAddCommGroupPair : AddCommGroup Pair where
+  zero := ⟨AddCommGroup.zero, AddCommGroup.zero⟩
+  add a b := ⟨AddCommGroup.add a.fst b.fst, AddCommGroup.add a.snd b.snd⟩
+  neg a := ⟨AddCommGroup.neg a.fst, AddCommGroup.neg a.snd⟩
+  add_assoc _ _ _ := Pair.ext (AddCommGroup.add_assoc _ _ _) (AddCommGroup.add_assoc _ _ _)
+  add_comm _ _ := Pair.ext (AddCommGroup.add_comm _ _) (AddCommGroup.add_comm _ _)
+  add_zero _ := Pair.ext (AddCommGroup.add_zero _) (AddCommGroup.add_zero _)
+  add_neg _ := Pair.ext (AddCommGroup.add_neg _) (AddCommGroup.add_neg _)
+
+public instance instCommRingPair : CommRing Pair where
+  toAddCommGroup := instAddCommGroupPair
+  one := ⟨CommRing.one, CommRing.one⟩
+  mul a b := ⟨CommRing.mul a.fst b.fst, CommRing.mul a.snd b.snd⟩
+  mul_assoc _ _ _ := Pair.ext (CommRing.mul_assoc _ _ _) (CommRing.mul_assoc _ _ _)
+  mul_comm _ _ := Pair.ext (CommRing.mul_comm _ _) (CommRing.mul_comm _ _)
+  one_mul _ := Pair.ext (CommRing.one_mul _) (CommRing.one_mul _)
+  left_distrib _ _ _ := Pair.ext (CommRing.left_distrib _ _ _) (CommRing.left_distrib _ _ _)
+
+/-- `Q x Q` as a `Q`-algebra, with the diagonal as its structure map: `D39`'s
+`Delta` in the two-place case. -/
+@[expose] public def adr : QAlg where
+  Car := Pair
+  str := { toFun := fun q => ⟨q, q⟩, map_one := rfl, map_add := fun _ _ => rfl,
+           map_mul := fun _ _ => rfl }
+  one_ne_zero := fun h => absurd (congrArg Pair.fst h) (by decide)
+
+/-- The two place components. -/
+@[expose] public def component : Bool → Pair → Rat
+  | true, p => p.fst
+  | false, p => p.snd
+
+/-- A place component as a ring homomorphism out of `Addr`. -/
+@[expose] public def proj (v : Bool) : RingHom Pair Rat where
+  toFun := component v
+  map_one := by cases v <;> rfl
+  map_add _ _ := by cases v <;> rfl
+  map_mul _ _ := by cases v <;> rfl
+
+/-- Multiplying two negated matrices cancels both signs. `M4` twice, entry by
+entry, and the reason `{+I,-I}` is closed under multiplication. -/
+public theorem mul_neg_neg {α : Type} [CommRing α] {m n p : Nat}
+    (A : Mat m n α) (B : Mat n p α) :
+    Mat.mul (Mat.neg A) (Mat.neg B) = Mat.mul A B := by
+  funext i j
+  show Vec.sum (fun k => CommRing.mul (AddCommGroup.neg (A i k)) (AddCommGroup.neg (B k j)))
+    = Vec.sum (fun k => CommRing.mul (A i k) (B k j))
+  refine Vec.sum_congr (fun k => ?_)
+  rw [Linear.neg_mul, CommRing.mul_comm (A i k) (AddCommGroup.neg (B k j)), Linear.neg_mul,
+    neg_neg, CommRing.mul_comm (B k j) (A i k)]
+
+/-- `WLin = {+I,-I}` at rank `1`: the group `D41` cuts out when the only linear
+symmetries are the two global signs. Each element is its own inverse. -/
+@[expose] public def signGroup : MatGroup 1 where
+  Mem A := A = Mat.id ∨ A = Mat.neg Mat.id
+  id_mem := Or.inl rfl
+  mul_mem hA hB := by
+    refine Or.elim hA (fun ha => ?_) (fun ha => ?_) <;>
+      refine Or.elim hB (fun hb => ?_) (fun hb => ?_) <;> subst ha <;> subst hb
+    · exact Or.inl (M3 (Mat.id : Mat 1 1 Rat)).1
+    · exact Or.inr (M3 (Mat.neg Mat.id : Mat 1 1 Rat)).1
+    · exact Or.inr (M3 (Mat.neg Mat.id : Mat 1 1 Rat)).2
+    · exact Or.inl ((mul_neg_neg Mat.id Mat.id).trans (M3 (Mat.id : Mat 1 1 Rat)).1)
+  invOf A _ := A
+  invOf_mem h := h
+  mul_invOf h := by
+    refine Or.elim h (fun ha => ?_) (fun ha => ?_) <;> subst ha
+    · exact (M3 (Mat.id : Mat 1 1 Rat)).1
+    · exact (mul_neg_neg Mat.id Mat.id).trans (M3 (Mat.id : Mat 1 1 Rat)).1
+  invOf_mul h := by
+    refine Or.elim h (fun ha => ?_) (fun ha => ?_) <;> subst ha
+    · exact (M3 (Mat.id : Mat 1 1 Rat)).1
+    · exact (mul_neg_neg Mat.id Mat.id).trans (M3 (Mat.id : Mat 1 1 Rat)).1
+
+/-- `Aut` at the witness: the trivial group, which is what `pi` maps `{+I,-I}`
+onto once `T73`'s kernel is divided out. -/
+@[expose] public def trivialGrp : GrpData where
+  El := Unit
+  one := ()
+  mul _ _ := ()
+  inv _ := ()
+  one_mul _ := rfl
+  mul_one _ := rfl
+  mul_assoc _ _ _ := rfl
+  inv_mul _ := rfl
+  mul_inv _ := rfl
+
+/-- The witness: two places, `WLin = {+I,-I}`, `Addr(L) = Q x Q`, one root
+class. -/
+@[expose] public def witness : LocData where
+  rank := 1
+  Place := Bool
+  Qv _ := QAlg.rat
+  Adr := adr
+  proj := proj
+  proj_str v _ := by cases v <;> rfl
+  wlin := signGroup
+  aut := trivialGrp
+  pi _ := ()
+  pi_mul _ _ := rfl
+  lift _ := ⟨Mat.id, Or.inl rfl⟩
+  pi_lift _ := rfl
+  ker_pi g _ := g.property
+  KSet := Unit
+  kact _ κ := κ
+  kact_one _ := rfl
+  kact_mul _ _ _ := rfl
+  krep _ := fun _ => CommRing.one
+  krep_act g _ := by
+    refine Or.elim g.property (fun ha => ?_) (fun ha => ?_)
+    · exact Or.inl (by rw [ha]; exact (apply_id _).symm)
+    · exact Or.inr (by rw [ha, M4, apply_id]; exact (neg_neg _).symm)
+
+/-- `+I` and `-I` are two different lifts of the same automorphism, so `D46`
+has a choice to make at the witness. -/
+public theorem lift_choice :
+    witness.pi ⟨Mat.id, Or.inl rfl⟩ = witness.pi ⟨Mat.neg Mat.id, Or.inr rfl⟩
+      ∧ (⟨Mat.id, Or.inl rfl⟩ : witness.wlin.El) ≠ ⟨Mat.neg Mat.id, Or.inr rfl⟩ :=
+  ⟨rfl, fun h =>
+    absurd (congrFun (congrFun (congrArg Subtype.val h) (0 : Fin 1)) (0 : Fin 1)) (by decide)⟩
+
+/-- `T76a` at the witness, with the two lifts of `lift_choice` in it: the
+choice `D46` makes is invisible on `PAddr(L)`. -/
+public theorem lift_independent (x : Addr witness) :
+    paddrMk witness (addrAct witness ⟨Mat.id, Or.inl rfl⟩ x)
+      = paddrMk witness (addrAct witness ⟨Mat.neg Mat.id, Or.inr rfl⟩ x) :=
+  T76a witness ⟨Mat.id, Or.inl rfl⟩ ⟨Mat.neg Mat.id, Or.inr rfl⟩ rfl x
+
+end TwoPlace
 
 end UorAtlas.Functor
