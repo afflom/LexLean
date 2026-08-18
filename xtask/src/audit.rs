@@ -482,6 +482,67 @@ fn declaration_names(text: &str) -> Vec<String> {
     out
 }
 
+/// An authority cites something this repository does not establish, so no row
+/// may name repository content (R2, SPEC.md §27.4).
+///
+/// The distinction is the one AGENTS.md draws: a claim about a dependency
+/// belongs to that dependency, and a claim about what is in this tree is a
+/// `build` claim with a conformance ID, not a `some-true` citation. The check
+/// reads the citation up to its first semicolon --- its primary reference ---
+/// because a legitimate row may go on to name repository fixtures as the
+/// evidence a third party compares against, which `PRINT-AXIOMS-4-32-1` does.
+///
+/// # Errors
+/// Returns the offending row, or reports the gate armed when no row exists.
+pub fn audit_authority_scope(root: &Path) -> Result<(), Fail> {
+    let text = std::fs::read_to_string(root.join("model/authorities.toml"))?;
+    let data: toml::Value = text.parse()?;
+    let Some(rows) = data.get("authority").and_then(|value| value.as_array()) else {
+        println!("audit-authority-scope: no authority row; the gate is armed by the first one");
+        return Ok(());
+    };
+    if rows.is_empty() {
+        println!(
+            "audit-authority-scope: the register is empty; the gate is armed by the first row"
+        );
+        return Ok(());
+    }
+    for row in rows {
+        let id = row
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<unnamed>");
+        let citation = row
+            .get("citation")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let primary = citation.split(';').next().unwrap_or_default().trim();
+        if primary.to_ascii_lowercase().contains("in this repository") {
+            return Err(Fail::from(format!(
+                "R2: authority `{id}` cites repository content; what this repository builds is a `build` claim with a conformance ID, never a `some-true` citation (§27.4)"
+            )));
+        }
+        for word in primary.split(|c: char| c.is_whitespace() || c == ',') {
+            let candidate = word.trim_matches(|c: char| {
+                !c.is_ascii_alphanumeric() && c != '/' && c != '.' && c != '-' && c != '_'
+            });
+            if candidate.is_empty() || !candidate.contains('/') || candidate.contains("://") {
+                continue;
+            }
+            if root.join(candidate).exists() {
+                return Err(Fail::from(format!(
+                    "R2: authority `{id}` cites `{candidate}`, which is a path in this repository; an authority is what this repository does not establish (§27.4)"
+                )));
+            }
+        }
+    }
+    println!(
+        "audit-authority-scope: {} authority rows, none cites repository content (R2)",
+        rows.len()
+    );
+    Ok(())
+}
+
 /// R4: nothing is deferred. The markers are spelled in halves so this gate
 /// can scan its own source; exempting the file would put a hole exactly
 /// where a deferral parked in a gate would sit.

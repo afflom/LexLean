@@ -314,6 +314,7 @@ Never re-derived, vendored, or gated on.
 | `LAKE-4-32-1` | https://github.com/leanprover/lean4/tree/v4.32.1/src/lake | `VR-03`, `VR-17` |
 | `LEANCHECKER-4-32-1` | https://github.com/leanprover/lean4/tree/v4.32.1 | `VR-08` |
 | `PRINT-AXIOMS-4-32-1` | https://github.com/leanprover/lean4/tree/v4.32.1 (the #print axioms command); observed output fixtures under tests/golden/axiom-parser/ | `VR-09`, `VR-10` |
+| `ATLAS-FORMAL-001` | UOR Foundation, UOR-ATLAS-FORMAL-001, the Atlas specification over the E8 root system; section 20 carries its label registry | `VR-19` |
 
 ## Claims that are not conformance IDs
 
