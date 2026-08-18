@@ -34,6 +34,37 @@ makes the kernel recompute it from `D19a`, `rep` and `D12` and compare.
 `pak_eq_pk` says so, so `pk_digit` supplies the round-trip lemma while the
 kernel runs shifts.
 
+## What the chain is used for twice
+
+`autChain` counts `Aut`. The same machinery, run on four elements that fix the
+witness AtlasInstance setwise, counts the group those four generate: five
+levels, orbits `48, 3, 8, 2, 2`, product `4608`. That is only a *lower* half of
+the gauge group until something rules out a fifth element, and `gauge_eq` is
+that something: an element of `Aut` fixing `W_0` is identified level by level
+against the base points of `autSpec`, because the image of a base point has the
+same profile inside `W_0` as the base point -- the same membership, the same
+adjacencies to the points already fixed, and the same counts of walks inside
+`W_0` -- and those profiles pin it to the stored transversal. After the seventh
+level the element fixes all seven base points, and `aut_fix_trivial` reads off
+the bottom of `autChain` that it is the identity.
+
+What that yields is `|Gauge(W_0)| = 4608` for the witness instance and nothing
+about any other instance: carrying it to a second instance is transitivity of
+`Aut` on `Atl`, which is the document's `T27` and is not proved anywhere in
+this library. `T29` and `T49` are stated for *every* instance and are therefore
+not claimed here; `gaugeOrderWitness` is the witness case under its own name.
+The same gap is why `orbitAction` instantiates the nineteen theorems of
+`UorAtlas.Category` over the `Aut`-orbit of `W_0` rather than over `Atl`.
+
+## Why `-I` needs a sign and not a class
+
+`V68b` has to distinguish `-I` from `I`, and nothing about classes can: both
+act trivially on `K`. The fold of `signStep` carries one extra bit -- whether
+the reflected representative is the representative of its image class or its
+negative -- and running it along `(r_1 ... r_8)^15` on the eight simple roots
+shows the word negates a basis. `T73` is not needed: a matrix that negates a
+basis *is* `-I`.
+
 ## Why the arithmetic is spelled out
 
 Every `Bool` that a certificate below reduces is written in `Nat.beq`,
@@ -1717,24 +1748,6 @@ public theorem classSet_actP (g : Perm 120) (W : Bitset) : Blocks.ClassSet (actP
     exact absurd (hu ▸ (g.toFun u).isLt) (by omega)
   exact Bool.not_eq_true _ |>.mp hno
 
-public theorem actP_inj (g : Perm 120) {W W' : Bitset}
-    (hW : Blocks.ClassSet W) (hW' : Blocks.ClassSet W') (h : actP g W = actP g W') : W = W' := by
-  refine Bitset.ext (fun i => ?_)
-  constructor
-  · intro hi
-    have h1 : (g.toFun ⟨i, Blocks.lt_of_mem hW hi⟩).val ∈ actP g W' := by
-      rw [← h]; exact (mem_actP g W _).mpr ⟨⟨i, Blocks.lt_of_mem hW hi⟩, hi, rfl⟩
-    obtain ⟨u, huW, hu⟩ := (mem_actP g W' _).mp h1
-    have : u = ⟨i, Blocks.lt_of_mem hW hi⟩ := Perm.toFun_injective (Fin.eq_of_val_eq hu)
-    rw [this] at huW; exact huW
-  · intro hi
-    have h1 : (g.toFun ⟨i, Blocks.lt_of_mem hW' hi⟩).val ∈ actP g W := by
-      rw [h]; exact (mem_actP g W' _).mpr ⟨⟨i, Blocks.lt_of_mem hW' hi⟩, hi, rfl⟩
-    obtain ⟨u, huW, hu⟩ := (mem_actP g W _).mp h1
-    have : u = ⟨i, Blocks.lt_of_mem hW' hi⟩ := Perm.toFun_injective (Fin.eq_of_val_eq hu)
-    rw [this] at huW; exact huW
-
-
 /-! ## Section 10: the gauge group of an instance
 
 `D21a`, `D28`, `D28a`, `D29` and `D30` are declared here, in the module that
@@ -1970,10 +1983,6 @@ public theorem mkChain_bp : ∀ (spec : List (Nat × List (List Nat))) (gt : Lis
 @[expose] public def headLevel (gt : List (Nat × Nat)) (b : Nat) (nw : List (List Nat)) : Level :=
   ⟨gt, b, nw, mkOrb gt b, mkMask (mkOrb gt b)⟩
 
-public theorem mkChain_cons (gt : List (Nat × Nat)) (b : Nat) (nw : List (List Nat))
-    (rest : List (Nat × List (List Nat))) :
-    mkChain gt ((b, nw) :: rest) = headLevel gt b nw :: mkChain (nw.map (evalT gt)) rest := rfl
-
 public theorem mkChain_bp_lt : ∀ (spec : List (Nat × List (List Nat))) (gt : List (Nat × Nat)),
     chainCheck gt (mkChain gt spec) = true → ∀ l ∈ mkChain gt spec, l.bp < 120 := by
   intro spec
@@ -2198,23 +2207,6 @@ public theorem cnt3_inv {g : Perm 120} {W : Bitset} (hg : D21 g) (hW : actP g W 
 
 /-- Row `u` of the adjacency table, as a set of classes. -/
 @[expose] public def arow (u : Nat) : Bitset := Bitset.ofNat (adjRow u)
-
-public theorem adjRow_lt (u : Nat) : adjRow u < adjBase := by
-  show Nat.mod (Nat.shiftRight adjPack (Nat.mul 120 u)) adjBase < adjBase
-  exact Nat.mod_lt _ (by rw [adjBase_eq]; exact Nat.two_pow_pos 120)
-
-/-- Sets are numerals here, and the numeral of the adjacency table must never
-be unfolded by the elaborator: `adjPack` is a hundred and twenty packed rows,
-and one `whnf` of it exhausts the recursion budget. Every lemma about it is
-therefore stated for an arbitrary numeral and instantiated afterwards. -/
-public theorem classSet_ofNat {n : Nat} (h : n < 2 ^ 120) :
-    Blocks.ClassSet (Bitset.ofNat n) := h
-
-public theorem classSet_arow (u : Nat) : Blocks.ClassSet (arow u) :=
-  classSet_ofNat (by
-    have h := adjRow_lt u
-    rw [adjBase_eq] at h
-    exact h)
 
 public theorem classSet_inter {S T : Bitset} (h : Blocks.ClassSet S) :
     Blocks.ClassSet (Bitset.inter S T) := by
@@ -2641,11 +2633,6 @@ first three. -/
   if h : (∀ i, invOf4 f (f i) = i) ∧ (∀ i, f (invOf4 f i) = i) then
     ⟨f, invOf4 f, h.1, h.2⟩
   else Perm.one 4
-
-public theorem permOf4_toFun {f : Fin 4 → Fin 4}
-    (h : (∀ i, invOf4 f (f i) = i) ∧ (∀ i, f (invOf4 f i) = i)) :
-    (permOf4 f).toFun = f := by
-  rw [permOf4, dif_pos h]
 
 public theorem fin4_cases (j : Fin 4) (h0 : j ≠ 0) (h1 : j ≠ 1) (h2 : j ≠ 2) : j = 3 := by
   have hlt := j.isLt
