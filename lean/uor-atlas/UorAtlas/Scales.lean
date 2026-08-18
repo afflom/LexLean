@@ -4834,13 +4834,114 @@ the same multiplicities; `S14` and `S15` give the remaining multiplicity of `0`
 as the codimension `36 - (|X| - mult(-4))`. At the AtlasInstance that is
 `6, 3, 2, 1` with multiplicities `1, 2, 9, 18` and `0` with multiplicity `6`,
 and `1 + 2 + 9 + 18 + 6 = 36 = dim Sym^2(Q^8)`. -/
+public theorem sq_nonneg_int (x : Int) : 0 ≤ x * x := by
+  rcases Int.le_total 0 x with h | h
+  · exact Int.mul_nonneg h h
+  · have h' : (0 : Int) ≤ -x := by omega
+    have h2 := Int.mul_nonneg h' h'
+    rw [Int.neg_mul, Int.mul_neg, Int.neg_neg] at h2
+    exact h2
+
+public theorem sq_ge_of_abs_ge {c x : Int} (hc : 0 ≤ c) (h : c ≤ x ∨ x ≤ -c) :
+    c * c ≤ x * x := by
+  rcases h with h | h
+  · exact Int.mul_le_mul h h hc (by omega)
+  · have h3 : (-x) * (-x) = x * x := by rw [Int.neg_mul, Int.mul_neg, Int.neg_neg]
+    have h2 : c * c ≤ (-x) * (-x) := Int.mul_le_mul (by omega) (by omega) hc (by omega)
+    rw [h3] at h2
+    exact h2
+
+/-- The `k = 1` and `k = 2` trace equations already have a single solution in
+the box the `k = 2` equation confines an integer solution to. -/
+public theorem traceBoxComp :
+    allLt (fun a => allLt (fun b => allLt (fun c =>
+      !(decide (2 * ((a : Int) - 6) + 9 * ((b : Int) - 2) + 18 * ((c : Int) - 2) = 42)
+            && decide (2 * (((a : Int) - 6) * ((a : Int) - 6))
+              + 9 * (((b : Int) - 2) * ((b : Int) - 2))
+              + 18 * (((c : Int) - 2) * ((c : Int) - 2)) = 72))
+        || (decide ((a : Int) - 6 = 3) && decide ((b : Int) - 2 = 2)
+            && decide ((c : Int) - 2 = 1))) 5) 5) 13 = true := by decide +kernel
+
+public theorem traceBox (a b c : Nat) (ha : a < 13) (hb : b < 5) (hc : c < 5)
+    (h1 : 2 * ((a : Int) - 6) + 9 * ((b : Int) - 2) + 18 * ((c : Int) - 2) = 42)
+    (h2 : 2 * (((a : Int) - 6) * ((a : Int) - 6))
+      + 9 * (((b : Int) - 2) * ((b : Int) - 2))
+      + 18 * (((c : Int) - 2) * ((c : Int) - 2)) = 72) :
+    ((a : Int) - 6 = 3 ∧ (b : Int) - 2 = 2 ∧ (c : Int) - 2 = 1) := by
+  have h := allLt_true _ _ (allLt_true _ _ (allLt_true _ _ traceBoxComp a ha) b hb) c hc
+  rw [Bool.or_eq_true, Bool.not_eq_true', decide_eq_true h1, decide_eq_true h2] at h
+  rcases h with hbad | hgood
+  · exact absurd hbad (by decide)
+  · rw [Bool.and_eq_true, Bool.and_eq_true] at hgood
+    exact ⟨of_decide_eq_true hgood.1.1, of_decide_eq_true hgood.1.2,
+      of_decide_eq_true hgood.2⟩
+
+/-- `S43`. The five scalars of `S41d` at the AtlasInstance are `6, 3, 2, 1, 0`
+against the component dimensions `1, 2, 9, 18, 6`: they reproduce the integer
+traces `tr(S_X^k) = 48, 108, 360` for `k = 1, 2, 3`, and `(3, 2, 1)` is the
+unique INTEGER solution of that system once `6` and `0` are fixed by `S17` and
+`S15`.
+
+The document says "a system whose **unique real solution** is `(3, 2, 1)`".
+That is false as literally written: the same three equations are also satisfied
+by approximately `(3.1910, 0.7324, 1.6126)`. Uniqueness over the integers is
+true, and it is what the argument needs, since the scalars are eigenvalue
+multiplicities counted by `S15` and `S17`.
+
+So it is proved over `Z`, and proved rather than checked at a point: the `k = 2`
+equation forces `x*x <= 36`, `y*y <= 8` and `z*z <= 4`, hence `|x| <= 6`,
+`|y| <= 2`, `|z| <= 2`, and `traceBox` settles the finite box that leaves. The
+bound is what makes the finite check a proof instead of a sample. -/
 public theorem S43 :
-    (4 * 6 = 4 + atlLam 0 ∧ 4 * 3 = 4 + atlLam 1 ∧ 4 * 2 = 4 + atlLam 2
-        ∧ 4 * 1 = 4 + atlLam 3 ∧ 4 * 0 = 4 + atlLam 4)
-      ∧ (atlMult 0 = 1 ∧ atlMult 1 = 2 ∧ atlMult 2 = 9 ∧ atlMult 3 = 18)
-      ∧ 36 - (48 - atlMult 4) = 6
-      ∧ atlMult 0 + atlMult 1 + atlMult 2 + atlMult 3 + 6 = 36
-      ∧ 8 * (8 + 1) / 2 = 36 := by decide
+    (1 * 6 + 2 * 3 + 9 * 2 + 18 * 1 + 6 * 0 = (48 : Int)
+      ∧ 1 * (6 * 6) + 2 * (3 * 3) + 9 * (2 * 2) + 18 * (1 * 1) + 6 * (0 * 0) = (108 : Int)
+      ∧ 1 * (6 * 6 * 6) + 2 * (3 * 3 * 3) + 9 * (2 * 2 * 2) + 18 * (1 * 1 * 1)
+          + 6 * (0 * 0 * 0) = (360 : Int))
+      ∧ (48 : Int) / 8 = 6
+      ∧ (∀ x y z : Int,
+          1 * 6 + 2 * x + 9 * y + 18 * z + 6 * 0 = 48 →
+          1 * (6 * 6) + 2 * (x * x) + 9 * (y * y) + 18 * (z * z) + 6 * (0 * 0) = 108 →
+          1 * (6 * 6 * 6) + 2 * (x * x * x) + 9 * (y * y * y) + 18 * (z * z * z)
+            + 6 * (0 * 0 * 0) = 360 →
+          x = 3 ∧ y = 2 ∧ z = 1) := by
+  refine ⟨⟨by decide, by decide, by decide⟩, by decide, fun x y z h1 h2 _ => ?_⟩
+  have hx0 : (0 : Int) ≤ x * x := sq_nonneg_int x
+  have hy0 : (0 : Int) ≤ y * y := sq_nonneg_int y
+  have hz0 : (0 : Int) ≤ z * z := sq_nonneg_int z
+  have hbox : ∀ X Y Z : Int, 0 ≤ X → 0 ≤ Y → 0 ≤ Z →
+      1 * (6 * 6) + 2 * X + 9 * Y + 18 * Z + 6 * (0 * 0) = 108 →
+      X ≤ 36 ∧ Y ≤ 8 ∧ Z ≤ 4 := by
+    intro X Y Z hX hY hZ h
+    omega
+  obtain ⟨hxb, hyb, hzb⟩ := hbox (x * x) (y * y) (z * z) hx0 hy0 hz0 h2
+  have hxr : -6 ≤ x ∧ x ≤ 6 := by
+    refine ⟨Decidable.byCases (p := -6 ≤ x) (fun h => h) (fun h => ?_),
+      Decidable.byCases (p := x ≤ 6) (fun h => h) (fun h => ?_)⟩
+    · have h49 : (7 : Int) * 7 ≤ x * x := sq_ge_of_abs_ge (by decide) (Or.inr (by omega))
+      omega
+    · have h49 : (7 : Int) * 7 ≤ x * x := sq_ge_of_abs_ge (by decide) (Or.inl (by omega))
+      omega
+  have hyr : -2 ≤ y ∧ y ≤ 2 := by
+    refine ⟨Decidable.byCases (p := -2 ≤ y) (fun h => h) (fun h => ?_),
+      Decidable.byCases (p := y ≤ 2) (fun h => h) (fun h => ?_)⟩
+    · have h9 : (3 : Int) * 3 ≤ y * y := sq_ge_of_abs_ge (by decide) (Or.inr (by omega))
+      omega
+    · have h9 : (3 : Int) * 3 ≤ y * y := sq_ge_of_abs_ge (by decide) (Or.inl (by omega))
+      omega
+  have hzr : -2 ≤ z ∧ z ≤ 2 := by
+    refine ⟨Decidable.byCases (p := -2 ≤ z) (fun h => h) (fun h => ?_),
+      Decidable.byCases (p := z ≤ 2) (fun h => h) (fun h => ?_)⟩
+    · have h9 : (3 : Int) * 3 ≤ z * z := sq_ge_of_abs_ge (by decide) (Or.inr (by omega))
+      omega
+    · have h9 : (3 : Int) * 3 ≤ z * z := sq_ge_of_abs_ge (by decide) (Or.inl (by omega))
+      omega
+  have ex : (((x + 6).toNat : Nat) : Int) - 6 = x := by omega
+  have ey : (((y + 2).toNat : Nat) : Int) - 2 = y := by omega
+  have ez : (((z + 2).toNat : Nat) : Int) - 2 = z := by omega
+  have hkey := traceBox (x + 6).toNat (y + 2).toNat (z + 2).toNat (by omega) (by omega) (by omega)
+    (by rw [ex, ey, ez]; omega) (by rw [ex, ey, ez]; omega)
+  rw [ex, ey, ez] at hkey
+  exact hkey
 
 
 /-! ## `Sym^2` in coordinates: the `36` the operator of `D61` runs in
