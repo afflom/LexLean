@@ -1,6 +1,7 @@
 module
 public import Init
 public import UorAtlas.Prelude.Linear
+public import UorAtlas.Glue
 
 /-!
 Section 2 of `UOR-ATLAS-FORMAL-001`: the ambient root system `D9`-`D11`, its
@@ -367,6 +368,54 @@ vector is `(1, ..., 1)`, so the second sheet is `{ y : y - (1,...,1) in D }`. -/
 
 /-- `D11`. `R := { x in L : <x,x> = 2 }`; in the 2x scaling `<y,y> = 8`. -/
 @[expose] public def D11 (y : Vec 8 Int) : Prop := D10 y ∧ dot y y = 8
+
+/-! ### The `n = 8` lattice is the general glue lattice
+
+`Glue.lean` builds `L_n` for every `n` and proves `T57a`-`T57c`, `T84` and
+`T85` about it; this module builds the lattice at `n = 8` in the decidable
+shape the root enumeration needs. The document has one `L`, not two, so the
+two presentations are proved equal here. Without this bridge the counting
+theorems and the dimension-specificity theorems would be about formally
+unrelated objects, and nothing in the build would say so. -/
+
+public theorem D9_iff_MemD (y : Vec 8 Int) : D9 y ↔ Glue.MemD 8 y :=
+  (Glue.MemD_iff 8 y).symm
+
+public theorem sumInt_sub_one (y : Vec 8 Int) :
+    Vec.sumInt (fun i => y i - 1) = Vec.sumInt y - 8 := by
+  have h : (fun i : Fin 8 => y i - 1) = fun i : Fin 8 => y i + (-1) := by
+    funext i; omega
+  rw [h, Glue.sumInt_add, Glue.sumInt_const]
+  omega
+
+public theorem D10_iff_MemL (y : Vec 8 Int) : D10 y ↔ Glue.MemL 8 y := by
+  constructor
+  · rintro (h | h)
+    · exact Or.inl ((D9_iff_MemD y).mp h)
+    · refine Or.inr ((Glue.MemGlue_iff 8 y).mpr ⟨fun i => ?_, ?_⟩)
+      · have hi : (y i - 1) % 2 = 0 := h.1 i
+        omega
+      · have hs : Vec.sumInt (fun i => y i - 1) % 4 = 0 := h.2
+        rw [sumInt_sub_one] at hs
+        omega
+  · rintro (h | h)
+    · exact Or.inl ((D9_iff_MemD y).mpr h)
+    · have hc := (Glue.MemGlue_iff 8 y).mp h
+      refine Or.inr ⟨fun i => ?_, ?_⟩
+      · have hi : y i % 2 = 1 := hc.1 i
+        show (y i - 1) % 2 = 0
+        omega
+      · show Vec.sumInt (fun i => y i - 1) % 4 = 0
+        rw [sumInt_sub_one]
+        have hs := hc.2
+        omega
+
+/-- `D11`'s roots are exactly the norm-`8` vectors of the general glue lattice
+at `n = 8`, so `T5` counts roots of the same `L` that `T57c` characterises. -/
+public theorem D11_iff (y : Vec 8 Int) : D11 y ↔ (Glue.MemL 8 y ∧ dot y y = Glue.rootNorm) := by
+  constructor
+  · rintro ⟨h1, h2⟩; exact ⟨(D10_iff_MemL y).mp h1, h2⟩
+  · rintro ⟨h1, h2⟩; exact ⟨(D10_iff_MemL y).mpr h1, h2⟩
 
 @[expose] public def isD9 (y : Vec 8 Int) : Bool :=
   allFin (fun i => decide (y i % 2 = 0)) && decide (sum8 y % 4 = 0)
