@@ -4,7 +4,10 @@ public import UorAtlas.Prelude.Algebra
 public import UorAtlas.Prelude.Linear
 public import UorAtlas.Prelude.NumInstances
 public import UorAtlas.Prelude.RingLemmas
+public import UorAtlas.Parameters
 public import UorAtlas.Roots
+public import UorAtlas.Blocks
+public import UorAtlas.Category
 
 /-!
 Section 13 of `UOR-ATLAS-FORMAL-001`: places, localization, and the diagonal
@@ -772,5 +775,520 @@ public theorem diag_sign {S : PlaceSystem} {x y : D34}
     (fun g z => by cases g with
       | true => exact diag_neg z
       | false => rfl)
+
+
+/-! ## `D33`: the places, and the archimedean one
+
+`D33` reads `Place := arch | finite(p)` with `Qv(arch) := RR` and
+`Qv(finite p) := Q_p`. Two declarations carry that: `PlaceIx` is the index --
+one archimedean point and one point per prime -- and `D33` names the type of
+places themselves, which is the record of rings above. The completions are the
+`Amb` field of that record and are never constructed, exactly as section 19.3
+licenses: the only property of `Qv(v)` any derivation uses is that it is a
+commutative ring receiving `iota_v : Q -> Qv(v)`.
+
+The archimedean place is *exhibited* rather than assumed, and what inhabits it
+is `Q` inside `Q` with the identity inclusion. That is not a surrogate for
+`RR`: it is a place at which the local integers are all of the ambient ring,
+which is precisely `D36`'s `L_infty := V_arch`, and it is the only property of
+the archimedean place section 13 uses. `RR` inhabits the same record. -/
+
+/-- `D33`'s index: one archimedean place and one place per prime. -/
+public inductive PlaceIx where
+  /-- `arch`. -/
+  | arch : PlaceIx
+  /-- `finite(p)`. -/
+  | finite : Pl → PlaceIx
+
+/-- `D33`. The type of places of `Q`, each carrying its local integers `Z_v`
+inside its completion `Qv(v)` together with the structure maps of section 0.
+`Qv(arch) = RR` and `Qv(finite p) = Q_p` are two inhabitants of the record and
+are not built here. -/
+public abbrev D33 : Type 1 := Place
+
+/-- The archimedean place: local integers all of the ambient ring, which is
+`D36`'s `L_infty := V_arch`. -/
+@[expose] public def archPlace : Place where
+  Loc := Rat
+  Amb := Rat
+  incl := homId
+  fromInt := NumInstances.intToRat
+  fromRat := homId
+  res := 0
+  compat _ := rfl
+  integral q _ := ⟨q, rfl⟩
+
+/-- A system of places indexed by `PlaceIx`: the archimedean one, and the
+finite ones of `PlaceSystem`. -/
+public structure FullSystem where
+  /-- The archimedean place. -/
+  arch : Place
+  /-- The finite places, one per prime. -/
+  fin_ : PlaceSystem
+
+/-- `D33` read as a family: the place at an index. -/
+@[expose] public def FullSystem.at_ (F : FullSystem) : PlaceIx → Place
+  | PlaceIx.arch => F.arch
+  | PlaceIx.finite p => F.fin_.at_ p
+
+/-- The exhibited system: `Z_(p) ⊂ Q` at every prime and `Q ⊂ Q` at infinity.
+Everything stated over a `FullSystem` below is therefore true of something. -/
+@[expose] public def fullSystem : FullSystem where
+  arch := archPlace
+  fin_ := locSystem
+
+/-! ## `D36`: the local carriers and the local lattices -/
+
+/-- `L_v` is literally an image: a coordinate vector of `V_v` lies in `L_v`
+exactly when it is the image of a coordinate vector over `Z_v`. That is what
+`D36` writes as `image(L (x)_Z Z_p -> V_p)`, and `V65c` is what makes a
+coordinate vector over `Z_v` the same thing as an element of `L (x)_Z Z_v`. -/
+public theorem locL_image (p : Place) (c : Vec 8 p.Amb) :
+    locL p c ↔ ∃ d : Vec 8 p.Loc, ∀ i, c i = p.incl.toFun (d i) :=
+  ⟨fun h => ⟨fun i => (h i).choose, fun i => (h i).choose_spec⟩,
+    fun ⟨d, hd⟩ i => ⟨d i, hd i⟩⟩
+
+/-- `D36`. `V_infty := V_arch` and `L_infty := V_arch`; `L_p := image(L (x)_Z
+Z_p -> V_p)`.
+
+`V_infty` is the type `Vec 8 F.arch.Amb` and needs no declaration of its own;
+what `D36` fixes is the two *lattices*, so those are what the pair names.
+`L_infty` is all of `V_arch` -- the archimedean place imposes no integrality --
+which is why `D40` below constrains the finite components alone. -/
+@[expose] public def D36 (F : FullSystem) :
+    (Vec 8 F.arch.Amb → Prop) × ((p : Pl) → Vec 8 (F.fin_.at_ p).Amb → Prop) :=
+  (fun _ => True, fun p => locL (F.fin_.at_ p))
+
+public theorem D36_infty (F : FullSystem) (c : Vec 8 F.arch.Amb) : (D36 F).1 c := trivial
+
+public theorem D36_finite (F : FullSystem) (p : Pl) (c : Vec 8 (F.fin_.at_ p).Amb) :
+    (D36 F).2 p c ↔ ∃ d : Vec 8 (F.fin_.at_ p).Loc, ∀ i, c i = (F.fin_.at_ p).incl.toFun (d i) :=
+  locL_image (F.fin_.at_ p) c
+
+/-! ## `D39` and `D40`: the diagonal, and the integral addresses -/
+
+/-- `D39`. `Delta : V -> Addr(L)`, `Delta(x)_v := loc_v(x)`. The construction
+is `diag` above; this is the label it answers to. -/
+@[expose] public def D39 {S : PlaceSystem} (x : D34) : D38 S := diag x
+
+public theorem D39_comp {S : PlaceSystem} (x : D34) (p : Pl) :
+    (D39 (S := S) x).comp p = D35 (S.at_ p) x := rfl
+
+/-- `D40`. `IntegralAddr(L) := L_infty x product_p L_p`, the sub-family
+integral at **every** finite place. `L_infty = V_arch` by `D36`, so the
+archimedean factor is the whole of its carrier and imposes nothing; the
+condition is the one on the finite components. -/
+@[expose] public def D40 {S : PlaceSystem} (a : D38 S) : Prop :=
+  ∀ p : Pl, locL (S.at_ p) (a.comp p)
+
+/-- `T68`. `Delta` is well defined: its `v`-component is `loc_v(x)` at every
+place, and the family really lands in the restricted product, being integral
+outside a finite set of primes. The second half is `V70`. -/
+public theorem T68 {S : PlaceSystem} (x : D34) :
+    (∀ p : Pl, (D39 (S := S) x).comp p = D35 (S.at_ p) x)
+      ∧ ∃ l : List Nat, ∀ p : Pl, p.val ∉ l → locL (S.at_ p) ((D39 (S := S) x).comp p) :=
+  ⟨fun _ => rfl, (diag (S := S) x).ae⟩
+
+/-- `T69`. `Delta` is injective. One place with a nonzero completion suffices,
+and `A1` -- section 19.3's derived injectivity of `iota_v` -- is the whole
+argument. -/
+public theorem T69 {S : PlaceSystem} (p : Pl)
+    (hp : (CommRing.one : (S.at_ p).Amb) ≠ AddCommGroup.zero) :
+    Function.Injective (D39 (S := S)) := by
+  intro x y h
+  have hc : Vec.map (S.at_ p).fromRat x = Vec.map (S.at_ p).fromRat y :=
+    congrArg (fun a : D38 S => a.comp p) h
+  exact funext (fun i =>
+    NumInstances.A1 hp (S.at_ p).fromRat (congrFun hc i))
+
+/-- `T70`. `Delta(L) subset IntegralAddr(L)`: the diagonal of a lattice vector
+is integral at every finite place, because `Z -> Q_v` factors through `Z_v`,
+which is the `compat` square of a place. -/
+public theorem T70 {S : PlaceSystem} (y : Vec 8 Int) :
+    D40 (D39 (S := S) (Blocks.qOf y)) := by
+  intro p i
+  exact ⟨(S.at_ p).fromInt.toFun (y i), ((S.at_ p).compat (y i)).symm⟩
+
+/-! ## `D31` and `T58`: the global dual lattice
+
+`D31` and `D37` are the same set-builder at two different pairs of rings, which
+is why `SD1` is stated over an arbitrary pair: `A := Z`, `F := Q` gives `T58`
+and `A := Z_v`, `F := Q_v` gives `V69`. `T58x` supplies the hypothesis at both,
+through `gram_InGL`. -/
+
+/-- `D31`. `L* := { y in V : <y,x> in Z for all x in L }`, in the coordinates
+of the `V65c` basis: `L` is `Z^8`, `V` is `Q^8`, and the form is `Gram(Sim)`. -/
+@[expose] public def D31 (c : Vec 8 Rat) : Prop :=
+  InDual NumInstances.intToRat Roots.gram c
+
+/-- `T58`. The Gram determinant of a root basis of `L` is `1` (`T58x`), so
+`L = L*`; and no proper integral overlattice of rank `O` contains `L`.
+
+The second clause is stated as it is used: an overlattice is a set `M` of
+rational vectors containing `L` on which the form is integral, and the claim is
+that `M` is contained in `L` again -- which is what "no *proper* overlattice"
+says, there being no rank hypothesis left to impose once `M` is squeezed
+between `L` and `L*`. -/
+public theorem T58 :
+    (∀ c : Vec 8 Rat, D31 c ↔ InLattice NumInstances.intToRat c)
+      ∧ (∀ M : Vec 8 Rat → Prop,
+          (∀ c, InLattice NumInstances.intToRat c → M c) →
+          (∀ c d, M c → M d →
+            InImage NumInstances.intToRat (gramForm NumInstances.intToRat Roots.gram c d)) →
+          ∀ c, M c → InLattice NumInstances.intToRat c) :=
+  ⟨fun c => SD1 NumInstances.intToRat gram_InGL c,
+    fun _ hsub hint c hc =>
+      (SD1 NumInstances.intToRat gram_InGL c).mp (fun d hd => hint c d hc (hsub d hd))⟩
+
+/-! ## `T65`: `rank_Q(V) = O = 8`
+
+The two checked tables of the `V65c` section carry the whole argument into `Q`:
+`sim_dual` reads off the coefficients of a vanishing combination and gives
+independence, `dual_sim` reconstructs an arbitrary rational vector and gives
+spanning. Nothing new is searched for; the tables are the same two the integral
+statement used. -/
+
+public theorem sumInt_toRat {n : Nat} (f : Vec n Int) :
+    ((Vec.sumInt f : Int) : Rat) = Vec.sum (fun i => ((f i : Int) : Rat)) := by
+  rw [Vec.sumInt_eq_sum]
+  exact hom_map_sum NumInstances.intToRat f
+
+public theorem sim_dual_rat (i l : Fin 8) :
+    Vec.sum (fun m => CommRing.mul ((Roots.D19a i m : Int) : Rat) ((dualBasis m l : Int) : Rat))
+      = if l = i then (4 : Rat) else 0 := by
+  have h : ((Vec.sumInt (fun m => Roots.D19a i m * dualBasis m l) : Int) : Rat)
+      = Vec.sum (fun m => CommRing.mul ((Roots.D19a i m : Int) : Rat)
+          ((dualBasis m l : Int) : Rat)) := by
+    rw [sumInt_toRat]
+    exact Vec.sum_congr (fun m => Rat.intCast_mul _ _)
+  rw [← h, sim_dual i l]
+  refine Decidable.byCases (p := l = i) (fun hh => ?_) (fun hh => ?_)
+  · rw [if_pos hh, if_pos hh]; decide
+  · rw [if_neg hh, if_neg hh]; decide
+
+public theorem dual_sim_rat (m l : Fin 8) :
+    Vec.sum (fun k => CommRing.mul ((dualBasis m k : Int) : Rat) ((Roots.D19a k l : Int) : Rat))
+      = if m = l then (4 : Rat) else 0 := by
+  have h : ((Vec.sumInt (fun k => dualBasis m k * Roots.D19a k l) : Int) : Rat)
+      = Vec.sum (fun k => CommRing.mul ((dualBasis m k : Int) : Rat)
+          ((Roots.D19a k l : Int) : Rat)) := by
+    rw [sumInt_toRat]
+    exact Vec.sum_congr (fun k => Rat.intCast_mul _ _)
+  rw [← h, dual_sim m l]
+  refine Decidable.byCases (p := m = l) (fun hh => ?_) (fun hh => ?_)
+  · rw [if_pos hh, if_pos hh]; decide
+  · rw [if_neg hh, if_neg hh]; decide
+
+/-- Dividing by the scaling factor `4`, which is the only place a rational
+inverse is taken in this module. -/
+public theorem rat_eq_zero_of_mul_four {q : Rat} (h : q * (4 : Rat) = 0) : q = 0 := by
+  have h1 : q * (4 : Rat) * (4 : Rat)⁻¹ = 0 * (4 : Rat)⁻¹ := by rw [h]
+  rw [Rat.mul_assoc, Rat.mul_inv_cancel (4 : Rat) (by decide), Rat.mul_one] at h1
+  rw [h1]
+  exact zero_mul _
+
+public theorem T65_indep : Blocks.Indep Roots.D19a := by
+  intro c h l
+  have key : Vec.sum (fun j => CommRing.mul (Blocks.qComb Roots.D19a c j)
+      ((dualBasis j l : Int) : Rat)) = CommRing.mul (c l) 4 := by
+    have e1 : ∀ j : Fin 8, CommRing.mul (Blocks.qComb Roots.D19a c j)
+        ((dualBasis j l : Int) : Rat)
+        = Vec.sum (fun i => CommRing.mul (c i)
+            (CommRing.mul ((Roots.D19a i j : Int) : Rat) ((dualBasis j l : Int) : Rat))) := by
+      intro j
+      show CommRing.mul (Vec.sum (fun i => CommRing.mul (c i) ((Roots.D19a i j : Int) : Rat)))
+          ((dualBasis j l : Int) : Rat) = _
+      rw [Vec.sum_mul]
+      exact Vec.sum_congr (fun i => CommRing.mul_assoc _ _ _)
+    rw [Vec.sum_congr e1, Vec.sum_exchange (fun j i => CommRing.mul (c i)
+      (CommRing.mul ((Roots.D19a i j : Int) : Rat) ((dualBasis j l : Int) : Rat)))]
+    have e2 : ∀ i : Fin 8, Vec.sum (fun j => CommRing.mul (c i)
+        (CommRing.mul ((Roots.D19a i j : Int) : Rat) ((dualBasis j l : Int) : Rat)))
+        = if l = i then CommRing.mul (c i) 4 else AddCommGroup.zero := by
+      intro i
+      rw [← Vec.mul_sum, sim_dual_rat i l]
+      refine Decidable.byCases (p := l = i) (fun hh => ?_) (fun hh => ?_)
+      · rw [if_pos hh, if_pos hh]
+      · rw [if_neg hh, if_neg hh]; exact mul_zero (c i)
+    rw [Vec.sum_congr e2, Vec.sum_ite_eq l (fun i => CommRing.mul (c i) 4)]
+  have hz : Vec.sum (fun j => CommRing.mul (Blocks.qComb Roots.D19a c j)
+      ((dualBasis j l : Int) : Rat)) = AddCommGroup.zero := by
+    rw [Vec.sum_congr (y := fun _ => (AddCommGroup.zero : Rat))
+      (fun j => by rw [h j]; exact zero_mul _)]
+    exact Vec.sum_zero
+  exact rat_eq_zero_of_mul_four (key.symm.trans hz)
+
+public theorem T65_span (x : D34) : Blocks.InSpan Roots.D19a x := by
+  refine ⟨fun k => CommRing.mul ((4 : Rat)⁻¹)
+    (Vec.sum (fun m => CommRing.mul (x m) ((dualBasis m k : Int) : Rat))), fun j => ?_⟩
+  have e1 : ∀ k : Fin 8, CommRing.mul (CommRing.mul ((4 : Rat)⁻¹)
+      (Vec.sum (fun m => CommRing.mul (x m) ((dualBasis m k : Int) : Rat))))
+      (Blocks.qOf (Roots.D19a k) j)
+      = CommRing.mul ((4 : Rat)⁻¹) (Vec.sum (fun m => CommRing.mul (x m)
+          (CommRing.mul ((dualBasis m k : Int) : Rat) ((Roots.D19a k j : Int) : Rat)))) := by
+    intro k
+    rw [CommRing.mul_assoc, Vec.sum_mul]
+    exact congrArg (CommRing.mul ((4 : Rat)⁻¹))
+      (Vec.sum_congr (fun m => CommRing.mul_assoc _ _ _))
+  have e2 : Blocks.qComb Roots.D19a
+      (fun k => CommRing.mul ((4 : Rat)⁻¹)
+        (Vec.sum (fun m => CommRing.mul (x m) ((dualBasis m k : Int) : Rat)))) j
+      = CommRing.mul ((4 : Rat)⁻¹) (Vec.sum (fun k => Vec.sum (fun m => CommRing.mul (x m)
+          (CommRing.mul ((dualBasis m k : Int) : Rat) ((Roots.D19a k j : Int) : Rat))))) := by
+    show Vec.sum (fun k => CommRing.mul (CommRing.mul ((4 : Rat)⁻¹)
+        (Vec.sum (fun m => CommRing.mul (x m) ((dualBasis m k : Int) : Rat))))
+        (Blocks.qOf (Roots.D19a k) j)) = _
+    rw [Vec.sum_congr e1, ← Vec.mul_sum]
+  have e3 : ∀ m : Fin 8, Vec.sum (fun k => CommRing.mul (x m)
+      (CommRing.mul ((dualBasis m k : Int) : Rat) ((Roots.D19a k j : Int) : Rat)))
+      = if m = j then CommRing.mul (x m) 4 else AddCommGroup.zero := by
+    intro m
+    rw [← Vec.mul_sum, dual_sim_rat m j]
+    refine Decidable.byCases (p := m = j) (fun hh => ?_) (fun hh => ?_)
+    · rw [if_pos hh, if_pos hh]
+    · rw [if_neg hh, if_neg hh]; exact mul_zero (x m)
+  rw [e2, Vec.sum_exchange (fun k m => CommRing.mul (x m)
+    (CommRing.mul ((dualBasis m k : Int) : Rat) ((Roots.D19a k j : Int) : Rat))),
+    Vec.sum_congr e3, Vec.sum_ite_eq' j (fun m => CommRing.mul (x m) 4)]
+  show x j = (4 : Rat)⁻¹ * (x j * 4)
+  rw [← Rat.mul_assoc, Rat.mul_comm ((4 : Rat)⁻¹) (x j), Rat.mul_assoc,
+    Rat.mul_comm ((4 : Rat)⁻¹) (4 : Rat), Rat.mul_inv_cancel (4 : Rat) (by decide),
+    Rat.mul_one]
+
+/-- `T65`. `rank_Q(V) = O = 8`, and `V = Q^O`.
+
+`O = 8` is `T1`; the rank is the simple system, which `T65_indep` and
+`T65_span` make a `Q`-basis of `V`; and `V = Q^O` is an equality of types,
+because `D34` writes `V` in the coordinates of that basis. -/
+public theorem T65 :
+    Parameters.D2 = 8
+      ∧ Blocks.Indep Roots.D19a
+      ∧ (∀ x : D34, Blocks.InSpan Roots.D19a x)
+      ∧ D34 = Vec 8 Rat :=
+  ⟨Parameters.T1, T65_indep, T65_span, rfl⟩
+
+/-! ## `T66` and `T67`: the local lattice is full, and self-dual -/
+
+/-- `T66`. `L_p (x)_{Z_p} Q_p = V_p`, so `L_p` is full: the image of the
+`Z_v`-basis of `L_v` spans `V_v` over `Q_v`.
+
+`V65c` is what carries the content -- it is what makes the coordinate vectors
+with entries in `Z_v` the localisation of `L` and not of some other lattice --
+and in those coordinates fullness is the statement that the basis of `L_v` is
+already a basis of `V_v`. -/
+public theorem T66 (p : Place) (c : Vec 8 p.Amb) :
+    (∀ j : Fin 8, locL p (basisVec p.incl j))
+      ∧ ∃ lam : Vec 8 p.Amb,
+          ∀ i, c i = Vec.sum (fun j => CommRing.mul (lam j) (basisVec p.incl j i)) := by
+  refine ⟨inLattice_basisVec p.incl, c, fun i => ?_⟩
+  have h : ∀ j : Fin 8, CommRing.mul (c j) (basisVec p.incl j i)
+      = if i = j then c j else AddCommGroup.zero := by
+    intro j
+    show CommRing.mul (c j) (p.incl.toFun ((Mat.id : Mat 8 8 p.Loc) i j)) = _
+    rw [map_id_apply p.incl i j, Mat.id_apply]
+    refine Decidable.byCases (p := i = j) (fun hh => ?_) (fun hh => ?_)
+    · rw [if_pos hh, if_pos hh, mul_one]
+    · rw [if_neg hh, if_neg hh, mul_zero]
+  rw [Vec.sum_congr h, Vec.sum_ite_eq i c]
+
+/-- `T67`. `L_p = L_p*` for every finite `p`. This is `V69` at each place of a
+system of finite places, which is where the document states it. -/
+public theorem T67 (S : PlaceSystem) (p : Pl) (c : Vec 8 (S.at_ p).Amb) :
+    D37 (S.at_ p) c ↔ locL (S.at_ p) c :=
+  V69 (S.at_ p) c
+
+/-! ## `L` as a `Z`-module, and the `Sim`-coordinate dictionary
+
+Everything from `D39` onwards is written in the coordinates of the `V65c`
+basis, so the passage between a lattice vector and its coordinate vector has to
+be available in both directions. `simCoord` and `recon` above are one
+direction; `emb` below is the other, and `emb_inj` -- which is `indep` read as
+injectivity -- is what makes the pair a dictionary rather than a single map.
+
+`L` is closed under the module operations, which the document takes for granted
+and this library must not: `T57a` at `n = 8` gives addition, and negation and
+integer scaling are the same congruence argument on the two cosets of `D10`. -/
+
+/-- `L_8` is closed under addition: `T57a` at the one dimension the Atlas
+uses. -/
+public theorem closed8 : Glue.Closed 8 := (Glue.T57a 8).mpr (by decide)
+
+public theorem memL_zero : Glue.MemL 8 (AddCommGroup.zero : Vec 8 Int) :=
+  Or.inl ⟨fun _ => 0, Glue.sumInt_dvd 2 _ (fun _ => Int.dvd_zero 2),
+    fun _ => (Int.mul_zero 2).symm⟩
+
+public theorem memL_neg {y : Vec 8 Int} (h : Glue.MemL 8 y) :
+    Glue.MemL 8 (AddCommGroup.neg y) := by
+  have hn : ∀ i : Fin 8, (AddCommGroup.neg y : Vec 8 Int) i = -(y i) := fun _ => rfl
+  have hs : Vec.sumInt (AddCommGroup.neg y : Vec 8 Int) = -(Vec.sumInt y) :=
+    (Glue.sumInt_congr hn).trans (Roots.sumInt_negate y)
+  rcases h with h | h
+  · rw [Glue.MemD_iff] at h
+    refine Or.inl ((Glue.MemD_iff 8 _).mpr ⟨fun i => ?_, ?_⟩)
+    · have h1 := h.1 i
+      rw [hn i]
+      omega
+    · have h2 := h.2
+      rw [hs]
+      omega
+  · rw [Glue.MemGlue_iff] at h
+    refine Or.inr ((Glue.MemGlue_iff 8 _).mpr ⟨fun i => ?_, ?_⟩)
+    · have h1 := h.1 i
+      rw [hn i]
+      omega
+    · have h2 := h.2
+      rw [hs]
+      omega
+
+/-- `L` is closed under integer scaling. The glue coset is the case with
+content: an even multiple of a half-integer point lands back in `D`, an odd
+multiple stays on the glue coset, and the coordinate sum survives both because
+`8` is divisible by `4`. -/
+public theorem memL_smul (k : Int) {y : Vec 8 Int} (h : Glue.MemL 8 y) :
+    Glue.MemL 8 (Vec.smul k y) := by
+  have hk2 : k = 2 * (k / 2) + k % 2 := by omega
+  rcases h with ⟨z, hz, hzi⟩ | ⟨z, hz, hzi⟩
+  · obtain ⟨t, ht⟩ := hz
+    refine Or.inl ⟨fun i => k * z i, ⟨k * t, ?_⟩, fun i => ?_⟩
+    · rw [Glue.sumInt_mul_left, ht, ← Int.mul_assoc, Int.mul_comm k 2, Int.mul_assoc]
+    · show k * y i = 2 * (k * z i)
+      rw [hzi i, ← Int.mul_assoc, Int.mul_comm k 2, Int.mul_assoc]
+  · obtain ⟨t, ht⟩ := hz
+    have hsum : Vec.sumInt (fun i => k * z i + k / 2) = 2 * (k * t) + 8 * (k / 2) := by
+      rw [Glue.sumInt_add, Glue.sumInt_mul_left, Glue.sumInt_const, ht, ← Int.mul_assoc,
+        Int.mul_comm k 2, Int.mul_assoc]
+      omega
+    have hval : ∀ i : Fin 8, (Vec.smul k y : Vec 8 Int) i = 2 * (k * z i) + k := by
+      intro i
+      show k * y i = 2 * (k * z i) + k
+      rw [hzi i, Int.mul_add, Int.mul_one, ← Int.mul_assoc, Int.mul_comm k 2, Int.mul_assoc]
+    rcases (by omega : k % 2 = 0 ∨ k % 2 = 1) with hpar | hpar
+    · refine Or.inl ⟨fun i => k * z i + k / 2, ⟨k * t + 4 * (k / 2), ?_⟩, fun i => ?_⟩
+      · rw [hsum]; omega
+      · show (Vec.smul k y : Vec 8 Int) i = 2 * (k * z i + k / 2)
+        rw [hval i]; omega
+    · refine Or.inr ⟨fun i => k * z i + k / 2, ⟨k * t + 4 * (k / 2), ?_⟩, fun i => ?_⟩
+      · rw [hsum]; omega
+      · show (Vec.smul k y : Vec 8 Int) i = 2 * (k * z i + k / 2) + 1
+        rw [hval i]; omega
+
+public theorem sum_apply {n : Nat} (f : Fin n → Vec 8 Int) (m : Fin 8) :
+    Vec.sum f m = Vec.sum (fun i => f i m) := by
+  induction n with
+  | zero => rfl
+  | succ k ih =>
+    show (AddCommGroup.add (f 0) (Vec.sum fun i => f i.succ) : Vec 8 Int) m
+      = AddCommGroup.add (f 0 m) (Vec.sum fun i => f i.succ m)
+    rw [Vec.add_apply, ih (fun i => f i.succ)]
+
+public theorem memL_sum : ∀ {n : Nat} (f : Fin n → Vec 8 Int),
+    (∀ i, Glue.MemL 8 (f i)) → Glue.MemL 8 (Vec.sum f) := by
+  intro n
+  induction n with
+  | zero => intro _ _; exact memL_zero
+  | succ k ih =>
+    intro f h
+    show Glue.MemL 8 (AddCommGroup.add (f 0) (Vec.sum fun i => f i.succ))
+    exact closed8 _ _ (h 0) (ih (fun i => f i.succ) (fun i => h i.succ))
+
+/-- The `Sim`-coordinate embedding: `emb c := sum_i c_i a_i`, the lattice
+vector with coordinates `c`. It inverts `simCoord` on `L` by `recon`, and
+`emb_inj` says it is injective, which is `indep`. -/
+@[expose] public def emb (c : Vec 8 Int) : Vec 8 Int :=
+  Vec.sum (fun i => Vec.smul (c i) (Roots.D19a i))
+
+public theorem emb_apply (c : Vec 8 Int) (m : Fin 8) :
+    emb c m = Vec.sum (fun i => CommRing.mul (c i) (Roots.D19a i m)) :=
+  sum_apply (fun i => Vec.smul (c i) (Roots.D19a i)) m
+
+public theorem emb_memL (c : Vec 8 Int) : Glue.MemL 8 (emb c) :=
+  memL_sum _ (fun i => memL_smul (c i) (simMemL i))
+
+public theorem emb_recon {y : Vec 8 Int} (hy : Glue.MemL 8 y) : emb (simCoord y) = y := by
+  funext m
+  rw [emb_apply, ← Vec.sumInt_eq_sum]
+  exact (recon hy m).symm
+
+public theorem emb_add (c d : Vec 8 Int) :
+    emb (AddCommGroup.add c d) = AddCommGroup.add (emb c) (emb d) := by
+  funext m
+  rw [emb_apply, Vec.add_apply, emb_apply, emb_apply, ← Vec.sum_add]
+  exact Vec.sum_congr (fun i => Linear.right_distrib (c i) (d i) (Roots.D19a i m))
+
+public theorem emb_neg (c : Vec 8 Int) :
+    emb (AddCommGroup.neg c) = AddCommGroup.neg (emb c) := by
+  funext m
+  rw [emb_apply, Vec.neg_apply, emb_apply, ← Vec.sum_neg]
+  exact Vec.sum_congr (fun i => Linear.neg_mul (c i) (Roots.D19a i m))
+
+public theorem emb_eq_zero {c : Vec 8 Int} (h : ∀ m, emb c m = 0) (j : Fin 8) : c j = 0 :=
+  indep c (fun m => by rw [Vec.sumInt_eq_sum]; exact (emb_apply c m).symm.trans (h m)) j
+
+public theorem emb_inj {c d : Vec 8 Int} (h : emb c = emb d) : c = d := by
+  funext j
+  have hz : ∀ m, emb (AddCommGroup.add c (AddCommGroup.neg d)) m = 0 := by
+    intro m
+    rw [emb_add, emb_neg, Vec.add_apply, Vec.neg_apply, h]
+    exact AddCommGroup.add_neg (emb d m)
+  have h2 : c j + -(d j) = 0 := emb_eq_zero hz j
+  show c j = d j
+  omega
+
+/-! ### The form in `Sim` coordinates -/
+
+/-- The form of section 0 in the coordinates of the `V65c` basis: its Gram
+matrix is `Gram(Sim)`. `dot_emb` is that this really is the form -- the doubled
+integer form `dot` is `4` times it, which is the same factor `4` that
+`pairing` divides out. -/
+@[expose] public def gformZ (c d : Vec 8 Int) : Int := Vec.inner c (Mat.apply Roots.gram d)
+
+public theorem gram_symm (i j : Fin 8) : Roots.gram i j = Roots.gram j i := by
+  revert i j; decide +kernel
+
+public theorem inner_sim (i j : Fin 8) :
+    Vec.inner (Roots.D19a i) (Roots.D19a j) = 4 * Roots.gram i j :=
+  (dot_eq_inner _ _).symm.trans (Roots.gram_exact i j).symm
+
+/-- Pairing a fixed vector against an embedded coordinate vector reads off the
+coordinates: this is bilinearity in the second argument, and it is the step
+`dot_emb` needs twice. -/
+public theorem inner_emb_right (x d : Vec 8 Int) :
+    Vec.inner x (emb d) = Vec.sum (fun j => CommRing.mul (d j) (Vec.inner x (Roots.D19a j))) := by
+  have e1 : ∀ m : Fin 8, CommRing.mul (x m) (emb d m)
+      = Vec.sum (fun j => CommRing.mul (d j) (CommRing.mul (x m) (Roots.D19a j m))) := by
+    intro m
+    rw [emb_apply, Vec.mul_sum]
+    exact Vec.sum_congr (fun j => by
+      rw [← CommRing.mul_assoc, CommRing.mul_comm (x m) (d j), CommRing.mul_assoc])
+  show Vec.sum (fun m => CommRing.mul (x m) (emb d m)) = _
+  rw [Vec.sum_congr e1,
+    Vec.sum_exchange (fun m j => CommRing.mul (d j) (CommRing.mul (x m) (Roots.D19a j m)))]
+  exact Vec.sum_congr (fun j => (Vec.mul_sum (d j) (fun m => CommRing.mul (x m) (Roots.D19a j m))).symm)
+
+/-- `dot` in `Sim` coordinates is `4 Gram(Sim)`. The factor is the same `2x`
+scaling `UorAtlas.Roots` fixes, so the document's `<-,->` is `gformZ`. -/
+public theorem dot_emb (c d : Vec 8 Int) : dot (emb c) (emb d) = 4 * gformZ c d := by
+  have e1 : ∀ j : Fin 8, CommRing.mul (d j) (Vec.inner (emb c) (Roots.D19a j))
+      = Vec.sum (fun i => CommRing.mul (d j) (CommRing.mul (c i) (4 * Roots.gram i j))) := by
+    intro j
+    have hin : Vec.inner (emb c) (Roots.D19a j)
+        = Vec.sum (fun i => CommRing.mul (c i) (4 * Roots.gram i j)) := by
+      rw [Vec.inner_comm (emb c) (Roots.D19a j), inner_emb_right (Roots.D19a j) c]
+      exact Vec.sum_congr (fun i => by rw [inner_sim j i, gram_symm j i])
+    rw [hin, Vec.mul_sum]
+  have e2 : ∀ i : Fin 8, CommRing.mul (c i) (Mat.apply Roots.gram d i)
+      = Vec.sum (fun j => CommRing.mul (c i) (CommRing.mul (Roots.gram i j) (d j))) :=
+    fun i => Vec.mul_sum (c i) (fun j => CommRing.mul (Roots.gram i j) (d j))
+  rw [dot_eq_inner, inner_emb_right (emb c) d, Vec.sum_congr e1,
+    Vec.sum_exchange (fun j i => CommRing.mul (d j) (CommRing.mul (c i) (4 * Roots.gram i j)))]
+  show Vec.sum (fun i => Vec.sum (fun j =>
+      CommRing.mul (d j) (CommRing.mul (c i) (4 * Roots.gram i j))))
+    = CommRing.mul (4 : Int) (Vec.sum (fun i => CommRing.mul (c i) (Mat.apply Roots.gram d i)))
+  rw [Vec.sum_congr e2, Vec.mul_sum]
+  refine Vec.sum_congr (fun i => ?_)
+  rw [Vec.mul_sum]
+  refine Vec.sum_congr (fun j => ?_)
+  show d j * (c i * (4 * Roots.gram i j)) = 4 * (c i * (Roots.gram i j * d j))
+  grind
 
 end UorAtlas.Places
