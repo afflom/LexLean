@@ -617,4 +617,627 @@ public theorem matHom_mul {L : LocData} (i : QIx L)
     matHom i (Mat.mul A B) = QLin.comp (matHom i A) (matHom i B) :=
   QLin.ext (fun x => apply_mul A B x)
 
+
+/-! ## `D62`: the linear model, and what of it is formalised
+
+Section 17 leaves section 18 four constructions. Three are pure linear algebra
+over `Q` and are given here; the fourth, `component_dims`, is not, and the
+reason is recorded in the module header: eigenvalue multiplicities are not
+expressible over `Z` or `Q` without the spectral machinery of section 16, and
+this library carries no real numbers. `D62` is therefore the record of the
+three that are, with no field standing in for the one that is not. -/
+
+/-- The three constructions of the linear model that section 18 consumes:
+the chosen linear lift of an automorphism, the induced representation on
+`Sym^2(V)`, and the commutant of `WLin` in `End_Q(V)`.
+
+`Sym^2(V)` is carried by its Gram matrices, on which `g` acts as
+`S |-> g S g^T`; that is the representation, in coordinates. The commutant is
+a predicate rather than a subspace because every use of it below is membership.
+
+`component_dims` is **absent**, not renamed: the eigenspace dimensions of a
+generic commutant element need eigenvalue multiplicities, which section 16
+supplies over `RR` and which neither `Z` nor `Q` expresses. -/
+public structure LinModel (L : LocData) where
+  /-- `lift_linear`: the matrix of the chosen lift of an automorphism. -/
+  liftLinear : L.aut.El → Mat L.rank L.rank Rat
+  /-- `sym2_rep`: the action of `WLin` on `Sym^2(V)` in Gram coordinates. -/
+  sym2Rep : L.wlin.El → Mat L.rank L.rank Rat → Mat L.rank L.rank Rat
+  /-- `commutant`: the matrices commuting with every element of `WLin`. -/
+  commutant : Mat L.rank L.rank Rat → Prop
+
+/-- `D62`. The linear model of section 17 at the data of section 18. -/
+@[expose] public def D62 (L : LocData) : LinModel L where
+  liftLinear t := (L.lift t).val
+  sym2Rep g S := Mat.mul (Mat.mul g.val S) (Mat.transpose g.val)
+  commutant M := ∀ g : L.wlin.El, Mat.mul M g.val = Mat.mul g.val M
+
+/-- `sym2_rep` is a representation and not merely an assignment: it carries a
+product of `WLin` to the composite. `M2` and `Mat.transpose_mul` are its whole
+content. -/
+public theorem sym2Rep_mul (L : LocData) (g h : L.wlin.El)
+    (S : Mat L.rank L.rank Rat) :
+    (D62 L).sym2Rep (L.wlin.grp.mul g h) S
+      = (D62 L).sym2Rep g ((D62 L).sym2Rep h S) := by
+  show Mat.mul (Mat.mul (Mat.mul g.val h.val) S) (Mat.transpose (Mat.mul g.val h.val))
+    = Mat.mul (Mat.mul g.val (Mat.mul (Mat.mul h.val S) (Mat.transpose h.val)))
+        (Mat.transpose g.val)
+  rw [Mat.transpose_mul, ← M2 g.val (Mat.mul h.val S) (Mat.transpose h.val),
+    ← M2 g.val h.val S,
+    M2 (Mat.mul (Mat.mul g.val h.val) S) (Mat.transpose h.val) (Mat.transpose g.val)]
+
+/-! ## `D63`: `AtlLin`, and `F1`
+
+`D41` puts `WLin` inside `GL_Q(V)`; `D63` makes its elements the morphisms of a
+category with one object. `D64`'s table writes that category as `B WLin`, so
+the delooping is given for an arbitrary group and `D63` is its value at
+`WLin`. -/
+
+/-- `B G`: the one-object category on a group. -/
+@[expose] public def deloop (G : GrpData) : Cat where
+  Ob := Unit
+  Hom _ _ := G.El
+  idm _ := G.one
+  comp f g := G.mul f g
+  id_comp f := G.one_mul f
+  comp_id f := G.mul_one f
+  assoc h g f := G.mul_assoc h g f
+
+/-- `D63`. `AtlLin := B WLin`: one object, and the elements of `WLin` as its
+morphisms. -/
+@[expose] public def D63 (L : LocData) : Cat := deloop L.wlin.grp
+
+/-- `F1`. Composition in `AtlLin` is associative and unital **for every
+morphism**, and every morphism is invertible: the five laws are `M2`, `M3` and
+the two inverse equations of `D41`. -/
+public theorem F1 (L : LocData) (a b c : L.wlin.El) :
+    Mat.mul (Mat.mul a.val b.val) c.val = Mat.mul a.val (Mat.mul b.val c.val)
+      ∧ Mat.mul (Mat.id : Mat L.rank L.rank Rat) a.val = a.val
+      ∧ Mat.mul a.val (Mat.id : Mat L.rank L.rank Rat) = a.val
+      ∧ Mat.mul (L.wlin.invOf a.val a.property) a.val = Mat.id
+      ∧ Mat.mul a.val (L.wlin.invOf a.val a.property) = Mat.id :=
+  ⟨M2 a.val b.val c.val, (M3 a.val).1, (M3 a.val).2,
+    L.wlin.invOf_mul a.property, L.wlin.mul_invOf a.property⟩
+
+
+/-! ## `F2`-`F7`: extension of scalars, before any of it is called a functor
+
+`D43` writes `g_v` for the extension of scalars of a morphism, and `D35`,
+`D39` write `loc_v` and `Delta`. The six statements here are about those maps
+alone; nothing below `F7` mentions a category, which is the order section 18
+insists on. -/
+
+/-- `D43`'s `g_v`: the matrix of `g` after extension of scalars along
+`iota_v`. -/
+@[expose] public def locMat (L : LocData) (v : L.Place) (g : L.wlin.El) :
+    Mat L.rank L.rank (L.Qv v).Car := Mat.map (L.Qv v).str g.val
+
+/-- `F2`. The matrix of a morphism after extension of scalars is that morphism
+entry by entry along `iota_v`, and the map it defines is `Qv(v)`-linear -- not
+merely `Q`-linear, which is what makes the restriction of scalars in `D65`'s
+second row a restriction of something. -/
+public theorem F2 (L : LocData) (v : L.Place) (g : L.wlin.El) :
+    (∀ i j, locMat L v g i j = (L.Qv v).str.toFun (g.val i j))
+      ∧ (∀ x y : Vec L.rank (L.Qv v).Car,
+          Mat.apply (locMat L v g) (AddCommGroup.add x y)
+            = AddCommGroup.add (Mat.apply (locMat L v g) x) (Mat.apply (locMat L v g) y))
+      ∧ (∀ (c : (L.Qv v).Car) (x : Vec L.rank (L.Qv v).Car),
+          Mat.apply (locMat L v g) (Vec.smul c x)
+            = Vec.smul c (Mat.apply (locMat L v g) x)) :=
+  ⟨fun _ _ => rfl, apply_add _, apply_smul _⟩
+
+/-- `F3`. Extension of scalars preserves composition. `M1` supplies the entry
+identity and `M2` the associativity it is read against. -/
+public theorem F3 (L : LocData) (v : L.Place) (g h : L.wlin.El) :
+    locMat L v (L.wlin.grp.mul g h) = Mat.mul (locMat L v g) (locMat L v h) :=
+  M1 (L.Qv v).str g.val h.val
+
+/-- `F4`. Extension of scalars preserves the unit. -/
+public theorem F4 (L : LocData) (v : L.Place) :
+    locMat L v L.wlin.grp.one = (Mat.id : Mat L.rank L.rank (L.Qv v).Car) :=
+  RingLemmas.map_id (L.Qv v).str
+
+/-- `F5`. Every `g_v` is invertible, with `(g^{-1})_v` as its inverse: the
+image of `WLin` lies in `GL_{Qv(v)}(V_v)`. This is where the chosen inverse of
+`D41` is used as a matrix rather than as an existential. -/
+public theorem F5 (L : LocData) (v : L.Place) (g : L.wlin.El) :
+    Mat.mul (locMat L v g) (locMat L v (L.wlin.grp.inv g)) = Mat.id
+      ∧ Mat.mul (locMat L v (L.wlin.grp.inv g)) (locMat L v g) = Mat.id := by
+  refine ⟨?_, ?_⟩
+  · rw [← F3, L.wlin.grp.mul_inv g, F4]
+  · rw [← F3, L.wlin.grp.inv_mul g, F4]
+
+/-- `F6p`. One coordinate of the naturality square: `iota_v` commutes with the
+`i`-th entry of a matrix action, which is `RH1` at the polynomial `M1`
+exhibits. -/
+public theorem F6p (L : LocData) (v : L.Place) (g : L.wlin.El)
+    (x : Vec L.rank Rat) (i : Fin L.rank) :
+    (L.Qv v).str.toFun (Mat.apply g.val x i) = Mat.apply (locMat L v g) (locv L v x) i :=
+  RingLemmas.RH1_apply (L.Qv v).str g.val x i
+
+/-- `F6`. Localising after `g` is `g_v` after localising: the naturality square
+of `loc_v`, before it is called one. Section 13 states the same equation as
+`T79`. -/
+public theorem F6 (L : LocData) (v : L.Place) (g : L.wlin.El) (x : Vec L.rank Rat) :
+    locv L v (Mat.apply g.val x) = Mat.apply (locMat L v g) (locv L v x) :=
+  funext (F6p L v g x)
+
+/-- `F7`. The `v`-component of `Delta(x)` is `loc_v(x)`, at every place at once:
+`D39`'s defining property of the diagonal, and the equation `F21`'s cone is
+built on. -/
+public theorem F7 (L : LocData) (v : L.Place) (x : Vec L.rank Rat) :
+    Vec.map (L.proj v) (Delta L x) = locv L v x :=
+  funext fun i => L.proj_str v (x i)
+
+
+/-! ## `D64` and `D65`: the signature table, and the assignments it types
+
+`D64` is the table. Its five fields are the five rows, and their **types** are
+the signatures: two categories each, fixed before any assignment is written.
+Inhabiting it is therefore the machine check section 20.1 asks for -- a row
+whose source or target is wrong cannot be filled at all.
+
+`D65` is the other half: the object and morphism assignments, as data with no
+law attached. The functoriality theorems below are about these assignments, and
+the `CatFunctor` records are bundled only after them. -/
+
+/-- `D64`. The signature table of section 18: five rows, five field types.
+
+* `RQ    : AtlLin -> QMod`, `R_Q(*) = V`;
+* `Rv v  : AtlLin -> QMod`, `R_v(*) = Res_Q^{Qv(v)} V_v`, one row per place;
+* `RAddr : AtlLin -> QMod`, `R_Addr(*) = Addr(L)`;
+* `Kf    : B Aut -> Set`, `Kf(*) = K`;
+* `Pf    : B Aut -> Set`, `Pf(*) = PAddr(L)`. -/
+public structure D64 (L : LocData) where
+  /-- Row 1: the rational representation. -/
+  RQ : CatFunctor (D63 L) (QMod L)
+  /-- Row 2: the local representation at each place. -/
+  Rv : (v : L.Place) → CatFunctor (D63 L) (QMod L)
+  /-- Row 3: the adelic representation. -/
+  RAddr : CatFunctor (D63 L) (QMod L)
+  /-- Row 4: the root classes as an `Aut`-set. -/
+  Kf : CatFunctor (deloop L.aut) (SetCat L)
+  /-- Row 5: `PAddr(L)` as an `Aut`-set. -/
+  Pf : CatFunctor (deloop L.aut) (SetCat L)
+
+/-- The object and morphism assignments of the five rows, without their laws.
+`D65` is the one of these section 18 names. -/
+public structure Assignments (L : LocData) where
+  /-- `R_Q(*)`. -/
+  qObj : QIx L
+  /-- `R_Q(g)`. -/
+  qMap : L.wlin.El → QLin qObj qObj
+  /-- `R_v(*)`. -/
+  vObj : L.Place → QIx L
+  /-- `R_v(g) = g_v`. -/
+  vMap : (v : L.Place) → L.wlin.El → QLin (vObj v) (vObj v)
+  /-- `R_Addr(*)`. -/
+  aObj : QIx L
+  /-- `R_Addr(g)`. -/
+  aMap : L.wlin.El → QLin aObj aObj
+  /-- `Kf(*)`. -/
+  kObj : SIx L
+  /-- `Kf(tau)`, the action of `D21`. -/
+  kMap : L.aut.El → SCar kObj → SCar kObj
+  /-- `Pf(*)`. -/
+  pObj : SIx L
+  /-- `Pf(tau) = tau_Addr`, of `D46`. -/
+  pMap : L.aut.El → SCar pObj → SCar pObj
+
+/-- `D65`. The assignments: `V`, `V_v` by restriction of scalars, `Addr(L)`,
+`K` and `PAddr(L)` on objects; the matrix action, its base changes, the `Aut`
+action on classes and `tau_Addr` on morphisms. -/
+@[expose] public def D65 (L : LocData) : Assignments L where
+  qObj := QIx.rational
+  qMap g := matHom QIx.rational g.val
+  vObj v := QIx.localAt v
+  vMap v g := matHom (QIx.localAt v) (locMat L v g)
+  aObj := QIx.address
+  aMap g := matHom QIx.address (Mat.map L.Adr.str g.val)
+  kObj := SIx.classes
+  kMap t κ := L.kact t κ
+  pObj := SIx.paddr
+  pMap t := tauAddr L t
+
+/-- The morphism assignment of the third row is the action of `D43` assembled
+over all places, which is how `F19` and `F21` reach `RP1`. -/
+public theorem D65_aMap_apply (L : LocData) (g : L.wlin.El) (x : Addr L) :
+    ((D65 L).aMap g).toFun x = addrAct L g x := rfl
+
+/-! ## `F12`: why `F8`-`F11` were withdrawn
+
+`F9` paired `Id : AtlLin -> AtlLin` with `Loc_v : AtlLin -> AtlLin_v`. A
+component at `X` would be a morphism from `Id(X)` to `Loc_v(X)`, and those two
+objects live in different categories, so there is no hom-set to draw it from;
+`F10` and `F11` inherited the gap and `F8` was folded into `F17`.
+
+`Across` is that demand written down: to give the components at all one must
+first identify the two targets, and the identification is a field. `F12` reads
+it back off. Section 20.1's fix -- "the signature table of `D65` makes this a
+machine check rather than a reading" -- is then exactly that `NatTrans` takes
+one pair of categories and `D64`'s rows fix which pair each row has. -/
+
+/-- The pairing `F9` asserted: components for two functors out of `C` whose
+targets need not agree. Writing one costs an identification of the targets,
+which is the field `same`. -/
+public structure Across {C D D' : Cat} (F : CatFunctor C D) (G : CatFunctor C D') where
+  /-- The identification the components cannot be written without. -/
+  same : D' = D
+  /-- The components, in the single category the identification produces. -/
+  app : (X : C.Ob) → D.Hom (F.obj X) (Eq.mp (congrArg Cat.Ob same) (G.obj X))
+
+/-- `F12`. `F8`-`F11` are retracted, and this is the law that retracts them: a
+family of components across two functors exists only when their targets are the
+same category. `Id : AtlLin -> AtlLin` and `Loc_v : AtlLin -> AtlLin_v` have
+different targets, so no such family can be written, and with the targets equal
+the family is a `ComponentFamily` and `F13`-`F15` apply. -/
+public theorem F12 {C D D' : Cat} {F : CatFunctor C D} {G : CatFunctor C D'}
+    (η : Across F G) : D' = D := η.same
+
+/-- The converse half of `F12`, and what makes it a criterion rather than a
+bare projection: once the two targets **are** the same category, a component
+family is an `Across` with nothing transported. So the identification is the
+whole of the obstruction, and `D64` supplies it row by row. -/
+@[expose] public def Across.ofFamily {C D : Cat} {F G : CatFunctor C D}
+    (η : ComponentFamily F G) : Across F G where
+  same := rfl
+  app := η
+
+
+/-! ## `T76a`: the lift may be chosen, and the choice does not matter
+
+`D46` defines `tau_Addr` "for any `g in Lift(tau)`". `LocData.lift` makes one
+choice; `T76a` is the theorem that any other choice induces the same map on
+`PAddr(L)`, and it is what makes the definition a definition. `T73` bounds the
+ambiguity by `{+I,-I}` and `D44` divides by exactly that, so the two cancel:
+`M4` is the whole of the second case. -/
+
+/-- In a group, a right inverse is the inverse. Used to get `pi` of an inverse
+without assuming `pi` is a homomorphism on inverses. -/
+public theorem GrpData.eq_inv_of_mul_eq_one (G : GrpData) {a b : G.El}
+    (h : G.mul a b = G.one) : a = G.inv b := by
+  have h1 : G.mul (G.mul a b) (G.inv b) = G.mul G.one (G.inv b) := by rw [h]
+  rw [G.mul_assoc, G.mul_inv, G.mul_one, G.one_mul] at h1
+  exact h1
+
+/-- `pi` carries inverses to inverses: `D42` gives products, and a map of
+groups preserving products preserves inverses. -/
+public theorem pi_inv (L : LocData) (g : L.wlin.El) :
+    L.pi (L.wlin.grp.inv g) = L.aut.inv (L.pi g) :=
+  L.aut.eq_inv_of_mul_eq_one (by rw [← L.pi_mul, L.wlin.grp.inv_mul, L.pi_one])
+
+/-- The action of `WLin` on `Addr(L)` is multiplicative: `M1` moves the product
+through base change and `M2` splits the action. -/
+public theorem addrAct_mul (L : LocData) (g h : L.wlin.El) (x : Addr L) :
+    addrAct L (L.wlin.grp.mul g h) x = addrAct L g (addrAct L h x) := by
+  show Mat.apply (Mat.map L.Adr.str (Mat.mul g.val h.val)) x
+    = Mat.apply (Mat.map L.Adr.str g.val) (Mat.apply (Mat.map L.Adr.str h.val) x)
+  rw [M1, apply_mul]
+
+/-- The unit acts trivially. -/
+public theorem addrAct_one (L : LocData) (x : Addr L) :
+    addrAct L L.wlin.grp.one x = x := by
+  show Mat.apply (Mat.map L.Adr.str (Mat.id : Mat L.rank L.rank Rat)) x = x
+  rw [RingLemmas.map_id]
+  exact apply_id x
+
+/-- `T76a`. Two lifts of the same automorphism induce the same map on
+`PAddr(L)`. By `T73` they differ by a global sign, and `D44` is the quotient by
+exactly that sign. -/
+public theorem T76a (L : LocData) (g h : L.wlin.El) (hgh : L.pi g = L.pi h) (x : Addr L) :
+    paddrMk L (addrAct L g x) = paddrMk L (addrAct L h x) := by
+  have hk : L.pi (L.wlin.grp.mul g (L.wlin.grp.inv h)) = L.aut.one := by
+    rw [L.pi_mul, pi_inv, hgh]
+    exact L.aut.mul_inv _
+  have hkh0 : L.wlin.grp.mul (L.wlin.grp.mul g (L.wlin.grp.inv h)) h = g := by
+    rw [L.wlin.grp.mul_assoc, L.wlin.grp.inv_mul, L.wlin.grp.mul_one]
+  have hkh : Mat.mul (L.wlin.grp.mul g (L.wlin.grp.inv h)).val h.val = g.val :=
+    congrArg Subtype.val hkh0
+  refine Or.elim (L.ker_pi _ hk) (fun hone => ?_) (fun hneg => ?_)
+  · have hg : g.val = h.val := by
+      rw [← hkh, hone]
+      exact (M3 h.val).1
+    show paddrMk L (Mat.apply (Mat.map L.Adr.str g.val) x)
+      = paddrMk L (Mat.apply (Mat.map L.Adr.str h.val) x)
+    rw [hg]
+  · have hg : g.val = Mat.mul (Mat.neg Mat.id) h.val := by rw [← hkh, hneg]
+    show paddrMk L (Mat.apply (Mat.map L.Adr.str g.val) x)
+      = paddrMk L (Mat.apply (Mat.map L.Adr.str h.val) x)
+    rw [hg, M1, map_neg_mat, RingLemmas.map_id, apply_mul, M4, apply_id]
+    exact paddrMk_neg L _
+
+/-! ## `F22`, `F17`, `F19a`, `F15a`, `F15p`: the assignments are functorial
+
+Construction precedes typing. Each theorem here says of one row of `D65` that
+it carries the unit to the identity and a product to the composite; nothing is
+bundled into a `CatFunctor` until all five are proved. `F15p` is stated with
+them rather than after `F15`, because `F15`'s type does not exist until `Kf`
+is a functor. -/
+
+/-- `F22`. `R_Q` is a functor: `M3` gives the unit and `M2` the composite. -/
+public theorem F22 (L : LocData) :
+    (D65 L).qMap L.wlin.grp.one = QLin.id ((D65 L).qObj)
+      ∧ ∀ g h : L.wlin.El, (D65 L).qMap (L.wlin.grp.mul g h)
+          = QLin.comp ((D65 L).qMap g) ((D65 L).qMap h) := by
+  refine ⟨?_, fun g h => ?_⟩
+  · show matHom QIx.rational (Mat.id : Mat L.rank L.rank Rat) = QLin.id _
+    exact matHom_id _
+  · show matHom QIx.rational (Mat.mul g.val h.val) = _
+    exact matHom_mul _ _ _
+
+/-- `F17`. `R_v` is a functor, at every place: `F4` gives the unit and `F3` the
+composite, so this is `M1`-`M3` through base change. `F8` was folded into this
+statement (section 20.1). -/
+public theorem F17 (L : LocData) (v : L.Place) :
+    (D65 L).vMap v L.wlin.grp.one = QLin.id ((D65 L).vObj v)
+      ∧ ∀ g h : L.wlin.El, (D65 L).vMap v (L.wlin.grp.mul g h)
+          = QLin.comp ((D65 L).vMap v g) ((D65 L).vMap v h) := by
+  refine ⟨?_, fun g h => ?_⟩
+  · show matHom (QIx.localAt v) (locMat L v L.wlin.grp.one) = QLin.id _
+    rw [F4]
+    exact matHom_id _
+  · show matHom (QIx.localAt v) (locMat L v (L.wlin.grp.mul g h)) = _
+    rw [F3]
+    exact matHom_mul _ _ _
+
+/-- `F19a`. `R_Addr` is a functor. The same argument as `F17` at the coefficient
+ring of the restricted product, which is the only structure `RP1` leaves this
+proof. -/
+public theorem F19a (L : LocData) :
+    (D65 L).aMap L.wlin.grp.one = QLin.id ((D65 L).aObj)
+      ∧ ∀ g h : L.wlin.El, (D65 L).aMap (L.wlin.grp.mul g h)
+          = QLin.comp ((D65 L).aMap g) ((D65 L).aMap h) := by
+  refine ⟨?_, fun g h => ?_⟩
+  · show matHom QIx.address (Mat.map L.Adr.str (Mat.id : Mat L.rank L.rank Rat)) = QLin.id _
+    rw [RingLemmas.map_id]
+    exact matHom_id _
+  · show matHom QIx.address (Mat.map L.Adr.str (Mat.mul g.val h.val)) = _
+    rw [M1]
+    exact matHom_mul _ _ _
+
+/-- `F15a`. `Pf` is a functor: `tau_Addr` is an action of `Aut` on `PAddr(L)`.
+Both halves are `T76a`, because `lift(1)` and `lift(st)` are lifts of the same
+automorphisms as `1` and `lift(s) lift(t)` but need not be those elements. -/
+public theorem F15a (L : LocData) :
+    (∀ κ : SCar ((D65 L).pObj), (D65 L).pMap L.aut.one κ = κ)
+      ∧ ∀ (s t : L.aut.El) (κ : SCar ((D65 L).pObj)),
+          (D65 L).pMap (L.aut.mul s t) κ = (D65 L).pMap s ((D65 L).pMap t κ) := by
+  refine ⟨?_, ?_⟩
+  · show ∀ κ : PAddr L, tauAddr L L.aut.one κ = κ
+    refine Quot.ind (fun x => ?_)
+    show paddrMk L (addrAct L (L.lift L.aut.one) x) = paddrMk L x
+    rw [T76a L (L.lift L.aut.one) L.wlin.grp.one (by rw [L.pi_lift, L.pi_one]), addrAct_one]
+  · intro s t
+    show ∀ κ : PAddr L, tauAddr L (L.aut.mul s t) κ = tauAddr L s (tauAddr L t κ)
+    refine Quot.ind (fun x => ?_)
+    show paddrMk L (addrAct L (L.lift (L.aut.mul s t)) x)
+      = paddrMk L (addrAct L (L.lift s) (addrAct L (L.lift t) x))
+    rw [← addrAct_mul,
+      T76a L (L.lift (L.aut.mul s t)) (L.wlin.grp.mul (L.lift s) (L.lift t))
+        (by rw [L.pi_lift, L.pi_mul, L.pi_lift, L.pi_lift])]
+
+/-- `F15p`. `Kf` is a functor: `D21`'s action of `Aut` on the root classes is an
+action. This is the preparation `F15` needs -- without it `Kf` is not an object
+of the source of a natural transformation and `F15` has no type. -/
+public theorem F15p (L : LocData) :
+    (∀ κ : SCar ((D65 L).kObj), (D65 L).kMap L.aut.one κ = κ)
+      ∧ ∀ (s t : L.aut.El) (κ : SCar ((D65 L).kObj)),
+          (D65 L).kMap (L.aut.mul s t) κ = (D65 L).kMap s ((D65 L).kMap t κ) :=
+  ⟨L.kact_one, L.kact_mul⟩
+
+
+/-! ## The five rows, bundled, and the table inhabited
+
+Only now, with `F22`, `F17`, `F19a`, `F15a` and `F15p` proved, are the
+`CatFunctor` records built: each takes its two laws from the theorem about the
+matching row of `D65`, and none of them re-proves anything. Inhabiting `D64` is
+then the machine check -- a row whose source or target were wrong could not be
+filled. -/
+
+/-- Row 1 of `D64`: `R_Q`. -/
+@[expose] public def RQ (L : LocData) : CatFunctor (D63 L) (QMod L) where
+  obj _ := (D65 L).qObj
+  map g := (D65 L).qMap g
+  map_id _ := (F22 L).1
+  map_comp f g := (F22 L).2 f g
+
+/-- Row 2 of `D64`: `R_v`, at one place. -/
+@[expose] public def Rv (L : LocData) (v : L.Place) : CatFunctor (D63 L) (QMod L) where
+  obj _ := (D65 L).vObj v
+  map g := (D65 L).vMap v g
+  map_id _ := (F17 L v).1
+  map_comp f g := (F17 L v).2 f g
+
+/-- Row 3 of `D64`: `R_Addr`. -/
+@[expose] public def RAddr (L : LocData) : CatFunctor (D63 L) (QMod L) where
+  obj _ := (D65 L).aObj
+  map g := (D65 L).aMap g
+  map_id _ := (F19a L).1
+  map_comp f g := (F19a L).2 f g
+
+/-- Row 4 of `D64`: `Kf`. -/
+@[expose] public def Kf (L : LocData) : CatFunctor (deloop L.aut) (SetCat L) where
+  obj _ := (D65 L).kObj
+  map t := (D65 L).kMap t
+  map_id _ := funext (F15p L).1
+  map_comp f g := funext ((F15p L).2 f g)
+
+/-- Row 5 of `D64`: `Pf`. -/
+@[expose] public def Pf (L : LocData) : CatFunctor (deloop L.aut) (SetCat L) where
+  obj _ := (D65 L).pObj
+  map t := (D65 L).pMap t
+  map_id _ := funext (F15a L).1
+  map_comp f g := funext ((F15a L).2 f g)
+
+/-- The table of `D64`, inhabited. Every row's signature is checked here, which
+is what section 20.1 asks for in place of the withdrawn prose. -/
+@[expose] public def signatureTable (L : LocData) : D64 L where
+  RQ := RQ L
+  Rv := Rv L
+  RAddr := RAddr L
+  Kf := Kf L
+  Pf := Pf L
+
+/-! ## `F13`-`F15`: the three transformations are well typed
+
+These three are typing facts and nothing else, and the module is built so that
+the type checker certifies them: `ComponentFamily F G` mentions **one** source
+category and **one** target category, so writing `loc_v` at the type
+`ComponentFamily R_Q R_v` at all forces `R_Q` and `R_v` to agree in both. Lean
+accepting the three declarations below **is** the proof; there is no separate
+obligation, which is exactly what `F12` says the fix must look like.
+
+The squares that make them natural transformations are `F16`, `F19` and `F20`,
+and each is bundled into a `NatTrans` beside its square. -/
+
+/-- `loc_v` as a morphism of `QMod`: extension of scalars along `iota_v`, which
+is `Q`-linear because `iota_v` is a `Q`-algebra map. -/
+@[expose] public def locHom (L : LocData) (v : L.Place) :
+    QLin (QIx.rational : QIx L) (QIx.localAt v) :=
+  baseHom QIx.rational (QIx.localAt v) (L.Qv v).str (fun _ => rfl)
+
+/-- `Delta` as a morphism of `QMod`. -/
+@[expose] public def deltaHom (L : LocData) :
+    QLin (QIx.rational : QIx L) QIx.address :=
+  baseHom QIx.rational QIx.address L.Adr.str (fun _ => rfl)
+
+/-- The `v`-th place projection as a morphism of `QMod`; `D39`'s compatibility
+is what makes it `Q`-linear. -/
+@[expose] public def projHom (L : LocData) (v : L.Place) :
+    QLin (QIx.address : QIx L) (QIx.localAt v) :=
+  baseHom QIx.address (QIx.localAt v) (L.proj v) (L.proj_str v)
+
+/-- `F13`. `loc_v : R_Q => R_v` is well typed. Both functors go from `AtlLin`
+to `QMod`, so the component family can be written; that Lean checks this
+declaration is the whole of the claim. -/
+@[expose] public def F13 (L : LocData) (v : L.Place) :
+    ComponentFamily (RQ L) (Rv L v) := fun _ => locHom L v
+
+/-- `F14`. `Delta : R_Q => R_Addr` is well typed. -/
+@[expose] public def F14 (L : LocData) : ComponentFamily (RQ L) (RAddr L) :=
+  fun _ => deltaHom L
+
+/-- `F15`. `Delta_K : Kf => Pf` is well typed. Both go from `B Aut` to `Set`,
+which is `F15p` and `F15a`; without those two this declaration has no type. -/
+@[expose] public def F15 (L : LocData) : ComponentFamily (Kf L) (Pf L) :=
+  fun _ => DeltaK L
+
+/-- `F16`. The naturality square of `loc_v`: localising after `g` is `g_v`
+after localising. `F6` is the same equation on vectors; section 13 states it as
+`T79`. -/
+public theorem F16 (L : LocData) (v : L.Place) (g : L.wlin.El) :
+    (QMod L).comp (F13 L v ()) ((RQ L).map g)
+      = (QMod L).comp ((Rv L v).map g) (F13 L v ()) :=
+  QLin.ext (fun x => F6 L v g x)
+
+/-- `loc_v` as a natural transformation `R_Q => R_v`, its components `F13` and
+its square `F16`. -/
+@[expose] public def locNat (L : LocData) (v : L.Place) : NatTrans (RQ L) (Rv L v) where
+  app := F13 L v
+  naturality f := F16 L v f
+
+
+/-! ## `D66`, `D67`: the local family and the cone over it
+
+`D66` names the family of local representations as a map of the places into the
+functor category `[B WLin, QMod]`, which is what makes "one representation per
+place" a diagram rather than a list. `D67` is the cone shape over that diagram:
+an apex, a leg to each place, and the diagonal from `R_Q`. `F21` is then the
+one equation a cone has to satisfy, and `F7` is its whole content. -/
+
+/-- `D66`. `LocalRep`: the local representation at each place, as an object of
+`[B WLin, QMod]`. -/
+@[expose] public def D66 (L : LocData) : L.Place → (funCat (D63 L) (QMod L)).Ob :=
+  fun v => Rv L v
+
+/-- `F18`. The place projection is natural: projecting after `g` acts on
+`Addr(L)` is `g_v` after projecting. `RH1` at the matrix action again, now
+along `Addr(L) -> Qv(v)`, and `D39`'s compatibility identifies the two base
+changes. -/
+public theorem F18 (L : LocData) (v : L.Place) (g : L.wlin.El) :
+    (QMod L).comp (projHom L v) ((RAddr L).map (X := ()) (Y := ()) g)
+      = (QMod L).comp ((Rv L v).map (X := ()) (Y := ()) g) (projHom L v) := by
+  have hmat : Mat.map (L.proj v) (Mat.map L.Adr.str g.val) = locMat L v g :=
+    funext fun i => funext fun j => L.proj_str v (g.val i j)
+  refine QLin.ext (fun x => ?_)
+  show Vec.map (L.proj v) (Mat.apply (Mat.map L.Adr.str g.val) x)
+    = Mat.apply (locMat L v g) (Vec.map (L.proj v) x)
+  rw [map_apply, hmat]
+
+/-- The place projection as a natural transformation `R_Addr => R_v`. -/
+@[expose] public def projNat (L : LocData) (v : L.Place) : NatTrans (RAddr L) (Rv L v) where
+  app _ := projHom L v
+  naturality f := F18 L v f
+
+/-- `F19`. The naturality square of `Delta`: the diagonal commutes with the
+action of `WLin`, which is `RH1` at the coefficient ring of the restricted
+product. -/
+public theorem F19 (L : LocData) (g : L.wlin.El) :
+    (QMod L).comp (F14 L ()) ((RQ L).map g)
+      = (QMod L).comp ((RAddr L).map g) (F14 L ()) :=
+  QLin.ext (fun x => map_apply L.Adr.str g.val x)
+
+/-- `Delta` as a natural transformation `R_Q => R_Addr`, its components `F14`
+and its square `F19`. -/
+@[expose] public def deltaNat (L : LocData) : NatTrans (RQ L) (RAddr L) where
+  app := F14 L
+  naturality f := F19 L f
+
+/-- `D67`. A cone over `LocalRep` with a diagonal from `R_Q`: the shape
+`Addr(L)` sits in. The commuting condition is `F21`, stated of the cone this
+module exhibits rather than assumed of every cone. -/
+public structure D67 (L : LocData) where
+  /-- The apex. -/
+  apex : CatFunctor (D63 L) (QMod L)
+  /-- The leg at each place. -/
+  leg : (v : L.Place) → NatTrans apex (D66 L v)
+  /-- The diagonal into the apex. -/
+  diag : NatTrans (RQ L) apex
+
+/-- The cone `D38` and `D39` build: `R_Addr` with the place projections as legs
+and `Delta` as diagonal. -/
+@[expose] public def adelicCone (L : LocData) : D67 L where
+  apex := RAddr L
+  leg v := projNat L v
+  diag := deltaNat L
+
+/-- `F20`. The naturality square of `Delta_K`: `Delta_K(tau . k) =
+tau_Addr(tau)(Delta_K(k))`. `D42` moves the representative root by a lift of
+`tau` up to sign, `M4` carries that sign through the action, and `D44` divides
+by it. Section 13 states this equation as `T80`. -/
+public theorem F20 (L : LocData) (t : L.aut.El) :
+    (SetCat L).comp (F15 L ()) ((Kf L).map t)
+      = (SetCat L).comp ((Pf L).map t) (F15 L ()) := by
+  refine funext (fun κ => ?_)
+  have hk := L.krep_act (L.lift t) κ
+  rw [L.pi_lift] at hk
+  show paddrMk L (Delta L (L.krep (L.kact t κ)))
+    = paddrMk L (addrAct L (L.lift t) (Delta L (L.krep κ)))
+  refine Or.elim hk (fun h1 => ?_) (fun h1 => ?_)
+  · rw [h1]
+    show paddrMk L (Vec.map L.Adr.str (Mat.apply (L.lift t).val (L.krep κ)))
+      = paddrMk L (Mat.apply (Mat.map L.Adr.str (L.lift t).val)
+          (Vec.map L.Adr.str (L.krep κ)))
+    rw [map_apply]
+  · rw [h1]
+    show paddrMk L (Vec.map L.Adr.str (AddCommGroup.neg (Mat.apply (L.lift t).val (L.krep κ))))
+      = paddrMk L (Mat.apply (Mat.map L.Adr.str (L.lift t).val)
+          (Vec.map L.Adr.str (L.krep κ)))
+    rw [map_neg_vec, map_apply, paddrMk_neg]
+
+/-- `Delta_K` as a natural transformation `Kf => Pf`, its components `F15` and
+its square `F20`. -/
+@[expose] public def deltaKNat (L : LocData) : NatTrans (Kf L) (Pf L) where
+  app := F15 L
+  naturality f := F20 L f
+
+/-- `F21`. The cone commutes: at every place, the leg after the diagonal is
+`loc_v`. This is `F7` -- `D39`'s "the `v`-component of `Delta(x)` is
+`loc_v(x)`" -- read as an equation of natural transformations, which is the
+form in which it says that `Addr(L)` localises compatibly at every place at
+once. -/
+public theorem F21 (L : LocData) (v : L.Place) :
+    NatTrans.vcomp ((adelicCone L).leg v) (adelicCone L).diag = locNat L v :=
+  NatTrans.ext (fun _ => QLin.ext (fun x => F7 L v x))
+
 end UorAtlas.Functor
