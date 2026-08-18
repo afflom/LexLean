@@ -302,6 +302,7 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `VR-16` | `build` | Axioms flowing from imported theorems remain subject to the generated declaration's policy. |
 | `VR-17` | `build` | Lean workspace configuration and manifest hashes must match the lock and all dependencies must be locally available. |
 | `VR-18` | `build` | Check and build results never claim verified or kernel-checked status. |
+| `VR-19` | `build` | The vendored Atlas library elaborates under the pinned toolchain and no declaration in it depends on an axiom outside Lean's own. |
 
 ## Cited authorities
 

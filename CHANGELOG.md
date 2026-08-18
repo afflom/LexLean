@@ -19,7 +19,7 @@ The initial implementation of `LEXLEAN-SPEC-1`.
 
 ### Implemented
 
-All 209 conformance IDs of SPEC.md §31 are implemented at honesty level
+All 210 conformance IDs of SPEC.md §31 are implemented at honesty level
 `build`: constructed in this repository and validated against an oracle by the
 test named `conformance_<id>`. [CONFORMANCE.md](CONFORMANCE.md) is the
 generated register, [ERRORS.md](ERRORS.md) the closed diagnostic registry, and

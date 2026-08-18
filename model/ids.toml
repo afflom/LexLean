@@ -1035,6 +1035,12 @@ suite = "verification"
 statement = "Check and build results never claim verified or kernel-checked status."
 
 [[id]]
+id = "VR-19"
+level = "build"
+suite = "verification"
+statement = "The vendored Atlas library elaborates under the pinned toolchain and no declaration in it depends on an axiom outside Lean's own."
+
+[[id]]
 id = "CL-01"
 level = "build"
 suite = "cli-api"

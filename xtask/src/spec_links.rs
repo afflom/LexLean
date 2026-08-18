@@ -61,8 +61,8 @@ fn parse_table(spec: &str) -> Result<Vec<TableRow>, Fail> {
 pub fn validate(root: &Path) -> Result<(), Fail> {
     let spec = std::fs::read_to_string(root.join("SPEC.md"))?;
     let rows = parse_table(&spec)?;
-    if rows.len() != 209 {
-        return Err(format!("RP-07: the §31 table has {} rows, not 209", rows.len()).into());
+    if rows.len() != 210 {
+        return Err(format!("RP-07: the §31 table has {} rows, not 210", rows.len()).into());
     }
     let mut seen: BTreeSet<&str> = BTreeSet::new();
     for row in &rows {
@@ -138,6 +138,12 @@ pub fn validate(root: &Path) -> Result<(), Fail> {
             }
         }
     }
-    println!("validate-spec-links: 209 table rows bijective with the register (RP-07)");
+    // Derived, not written down: a literal here would keep reporting the old
+    // count after the register grew, which is the failure this gate exists to
+    // catch in the documents it checks.
+    println!(
+        "validate-spec-links: {} table rows bijective with the register (RP-07)",
+        rows.len()
+    );
     Ok(())
 }

@@ -201,7 +201,7 @@ fn a_hidden_conformance_test_is_flagged() {
         "conformance tests hidden behind ignore or cfg: {hidden:?}"
     );
     assert!(
-        names.len() > 209,
+        names.len() > 210,
         "the workspace has more than the conformance tests"
     );
 }

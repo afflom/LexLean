@@ -973,6 +973,55 @@ pub(crate) fn run(id: &str) {
                 "no kernel claim outside verify"
             );
         }
+        "VR-19" => {
+            // The library is repository content, so its presence is asserted on
+            // every host; only the elaboration and the axiom walk need Lean.
+            let library = support::repo_root().join("lean/uor-atlas");
+            assert!(
+                library.join("lakefile.toml").is_file(),
+                "the vendored Atlas library is committed as a Lake package"
+            );
+            assert!(
+                library.join("audit/AxiomAudit.lean").is_file(),
+                "the standing axiom gate is committed beside the library"
+            );
+            if !support::lean_backed("VR-19") {
+                return;
+            }
+            let bin = support::real_elan_home()
+                .join("toolchains")
+                .join(support::mangled_toolchain_name())
+                .join("bin");
+            let built = std::process::Command::new(bin.join("lake"))
+                .arg("build")
+                .current_dir(&library)
+                .output()
+                .expect("the pinned lake runs");
+            assert!(
+                built.status.success(),
+                "every module of the vendored library elaborates: {}",
+                String::from_utf8_lossy(&built.stderr)
+            );
+            // The gate enumerates the environment rather than reading a list of
+            // names, so a declaration added tomorrow is covered without anyone
+            // remembering to extend it.
+            let audited = std::process::Command::new(bin.join("lean"))
+                .arg("audit/AxiomAudit.lean")
+                .current_dir(&library)
+                .env("LEAN_PATH", library.join(".lake/build/lib/lean"))
+                .output()
+                .expect("the pinned lean runs");
+            let report = String::from_utf8_lossy(&audited.stdout);
+            assert!(
+                audited.status.success(),
+                "no declaration depends on an unpermitted axiom: {report}{}",
+                String::from_utf8_lossy(&audited.stderr)
+            );
+            assert!(
+                report.contains("none depends on an axiom outside Lean\'s three"),
+                "the gate reports the whole library it walked: {report}"
+            );
+        }
         other => panic!("no verification case is wired for {other}"),
     }
 }
