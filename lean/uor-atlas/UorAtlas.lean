@@ -14,4 +14,4 @@ public import UorAtlas.Places
 public import UorAtlas.Functor
 public import UorAtlas.Scales
 public import UorAtlas.Group
-public import UorAtlas.Gauge
+public import UorAtlas.Census
