@@ -249,7 +249,8 @@ public theorem pk_smul (B : Nat) (c : Nat) (v : Nat → Nat) :
   | succ n ih => rw [pk_succ, pk_succ, ih, Nat.mul_add, Nat.mul_assoc]
 
 public theorem pk_sumN (B : Nat) (c : Nat → Nat) (M : Nat → Nat → Nat) (m : Nat) :
-    ∀ n, sumN (fun k => c k * pk B (M k) m) n = pk B (fun j => sumN (fun k => c k * M k j) n) m := by
+    ∀ n, sumN (fun k => c k * pk B (M k) m) n
+      = pk B (fun j => sumN (fun k => c k * M k j) n) m := by
   intro n
   induction n with
   | zero => exact (pk_zeroFun B m).symm
@@ -642,14 +643,17 @@ public theorem master (y : Vec 8 Int) (h : D11 y) :
 
 /-! ## `D12`, `T5`, `T6` -/
 
-/-- `D12`. `K := R / {+1,-1}`. The quotient is presented by the `120`
-representatives of `repWords`, so `K` is `Fin 120`; `D12` below is the class
-map `k`, and `D12_eq_iff` is the defining property of the quotient. -/
+/-- The carrier of `D12`'s quotient. `K := R / {+1,-1}` is presented by the
+`120` representatives of `repWords`, so `K` is `Fin 120`. -/
 public abbrev K : Type := Fin 120
 
+/-- The chosen representative of a class. -/
 @[expose] public def rep (i : K) : Vec 8 Int := repN i.val
 
-/-- `D12`'s class map `k(x)`. -/
+/-- `D12`. `K := R / {+1,-1}`, with `k(x)` the class of `x`. This is `k`:
+a root is sent to the index of the representative of its sign pair.
+`D12_eq_iff` is the defining property of the quotient, and `T6` is that the
+`120` representatives meet every class exactly once. -/
 @[expose] public def D12 (x : Vec 8 Int) : K :=
   ⟨findCode (codeOf (nrm x)) % 120, Nat.mod_lt _ (by decide)⟩
 
@@ -766,7 +770,8 @@ public theorem T5 :
   · intro i j hij
     have key : ∀ (a b : Nat) (ha : a < 120) (hb : b < 120), repN a = repN b → a = b := by
       intro a b ha hb h
-      have h1 : D12 (rep ⟨a, ha⟩) = D12 (rep ⟨b, hb⟩) := by rw [show rep ⟨a, ha⟩ = rep ⟨b, hb⟩ from h]
+      have heq : rep ⟨a, ha⟩ = rep ⟨b, hb⟩ := h
+      have h1 : D12 (rep ⟨a, ha⟩) = D12 (rep ⟨b, hb⟩) := by rw [heq]
       rw [D12_rep, D12_rep] at h1
       exact congrArg Fin.val h1
     have hne : ∀ (a b : Nat) (ha : a < 120) (hb : b < 120), repN a ≠ neg (repN b) := by
@@ -951,7 +956,8 @@ public theorem commonN_eq (i j : Nat) (hi : i < 120) (hj : j < 120) :
   have heq : pk packBase (fun m => commonN i m) 120
       = pk packBase (fun m => 24 + 4 * adjN i m + (if i = m then 32 else 0)) 120 := by
     rw [← sqPk_eq]; exact (graphFacts i hi).2
-  exact pk_inj packBase (by decide) _ _ 120 (fun k _ => commonN_lt i k) (fun k _ => tgt_lt i k) heq j hj
+  exact pk_inj packBase (by decide) _ _ 120
+    (fun k _ => commonN_lt i k) (fun k _ => tgt_lt i k) heq j hj
 
 public theorem common_eq (u v : K) :
     common u v = 24 + 4 * A u v + (if u = v then 32 else 0) := by
@@ -1186,12 +1192,13 @@ dozen leaves. -/
   | _ + 1, M => Vec.sumInt (fun j => if M 0 j = 0 then 0
       else (if j.val % 2 = 0 then M 0 j else -(M 0 j)) * det (minor M j))
 
-/-- `D19a`. `Sim := { a_1, ..., a_8 }`.
+/-- The eight simple roots of `D19a`, packed exactly as `repWords` is: one
+`32`-bit word per vector, four bits per coordinate holding `y_j + 2`. -/
+@[expose] public def simWords : List Nat :=
+  [0x31111113, 0x22222244, 0x22222240, 0x22222402,
+   0x22224022, 0x22240222, 0x22402222, 0x24022222]
 
-**Constructed here, not transcribed**: the document names the eight vectors of
-`atlas.py`, `SIMPLE`, which this repository does not have. These are the
-standard `E8` simple roots, in the 2x scaling, packed exactly as `repWords` is
--- one `32`-bit word per vector, four bits per coordinate holding `y_j + 2`:
+/-- `D19a`. `Sim := { a_1, ..., a_8 }`, in the 2x scaling:
 
     a_1 = ( 1, -1, -1, -1, -1, -1, -1,  1)
     a_2 = ( 2,  2,  0,  0,  0,  0,  0,  0)
@@ -1202,13 +1209,17 @@ standard `E8` simple roots, in the 2x scaling, packed exactly as `repWords` is
     a_7 = ( 0,  0,  0,  0, -2,  2,  0,  0)
     a_8 = ( 0,  0,  0,  0,  0, -2,  2,  0)
 
-`V65a`, `V65b` and `T58x` prove this system valid; by `T22`-`T27` and section
-20.2a those statements are orbit-invariant, so a constructed witness
-discharges them exactly as a transcribed one would. -/
-@[expose] public def simWords : List Nat :=
-  [0x31111113, 0x22222244, 0x22222240, 0x22222402,
-   0x22224022, 0x22240222, 0x22402222, 0x24022222]
+**Constructed here, not transcribed.** The document names the eight vectors of
+`atlas.py`, `SIMPLE`, which this repository does not have, so these are the
+standard `E8` simple roots, written down here.
 
+That is sound, and the document says why. `T22`-`T27` establish that the
+block, BlockFrame and AtlasInstance populations are single `Aut`-orbits, and
+section 20.2a records the principle: an `Aut`-invariant property verified on
+one orbit representative holds on the whole orbit. `V65a`, `V65b` and `T58x`
+are statements about *a* simple system, and `Aut` carries every simple system
+of `L` to every other, so any valid witness discharges them. `V65a`, `V65b`
+and `T58x` below prove this one valid rather than assuming it. -/
 @[expose] public def D19a : Mat 8 8 Int :=
   fun i j => (((simWords.getD i.val 0 >>> (4 * j.val)) &&& 15 : Nat) : Int) - 2
 
