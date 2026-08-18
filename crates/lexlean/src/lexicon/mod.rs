@@ -43,6 +43,29 @@ pub struct BuiltinPackage {
     pub version: String,
     /// The path under `language/`.
     pub path: String,
+    /// Is this package part of the language every document is written in,
+    /// rather than one a project selects?
+    ///
+    /// An unconditional package is locked into every project and visible in
+    /// every module without a `\useglossary` row. Both properties are read
+    /// from here rather than spelled out at the two call sites, because a
+    /// package that is locked but not visible --- or visible but not locked ---
+    /// is a state no row can express and therefore one no change can reach by
+    /// halves.
+    #[serde(default)]
+    pub unconditional: bool,
+}
+
+impl Bootstrap {
+    /// The packages every project locks and every module sees.
+    #[must_use]
+    pub fn unconditional_packages(&self) -> Vec<String> {
+        self.builtin_packages
+            .iter()
+            .filter(|row| row.unconditional)
+            .map(|row| row.id.clone())
+            .collect()
+    }
 }
 
 /// The fixed structural sets (§15.2, §12.4). These are the single source of

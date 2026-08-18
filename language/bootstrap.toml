@@ -16,6 +16,7 @@ language = "1.0"
 id = "lexlean.core"
 version = "1.0.0"
 path = "core"
+unconditional = true
 
 [[builtin_package]]
 id = "lexlean.std.nat"

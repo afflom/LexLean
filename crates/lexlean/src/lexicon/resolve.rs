@@ -790,12 +790,17 @@ impl Closure {
     }
 
     /// The set of packages visible to a module: the used packages plus their
-    /// transitive imports plus `lexlean.core`.
+    /// transitive imports plus every unconditional package.
+    ///
+    /// The unconditional set is bootstrap data rather than a literal, so a
+    /// package made unconditional becomes visible here and locked in
+    /// [`crate::lock::resolve_packages`] from the same row; neither half can
+    /// land without the other.
     #[must_use]
     pub fn visible_set(&self, used: &[String]) -> BTreeSet<String> {
         let mut visible: BTreeSet<String> = BTreeSet::new();
         let mut stack: Vec<String> = used.to_vec();
-        stack.push("lexlean.core".to_owned());
+        stack.extend(self.bootstrap.unconditional_packages());
         while let Some(id) = stack.pop() {
             if !visible.insert(id.clone()) {
                 continue;

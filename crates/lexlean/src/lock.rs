@@ -518,11 +518,14 @@ pub fn resolve_packages(
         max_scope_depth: project.config.limits.max_scope_depth,
     };
 
-    // Builtins: always core, plus every configured builtin source.
-    let mut builtin_ids: Vec<String> = vec!["lexlean.core".to_owned()];
+    // Builtins: always the unconditional packages, plus every configured
+    // builtin source. Which packages are unconditional is bootstrap data, not a
+    // literal here, so a package cannot be locked into every project without
+    // also being visible in every module (§14.3).
+    let mut builtin_ids: Vec<String> = bootstrap.unconditional_packages();
     for source in &project.config.lexicon_sources {
         if let LexiconSource::Builtin { package } = source {
-            if package != "lexlean.core" {
+            if !builtin_ids.contains(package) {
                 builtin_ids.push(package.clone());
             }
         }
