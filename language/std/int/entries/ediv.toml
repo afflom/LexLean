@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "ediv"
+category = "infix-function"
+signature = "(pi ((explicit a (const lexlean.std.int::int)) (explicit b (const lexlean.std.int::int))) (const lexlean.std.int::int))"
+surface_arity = 2
+frame = "infix"
+precedence = 70
+associativity = "left"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Int.ediv"
+
+[[form]]
+id = "slash"
+channel = "math"
+surface = "intdiv"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token slash) (space) (slot 1))"

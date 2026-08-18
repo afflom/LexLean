@@ -22,6 +22,11 @@ id = "lexlean.std.nat"
 version = "1.0.0"
 path = "std/nat"
 
+[[builtin_package]]
+id = "lexlean.std.int"
+version = "1.0.0"
+path = "std/int"
+
 [structural]
 # §15.2: the complete structural control set for language 1.0.
 controls = [

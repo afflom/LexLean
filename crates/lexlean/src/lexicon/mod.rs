@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn embedded_language_data_loads_and_closes() {
         let (bootstrap, packages) = builtins();
-        assert_eq!(bootstrap.builtin_packages.len(), 2);
+        assert_eq!(bootstrap.builtin_packages.len(), 3);
         assert!(bootstrap.structural.is_control("\\begin"));
         assert!(!bootstrap.structural.is_control("\\def"));
         assert!(bootstrap.structural.is_forbidden_control("\\def"));
@@ -360,10 +360,20 @@ mod tests {
     /// below is that probe's accepted set).
     #[test]
     fn builtin_lean_names_are_conservative_and_known() {
-        const KNOWN: [&str; 21] = [
+        const KNOWN: [&str; 31] = [
             "And.intro",
             "Exists.intro",
             "Iff.intro",
+            "Int",
+            "Int.add",
+            "Int.ediv",
+            "Int.emod",
+            "Int.le",
+            "Int.lt",
+            "Int.mul",
+            "Int.neg",
+            "Int.sign",
+            "Int.sub",
             "List",
             "List.Mem",
             "List.Subset",

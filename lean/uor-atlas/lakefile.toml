@@ -1,0 +1,6 @@
+name = "uor_atlas"
+version = "0.1.0"
+defaultTargets = ["UorAtlas"]
+
+[[lean_lib]]
+name = "UorAtlas"

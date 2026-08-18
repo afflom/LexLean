@@ -80,6 +80,14 @@ grouping = false
 authority = "lexlean.core"
 
 [[token]]
+id = "blackboard-z"
+bytes = "Z"
+channel = "math"
+arity = 0
+grouping = false
+authority = "lexlean.core"
+
+[[token]]
 id = "cdot"
 bytes = "\\cdot"
 channel = "math"

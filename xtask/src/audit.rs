@@ -100,6 +100,114 @@ fn outside_code_spans(line: &str, marker: &str) -> bool {
     false
 }
 
+/// The vendored Atlas library carries no `sorry`, `admit`, author-declared
+/// `axiom`, `opaque`, `unsafe`, or `native_decide` (release plan §4.4; §8
+/// names each of them an explicit non-deferral).
+///
+/// The library is repository content built by `just vv`, so this is a
+/// standing gate rather than a one-time measurement: checked once is checked
+/// never on the next commit. The word list is
+/// [`lexlean::verify::source_audit`]'s, so the spelling cannot drift from the
+/// generated-Lean audit that already enforces §18.2.
+///
+/// # Errors
+/// Returns the offending module and token, or reports the gate armed when no
+/// library module exists yet --- an empty register that passed silently would
+/// read as evidence.
+pub fn audit_atlas_library(root: &Path) -> Result<(), Fail> {
+    let mut files = Vec::new();
+    gather(root, &["lean"], &[".lean"], &mut files);
+    // `gather` also sweeps the root's Markdown for the documentation audits;
+    // this gate reads Lean modules only.
+    files.retain(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "lean")
+    });
+    files.sort();
+    if files.is_empty() {
+        println!(
+            "audit-atlas-library: no vendored library module; the gate is armed by the first one"
+        );
+        return Ok(());
+    }
+    for path in &files {
+        let text = std::fs::read_to_string(path)
+            .map_err(|error| Fail::from(format!("{}: {error}", path.display())))?;
+        if let Err(reason) = lexlean::verify::source_audit::audit_library(&text) {
+            return Err(Fail::from(format!(
+                "R4: {}: {reason}; the vendored Atlas library admits none of them (§4.4)",
+                path.display()
+            )));
+        }
+    }
+    unreachable_library_modules(root, &files)?;
+    println!(
+        "audit-atlas-library: {} vendored Lean modules, none names a forbidden construct, every one reachable from the library root (R4)",
+        files.len()
+    );
+    Ok(())
+}
+
+/// Every module of the vendored library is reachable from its root module.
+///
+/// The axiom gate walks the environment the root pulls in, so a module sitting
+/// in the tree that nothing imports would be scanned for forbidden words and
+/// never checked for axioms --- a hole exactly the shape of the thing the gate
+/// exists to catch. The audit harness under `audit/` is deliberately outside
+/// the library and is excluded.
+fn unreachable_library_modules(root: &Path, files: &[PathBuf]) -> Result<(), Fail> {
+    let base = root.join("lean/uor-atlas");
+    let module_of = |path: &Path| -> Option<String> {
+        let rel = path.strip_prefix(&base).ok()?;
+        let text = rel.to_string_lossy();
+        let stem = text.strip_suffix(".lean")?;
+        Some(stem.replace(['/', '\\'], "."))
+    };
+    let library: BTreeSet<String> = files
+        .iter()
+        .filter(|path| !path.starts_with(base.join("audit")))
+        .filter_map(|path| module_of(path))
+        .collect();
+    if library.is_empty() {
+        return Ok(());
+    }
+    let mut reached: BTreeSet<String> = BTreeSet::new();
+    let mut stack = vec!["UorAtlas".to_owned()];
+    while let Some(name) = stack.pop() {
+        if !reached.insert(name.clone()) {
+            continue;
+        }
+        let path = base.join(format!("{}.lean", name.replace('.', "/")));
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in text.lines() {
+            let rest = line
+                .strip_prefix("public import ")
+                .or_else(|| line.strip_prefix("import "));
+            if let Some(target) = rest {
+                let target = target.trim();
+                if target.starts_with("UorAtlas") {
+                    stack.push(target.to_owned());
+                }
+            }
+        }
+    }
+    let orphans: Vec<&String> = library.difference(&reached).collect();
+    if orphans.is_empty() {
+        return Ok(());
+    }
+    Err(Fail::from(format!(
+        "R4: the vendored Atlas library has {} module(s) no import reaches from `UorAtlas`, so the axiom gate never sees them: {}",
+        orphans.len(),
+        orphans
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<&str>>()
+            .join(", ")
+    )))
+}
+
 /// R4: nothing is deferred. The markers are spelled in halves so this gate
 /// can scan its own source; exempting the file would put a hole exactly
 /// where a deferral parked in a gate would sit.
@@ -118,6 +226,7 @@ pub fn audit_deferral(root: &Path) -> Result<(), Fail> {
         root,
         &[
             "crates", "xtask", "language", "schemas", "features", "examples", "model", "tests",
+            "lean",
         ],
         &[
             ".rs", ".toml", ".json", ".md", ".feature", ".lex.tex", ".lean", ".txt", ".sh",

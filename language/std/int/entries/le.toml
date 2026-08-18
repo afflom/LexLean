@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "le"
+category = "infix-predicate"
+signature = "(pi ((explicit a (const lexlean.std.int::int)) (explicit b (const lexlean.std.int::int))) (sort prop))"
+surface_arity = 2
+frame = "infix"
+precedence = 50
+associativity = "none"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Int.le"
+
+[[form]]
+id = "le"
+channel = "math"
+surface = "intle"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token less-equal) (space) (slot 1))"

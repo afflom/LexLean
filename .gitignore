@@ -7,6 +7,11 @@
 examples/**/.lexlean/
 tests/**/.lexlean/
 
+# Lake build output for the vendored Atlas library. Its source, lakefile,
+# lake-manifest.json and lean-toolchain are committed; .lake/ is derived, and
+# committing it would put a second copy of every .olean in the tree.
+lean/**/.lake/
+
 # The assembled release artifact set (§30.3). `cargo xtask release-artifacts`
 # derives it, the release workflow attaches it, and it is output, never source:
 # committing it would put a second copy of SPEC.md and the licenses in the tree
