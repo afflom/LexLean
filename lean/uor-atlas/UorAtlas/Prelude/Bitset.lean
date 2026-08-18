@@ -26,44 +26,69 @@ theorem.
 
 ## Measured kernel behaviour
 
-All figures are CPU seconds of the whole `lean` process on the development
-container (2 cores, heavily loaded by concurrent builds, so treat them as an
-upper bound and the ratios as the real signal). Sources are in
-`scratchpad/bench`; each theorem was `by decide +kernel`, so the arithmetic is
-performed by the kernel and not by the elaborator, and every figure below has
-the `0.5 s` process baseline subtracted.
+The design decisions below are measurements, not guesses. Figures are CPU
+seconds for the whole `lean` process on the development container (two cores;
+runs were repeated and the minimum taken, because concurrent builds move wall
+time by a factor of ten). The `0.24 s` cost of a file that only imports this
+module is subtracted from every figure. Every benchmark theorem is
+`by decide +kernel`, so the arithmetic is performed by the kernel rather than
+by the elaborator. The harness is one theorem per file: with
+`loop f n a := Nat.rec (motive := fun _ => Nat) a (fun _ ih => f ih) n`, a
+`120`-bit constant `S`, and `rot a := ((a <<< 1) ||| (a >>> 119)) &&& 2^120-1`,
+each file states `loop f N S = c` for a `c` computed independently, where `f`
+is `rot` alone for the reference loop and `fun a => rot a ^^^ g a` for the
+operation `g` under test. Rotation is used because it preserves the population
+of the accumulator, so every iteration sees an operand of the same shape.
 
-*Which operations are accelerated.* `&&&`, `|||`, `^^^`, `<<<`, `>>>` and
-`Nat.testBit` each settle a `decide` on `400000`-bit operands in under `0.1 s`.
-They are therefore intercepted: the fallback is `Nat.bitwise`, a well-founded
-recursion that would need one unfolding per bit. The control is `Nat.log2`,
-which is *not* intercepted: `Nat.log2 (2^40000) = 40000` costs `7.9 s`, four
-orders of magnitude more per bit, which is what an unaccelerated operation
-looks like on this harness.
+*Which operations are accelerated.* `&&&`, `|||`, `^^^`, `<<<`, `>>>` each
+settle a `decide` on `400000`-bit operands in at most `0.08 s`, and
+`Nat.testBit` -- two of those primitives and a `bne` -- in `0.05 s`. They are
+therefore intercepted by the kernel's bignum extension; the fallback,
+`Nat.bitwise`, would need one unfolding per bit. The control is `Nat.log2`,
+which is *not* intercepted: `Nat.log2 (2^40000) = 40000` costs `0.92 s`, about
+`23 us` per bit, which is what an unaccelerated recursion looks like on this
+harness.
 
-*Costs, `120`-bit operands.* One rotate-plus-mask (four bitwise operations)
-costs `60 us`; `10^4` intersections plus their accumulating `^^^` cost
-`0.31 s`, i.e. about `16 us` per bignum call, which is dominated by kernel
-expression allocation rather than by GMP. `10^4` popcounts of `120`-bit sets
-cost `26 s` with `card` below (`2.6 ms` each, about `165` bignum calls).
-A `120 x 120` adjacency sweep -- `14400` intersections and `14400` popcounts of
-`120`-bit rows unpacked from a single `Nat` -- costs `40 s`.
+*The three requested figures, `120`-bit operands.* A loop of `10^4` iterations
+doing one rotate-and-mask each (four bignum calls) costs `0.26 s`. Adding one
+`inter` and one accumulating `^^^` per iteration costs `0.16 s` more, so
+**`10^4` intersections cost about `0.16 s`**, roughly `8 us` per bignum call --
+a figure dominated by kernel expression allocation, not by GMP. **`10^4`
+popcounts of `120`-bit sets cost `12.7 s`** with `card` below, about `1.3 ms`
+each, which is the `165`-odd bignum calls of fifteen byte-steps. **A `120 x 120`
+adjacency sweep costs `9.9 s`**: `14400` intersections, `14400` popcounts and
+`28800` row extractions from a single `15360`-bit `Nat` holding all `120` rows.
 
-*What that means for `T22`-`T24`.* Intersection is effectively free; popcount
-is the budget. The `120 x 120` sweep of `T7`/`T8` is comfortable. A `3150`-block
-census that popcounts once per candidate pair is not: `card` must be called
-`O(10^5)`, not `O(10^8)`, so `T22`-`T24` are reachable only through the
-incremental `card_insert_of_notMem`/`card_erase_of_mem` route -- carrying a
-cardinality alongside a set rather than recomputing it -- which is exactly what
-those lemmas exist to license.
+*Why popcount is table-driven.* Measured against each other in one batch, at
+`10^3` popcounts one bit per step costs `6.4 ms` each and one byte per step
+through the packed table costs `0.9 ms`: sevenfold, and the reason
+`cardByteTable` exists.
 
-*The gap that remains.* A SWAR popcount (mask, shift, add, multiply on a fixed
-`128`-bit width) needs about `12` bignum calls instead of `165`, and would put
-`10^4` popcounts near `0.2 s`. It is not used here because proving it correct
-needs bit-vector reasoning that this package cannot have: `bv_decide` is
-outside `Init` and discharges through `Lean.ofReduceBool`, which the axiom
-audit forbids. The table-driven `card` below is the fastest popcount whose
-correctness is provable from `Init` alone.
+*Why the recursions are fuelled `Nat.rec`.* Measured against each other in one
+batch, `10^4` popcounts of the same byte-stepping body cost `16.3 s` as fuelled
+`Nat.rec`, `14.0 s` as well-founded recursion on `n / 256`, and `18.8 s` from
+the equation compiler over a fuel. (Only within-batch comparisons are
+meaningful: the `12.7 s` quoted above for exactly the first of these came from
+a quieter batch.) The three are within noise of one another and well-founded
+recursion was, if anything, the quickest, so speed did **not** decide this.
+What decided it is that the fuelled `Nat.rec` form makes the successor equation
+hold by `rfl` for an arbitrary argument -- `cardAux_succ` and `toListAux_succ`
+below are `rfl` -- so every proof here stays inside iota-reduction and none of
+them goes through a generated unfolding lemma for `WellFounded.fix`.
+
+*What that means for `T22`-`T24`.* Intersection is effectively free and the
+`120 x 120` sweep behind `T7`/`T8` is comfortable. Popcount is the budget:
+`10^6` popcounts is about twenty CPU-minutes and `10^8` is out of reach, so an
+enumeration that recomputes a cardinality per candidate does not close. The
+reachable route is to carry a cardinality alongside a set and update it, which
+is what `card_insert_of_notMem` and `card_erase_of_mem` license.
+
+*The gap that remains.* A SWAR popcount -- mask, shift, add and multiply at a
+fixed `128`-bit width -- needs about twelve bignum calls rather than `165`. It
+is not used here because proving it correct needs bit-vector reasoning this
+package cannot have: `bv_decide` is outside `Init` and discharges through
+`Lean.ofReduceBool`, which the axiom audit forbids. The table-driven `card`
+below is the fastest popcount whose correctness is provable from `Init` alone.
 -/
 
 set_option autoImplicit false
@@ -110,7 +135,10 @@ public instance instMembership : Membership Nat Bitset := ⟨fun s i => s.mem i 
 public instance instDecidableMem (i : Nat) (s : Bitset) : Decidable (i ∈ s) :=
   inferInstanceAs (Decidable (s.mem i = true))
 
-@[expose] public def singleton (i : Nat) : Bitset := Nat.shiftLeft 1 i
+/-- `Nat.pow 2 i` rather than `1 <<< i`: both are one bignum call, but this one
+is syntactically the `2 ^ i` that every core `testBit` lemma is stated about,
+so `singleton_toNat` is `rfl` and no proof below has to unfold a shift. -/
+@[expose] public def singleton (i : Nat) : Bitset := Nat.pow 2 i
 
 @[expose] public def insert (s : Bitset) (i : Nat) : Bitset := Nat.lor s (singleton i)
 
@@ -135,17 +163,15 @@ statement about bignums into the corresponding statement about members. -/
 
 public theorem mem_def (s : Bitset) (i : Nat) : i ∈ s ↔ Nat.testBit s i = true := Iff.rfl
 
-public theorem singleton_toNat (i : Nat) : toNat (singleton i) = 2 ^ i := by
-  show Nat.shiftLeft 1 i = 2 ^ i
-  rw [Nat.shiftLeft_eq', Nat.shiftLeft_eq, Nat.one_mul]
+public theorem singleton_toNat (i : Nat) : toNat (singleton i) = 2 ^ i := rfl
 
 public theorem notMem_empty (i : Nat) : i ∉ empty := by
   show ¬ (Nat.testBit (0 : Nat) i = true)
   simp
 
 public theorem mem_singleton (i j : Nat) : i ∈ singleton j ↔ i = j := by
-  show Nat.testBit (Nat.shiftLeft 1 j) i = true ↔ _
-  rw [Nat.shiftLeft_eq', Nat.shiftLeft_eq, Nat.one_mul, Nat.testBit_two_pow]
+  show Nat.testBit (2 ^ j) i = true ↔ _
+  rw [Nat.testBit_two_pow]
   simp [eq_comm]
 
 public theorem mem_union (s t : Bitset) (i : Nat) : i ∈ union s t ↔ i ∈ s ∨ i ∈ t := by
@@ -209,7 +235,6 @@ public theorem subset_iff (s t : Bitset) : subset s t = true ↔ ∀ i, i ∈ s 
     rw [h']
     simp
 
-
 /-! ## Cardinality
 
 Popcount is the one operation with no bignum primitive behind it, so it is the
@@ -218,15 +243,13 @@ step, which is the specification every set-theoretic lemma is proved against,
 and `card`, one byte per step through a nibble-packed table, which is what
 gets evaluated. `card_eq_cardBit` joins them, after which only `card` is used.
 
-Both recursions are written with `Nat.rec` and a fuel argument rather than with
-the equation compiler. That is not style: the equation compiler produces
-`Nat.brecOn`, whose course-of-values table the kernel builds over the *fuel*,
-and with the set itself as fuel one `120`-bit popcount then costs `7.9 s`
-against `0.02 s` for the `Nat.rec` form -- measured, both forms in
-`scratchpad/bench`. Lean's own `Nat.log2` is written the same way and for the
-same reason. Passing the set as its own fuel is what makes the definitions
-total without a width parameter; the `n = 0` guard is what stops the recursion
-after one step per bit rather than one per unit of fuel. -/
+Both recursions are written as `Nat.rec` over a fuel argument, for the reason
+recorded in the header: the successor equation then holds by `rfl` for an
+arbitrary argument, which is what keeps every proof below inside
+iota-reduction. Lean's own `Nat.log2` is written the same way. Passing the set
+as its own fuel is what makes the definitions total without a width parameter,
+and the `n = 0` guard is what stops the recursion after one step per bit rather
+than one per unit of fuel. -/
 
 /-- One bit per step. The specification, not the implementation. -/
 @[expose] public def cardBitAux (fuel : Nat) : Nat → Nat :=
@@ -289,7 +312,7 @@ in constant time. -/
   Nat.land (Nat.shiftRight cardByteTable (4 * c)) 15
 
 /-- One byte per step. Fifteen steps cover a `120`-bit set where `cardBit`
-takes `120`; measured, that is `2.6 ms` against `11 ms` per popcount. -/
+takes `120`; measured, `0.9 ms` against `6.4 ms` per popcount. -/
 @[expose] public def cardAux (fuel : Nat) : Nat → Nat :=
   Nat.rec (motive := fun _ => Nat → Nat) (fun _ => 0)
     (fun _ ih n => if n = 0 then 0 else cardByte (n % 256) + ih (n / 256)) fuel
@@ -328,8 +351,8 @@ public theorem cardAux_eq : ∀ (f n : Nat), n ≤ f → cardAux f n = cardBit n
         have hmod : cardByteSpec (n % 256) = cardByteSpec n := by
           simp only [cardByteSpec]; omega
         simp only [hn, if_false]
-        rw [cardAux_eq f (n / 256) (by omega), cardByte_eq_spec (n % 256) (Nat.mod_lt _ (by decide)),
-          hmod, cardBit_step_byte n]
+        rw [cardAux_eq f (n / 256) (by omega),
+          cardByte_eq_spec (n % 256) (Nat.mod_lt _ (by decide)), hmod, cardBit_step_byte n]
 
 /-- The table-driven count and the specification agree on every set. -/
 public theorem card_eq_cardBit (n : Nat) : card n = cardBit n :=
@@ -337,6 +360,8 @@ public theorem card_eq_cardBit (n : Nat) : card n = cardBit n :=
 
 public theorem card_empty : card empty = 0 := rfl
 
+/-- `cardBit_step` transported to the implementation; every lemma below uses
+this one and never `cardBit` again. -/
 public theorem card_step (n : Nat) : card n = n % 2 + card (n / 2) := by
   rw [card_eq_cardBit, card_eq_cardBit, cardBit_step]
 
@@ -347,9 +372,10 @@ and `card_erase_of_mem` in particular let an enumeration carry a cardinality
 alongside a set instead of recomputing a popcount, which the measurements above
 show is the difference between `T22`-`T24` being reachable and not. -/
 
-/-- Recursion on the binary representation of two sets at once. Well-founded
-recursion is fine here because it is a *proof*, never reduced by the kernel;
-the definitions above may not use it, and do not. -/
+/-- Recursion on the binary representation of two sets at once. The induction
+is on the bound `a + b` rather than on the descent `a / 2`, which keeps the
+principle structural and leaves the side conditions linear, so `omega` closes
+them. -/
 public theorem bitInduction {P : Nat → Nat → Prop} (hz : P 0 0)
     (hs : ∀ a b, ¬ (a = 0 ∧ b = 0) → P (a / 2) (b / 2) → P a b) : ∀ a b, P a b := by
   have aux : ∀ n a b, a + b ≤ n → P a b := by
@@ -412,8 +438,7 @@ public theorem card_lor_two_pow :
       omega
 
 public theorem card_singleton (i : Nat) : card (singleton i) = 1 := by
-  show card (Nat.shiftLeft 1 i) = 1
-  rw [Nat.shiftLeft_eq', Nat.shiftLeft_eq, Nat.one_mul]
+  show card (2 ^ i) = 1
   have := card_lor_two_pow i 0 (by simp)
   rw [Nat.lor_eq, Nat.zero_or] at this
   exact this
@@ -424,11 +449,11 @@ public theorem card_insert_of_notMem (s : Bitset) (i : Nat) (h : i ∉ s) :
     cases hx : Nat.testBit s i
     · rfl
     · exact absurd hx h
-  show card (Nat.lor s (Nat.shiftLeft 1 i)) = card s + 1
-  rw [Nat.shiftLeft_eq', Nat.shiftLeft_eq, Nat.one_mul]
+  show card (Nat.lor s (2 ^ i)) = card s + 1
   exact card_lor_two_pow i s hb
 
-public theorem insert_erase_of_mem (s : Bitset) (i : Nat) (h : i ∈ s) : insert (erase s i) i = s := by
+public theorem insert_erase_of_mem (s : Bitset) (i : Nat) (h : i ∈ s) :
+    insert (erase s i) i = s := by
   refine ext (fun j => ?_)
   rw [mem_insert, mem_erase]
   constructor
@@ -552,14 +577,16 @@ public theorem toListFrom_step (n i : Nat) :
         toListAux_irrel m ((m + 1) / 2) ((m + 1) / 2) (i + 1) (by omega) (Nat.le_refl _)
       rw [hirr]
 
-/-- Recursion on the binary representation of a single set. -/
+/-- The one-set form of `bitInduction`, on the bound `a`. -/
 public theorem bitInduction₁ {P : Nat → Prop} (hz : P 0) (hs : ∀ a, a ≠ 0 → P (a / 2) → P a) :
     ∀ a, P a := by
   have aux : ∀ n a, a ≤ n → P a := by
     intro n
     induction n with
-    | zero => intro a h; have : a = 0 := by omega
-              subst this; exact hz
+    | zero =>
+        intro a h
+        have ha : a = 0 := by omega
+        subst ha; exact hz
     | succ n ih =>
         intro a h
         by_cases h0 : a = 0
@@ -610,7 +637,7 @@ public theorem mem_toListFrom :
         · rw [if_pos hp, List.mem_cons, hidx, hshift, ih (i + 1) m]
           exact ⟨fun h => h.elim (fun hc => absurd hc (by omega)) id, Or.inr⟩
         · rw [if_neg hp, hidx, hshift, ih (i + 1) m]
-    
+
 public theorem mem_toList (s : Bitset) (k : Nat) : k ∈ toList s ↔ k ∈ s := by
   have h := mem_toListFrom s 0 k
   rw [Nat.zero_add] at h
@@ -629,6 +656,20 @@ public theorem length_toListFrom : ∀ (n i : Nat), (toListFrom n i).length = ca
       omega
 
 public theorem length_toList (s : Bitset) : (toList s).length = card s := length_toListFrom s 0
+
+/-! ## Live check
+
+The point of the module is that a set-theoretic claim about `K` reduces in the
+kernel, so one such reduction is performed here rather than asserted: the full
+`120`-class set has `120` members (`T6`), and cutting it down to the low `48`
+indices leaves the `48` of an AtlasInstance (`T12`). The literals are `30` and
+`12` hexadecimal digits, which is where the `120` and the `48` come from. -/
+
+example :
+    card (ofNat 0xffffffffffffffffffffffffffffff) = 120 ∧
+      card (inter (ofNat 0xffffffffffffffffffffffffffffff) (ofNat 0xffffffffffff)) = 48 ∧
+      (toList (ofNat 0xffffffffffff)).length = 48 := by
+  decide
 
 /-- Symmetric difference is the one of the six operations above that is a group
 law, and recording it makes `Bitset` an object of the hierarchy

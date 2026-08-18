@@ -208,6 +208,95 @@ fn unreachable_library_modules(root: &Path, files: &[PathBuf]) -> Result<(), Fai
     )))
 }
 
+/// No two *spellable* entries share a surface in a channel (release plan
+/// §2.4, which makes this the SPEC.md §30.2 compliance condition rather than
+/// hygiene).
+///
+/// `fmt` emits a bare surface only when exactly one visible entry owns it in
+/// that channel, so a second owner silently promotes a previously-bare
+/// spelling to its qualified form and breaks the byte-identical canonical
+/// output §30.2 requires. `structural` and `grammar` entries are excluded
+/// because they are the parser's own layer: they are consumed as document
+/// structure and never resolved as term atoms, which is why `-` can be both
+/// `lexlean.core::hyphen` and `lexlean.std.nat::sub` today without either
+/// losing a spelling. Those overlaps are counted and reported rather than
+/// hidden, because §10 records disjointness as a snapshot a later entry can
+/// reopen.
+///
+/// # Errors
+/// Returns the colliding surface and its owners, or reports the gate armed
+/// when no package carries a spellable form yet.
+pub fn audit_surface_disjointness(_root: &Path) -> Result<(), Fail> {
+    use lexlean::lexicon::entry::{Category, Channel};
+
+    let bootstrap = lexlean::lexicon::load_bootstrap()
+        .map_err(|diagnostic| Fail::from(diagnostic.message.clone()))?;
+    let ctx = lexlean::lexicon::package::LoadContext {
+        forbidden_controls: &bootstrap.structural.forbidden_controls,
+        max_scope_depth: 1024,
+    };
+    let mut spellable: std::collections::BTreeMap<(Channel, String), BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    let mut parser_layer: std::collections::BTreeMap<(Channel, String), BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    for row in &bootstrap.builtin_packages {
+        let package = lexlean::lexicon::load_builtin_package(row, &ctx).map_err(|diagnostics| {
+            Fail::from(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.message.clone())
+                    .collect::<Vec<String>>()
+                    .join("; "),
+            )
+        })?;
+        for (entry_id, entry) in &package.entries {
+            let qualified = format!("{}::{entry_id}", package.id);
+            let parser_own = matches!(entry.category, Category::Structural | Category::Grammar);
+            for form in &entry.forms {
+                for channel in [Channel::Text, Channel::Math] {
+                    if !form.channel.covers(channel) {
+                        continue;
+                    }
+                    let key = (channel, form.surface.clone());
+                    if parser_own {
+                        parser_layer
+                            .entry(key)
+                            .or_default()
+                            .insert(qualified.clone());
+                    } else {
+                        spellable.entry(key).or_default().insert(qualified.clone());
+                    }
+                }
+            }
+        }
+    }
+    if spellable.is_empty() {
+        println!(
+            "audit-surface-disjointness: no package carries a spellable form; the gate is armed by the first one"
+        );
+        return Ok(());
+    }
+    if let Some(((channel, surface), owners)) =
+        spellable.iter().find(|(_, owners)| owners.len() > 1)
+    {
+        return Err(Fail::from(format!(
+            "R7: the surface `{surface}` is owned by {} entries in the {channel:?} channel ({}); `fmt` spells a surface bare only when one visible entry owns it, so a second owner changes canonical output and breaks §30.2 byte-compatibility",
+            owners.len(),
+            owners.iter().cloned().collect::<Vec<String>>().join(", ")
+        )));
+    }
+    let overlaps = parser_layer
+        .iter()
+        .filter(|(key, _)| spellable.contains_key(key) || parser_layer[key].len() > 1)
+        .count();
+    println!(
+        "audit-surface-disjointness: {} spellable surfaces across {} builtin packages, no two entries share one in a channel; {overlaps} parser-layer overlap(s) recorded (R7)",
+        spellable.len(),
+        bootstrap.builtin_packages.len()
+    );
+    Ok(())
+}
+
 /// R4: nothing is deferred. The markers are spelled in halves so this gate
 /// can scan its own source; exempting the file would put a hole exactly
 /// where a deferral parked in a gate would sit.

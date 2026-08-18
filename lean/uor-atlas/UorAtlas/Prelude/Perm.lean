@@ -41,19 +41,23 @@ universe u v
 
 /-! ## List auxiliaries
 
-The three facts the saturation and the counting argument need and that
-`Init`'s `List` API does not already carry: deduplicated insertion with its
-membership and `Nodup` characterisations, and finite sums over a mapped list.
-`Init` has `List.eraseDups` but proves only `mem_eraseDups`, and the saturation
-also has to discard candidates already accumulated, which `eraseDups` cannot
-express; one function serves both purposes. -/
+What the saturation and the counting argument need and `Init`'s `List` API does
+not already carry: filtered deduplication with its membership and `Nodup`
+characterisations, sums over a mapped list, and the two counting lemmas that
+turn a partition into fibres into an arithmetic identity.
+
+`Init` has `List.eraseDups`, but proves only `mem_eraseDups` and not the
+`Nodup` of its result, and the saturation additionally has to discard
+candidates already accumulated -- which `eraseDups` cannot express. One
+function, `freshOf`, covers both, and plain deduplication is the case where
+nothing has been accumulated yet. -/
 
 namespace ListAux
 
 variable {α : Type u} {β : Type v}
 
 /-- Prepend `a` unless it is already accounted for, either in the reference
-list `seen` or in the partial result `acc`. -/
+list `seen` or in the result accumulated so far, `acc`. -/
 @[expose] public def consNew [DecidableEq α] (seen : List α) (a : α) (acc : List α) : List α :=
   if a ∈ seen then acc else if a ∈ acc then acc else a :: acc
 
@@ -253,8 +257,6 @@ namespace Perm
 
 variable {n : Nat}
 
-public instance instCoeFun : CoeFun (Perm n) (fun _ => Fin n → Fin n) := ⟨Perm.toFun⟩
-
 /-- The inverse field is determined by the forward field, so permutations are
 equal as soon as they agree pointwise. -/
 public theorem ext {p q : Perm n} (h : ∀ i : Fin n, p.toFun i = q.toFun i) : p = q := by
@@ -379,6 +381,9 @@ public theorem Gen.comp_mem {gens : List (Perm n)} {a b : Perm n}
     (ha : Gen gens a) (hb : Gen gens b) : Gen gens (a.comp b) := by
   induction hb with
   | one => exact ha
+  -- The reassociation is definitional, but it has to be *stated*: matching the
+  -- goal `a.comp (g.comp s)` against the constructor's `?g.comp ?s` would pick
+  -- `?g := a` and leave the wrong subgoal.
   | @step g s _ hs ih =>
     have hstep : Gen gens ((a.comp g).comp s) := Gen.step ih hs
     exact hstep
@@ -723,11 +728,11 @@ end Perm
 
 /-! ## Orbit-stabilizer
 
-`|G| = |orbit| * |stabilizer|`, the identity `T43` reads the orbit map by and
-`T28`, `T49` and `T60` are instances of. The proof partitions `G` into the
-fibres of `g |-> g x`: the fibre over `y` is the left translate of the
-stabilizer by any element carrying `x` to `y`, and the fibres are indexed by
-the orbit without repetition. -/
+`|G| = |orbit| * |stabilizer|`. This is the identity behind `T43`, where the
+orbit map `Aut / Aut(W) -> Ob(Atl)` is a bijection, and hence behind `T28`,
+`T49` and `T60`. The proof partitions `G` into the fibres of `g |-> g x`: the
+fibre over `y` is the translate of the stabilizer by any element carrying `x`
+to `y`, and the orbit indexes those fibres without repetition. -/
 
 namespace Perm
 
@@ -851,6 +856,10 @@ namespace Perm
 
 @[expose] public def symThreeGens : List (Perm 3) := [cycleThree, swapThree]
 
+/-- Naming the closure's output without transcribing it. The `getD` default is
+never reached, and `symThree_closure` is what says so: if the saturation ran out
+of fuel this would be `[]`, `none = some []` would not be `rfl`, and the check
+would fail rather than quietly build a group out of the default. -/
 @[expose] public def symThreeList : List (Perm 3) := (closure symThreeGens 8).getD []
 
 public theorem symThree_closure : closure symThreeGens 8 = some symThreeList := rfl
