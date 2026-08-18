@@ -366,9 +366,18 @@ jobs:
             echo
             echo "The image carries the compiler and \`leanprover/lean4:v$(sed 's|.*:v||' lean-toolchain)\`, so \`lexlean verify\` runs in it."
             echo
-            echo "\`checksums.txt\` lists every other attached file with its SHA-256;"
-            echo "\`lexlean-${VERSION}-binaries.tar.gz\` holds one binary per supported host"
-            echo "(SPEC.md §8.3) under \`bin/<target>/\`. Attached, with their digests:"
+            echo "\`lexlean-${VERSION}-binaries.tar.gz\` holds one binary per supported"
+            echo "host (SPEC.md §8.3) under \`bin/<target>/\`."
+            echo
+            echo "\`checksums.txt\` covers every attached file *and* each binary inside the"
+            echo "tarball, so verify after extracting it:"
+            echo
+            echo '```text'
+            echo "tar -xzf lexlean-${VERSION}-binaries.tar.gz"
+            echo "sha256sum -c checksums.txt"
+            echo '```'
+            echo
+            echo "The digests:"
             echo
             echo '```text'
             cat release/checksums.txt
