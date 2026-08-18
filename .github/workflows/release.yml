@@ -29,7 +29,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CARGO_TERM_COLOR: always
+  # Two cargo transcripts ship as release assets — the gate evidence and the
+  # criterion report — so cargo's output must be text, not terminal control
+  # sequences someone has to strip before reading.
+  CARGO_TERM_COLOR: never
 
 jobs:
   # The tag names a version; the repository fixes one. A release whose tag and
@@ -172,7 +175,10 @@ jobs:
   # joined into a single multi-architecture tag below.
   image:
     name: image (${{ matrix.platform }})
-    needs: identity
+    # The gate first: a package pushed from a commit whose acceptance gate
+    # failed is a published claim with no evidence behind it, and `:latest`
+    # cannot be taken back once someone has pulled it.
+    needs: [identity, gate]
     permissions:
       contents: read
       packages: write
@@ -208,7 +214,7 @@ jobs:
   # resolves on either supported Linux host.
   manifest:
     name: multi-architecture tag
-    needs: [identity, image]
+    needs: [identity, gate, image]
     permissions:
       contents: read
       packages: write
@@ -303,8 +309,20 @@ jobs:
           set -e
           cat "$report"
           if [ "$status" -ne 0 ]; then
-            unexpected="$(grep -oE '^  [a-z-]+:' "$report" \
-              | tr -d ' :' | sort -u | grep -vxE 'source-tag|version-output' || true)"
+            # A refusal names its criteria. Output that carries no refusal at
+            # all is a crash, a missing cargo, or a changed message — not a
+            # criterion this allowance may forgive, so the absence of an
+            # explanation fails rather than passes.
+            if ! grep -q 'the release is refused; unmet criteria:' "$report"; then
+              echo "::error::release-check exited $status without refusing any criterion; see the log above"
+              exit 1
+            fi
+            unmet="$(grep -oE '^  [a-z-]+:' "$report" | tr -d ' :' | sort -u)"
+            if [ -z "$unmet" ]; then
+              echo "::error::release-check refused but named no criterion"
+              exit 1
+            fi
+            unexpected="$(printf '%s\n' "$unmet" | grep -vxE 'source-tag|version-output' || true)"
             if [ -n "$unexpected" ]; then
               echo "::error::criteria unmet for reasons §2.3 does not explain: $unexpected"
               exit 1
@@ -314,7 +332,14 @@ jobs:
             echo "release-check: the complete §30 criterion holds"
           fi
           cp "$report" release/release-check.txt
-      - name: Checksum the assembled set, the criterion report included
+      # Everything that will be attached exists before the checksum manifest
+      # is written. Building an asset afterwards is exactly what left
+      # `release-check.txt` unlisted on the first run of this workflow.
+      - name: Collect the host binaries as one asset
+        env:
+          VERSION: ${{ needs.identity.outputs.version }}
+        run: tar -czf "release/lexlean-${VERSION}-binaries.tar.gz" -C release bin
+      - name: Checksum every assembled file
         run: cargo xtask release-artifacts
       - name: Publish
         env:
@@ -341,15 +366,19 @@ jobs:
             echo
             echo "The image carries the compiler and \`leanprover/lean4:v$(sed 's|.*:v||' lean-toolchain)\`, so \`lexlean verify\` runs in it."
             echo
-            echo "Assets: one binary per supported host (SPEC.md §8.3), the packaged crate,"
-            echo "\`checksums.txt\` over every other asset, a CycloneDX bill of materials, the"
-            echo "\`just vv\` evidence for this commit, and the release-criterion report."
+            echo "\`checksums.txt\` lists every other attached file with its SHA-256;"
+            echo "\`lexlean-${VERSION}-binaries.tar.gz\` holds one binary per supported host"
+            echo "(SPEC.md §8.3) under \`bin/<target>/\`. Attached, with their digests:"
             echo
-            echo "\`release-check.txt\` records what SPEC.md §30 still refuses at this version:"
-            echo "§2.3 fixes \`1.0.0\` as the first release satisfying the complete specification,"
-            echo "so a \`${VERSION}\` tag does not claim it. See CHANGELOG.md."
+            echo '```text'
+            cat release/checksums.txt
+            echo '```'
+            echo
+            echo "\`release-check.txt\` records what SPEC.md §30 refuses at this version."
+            echo "§2.3 fixes \`1.0.0\` as the first release satisfying the complete"
+            echo "specification, so this tag does not claim that criterion; the report names"
+            echo "each part of it that does not yet hold. See CHANGELOG.md."
           } > notes.md
-          tar -czf "release/lexlean-${VERSION}-binaries.tar.gz" -C release bin
           gh release create "${GITHUB_REF_NAME}" \
             --title "lexlean ${VERSION}" \
             --notes-file notes.md \
