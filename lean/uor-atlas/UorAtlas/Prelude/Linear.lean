@@ -514,6 +514,35 @@ public theorem id_apply [CommRing α] (i j : Fin n) :
 public theorem apply_apply [CommRing α] (A : Mat m n α) (x : Vec n α) (i : Fin m) :
     apply A x i = Vec.sum (fun j => CommRing.mul (A i j) (x j)) := rfl
 
+/-- Matrix application composes: `(AB)x = A(Bx)`. Both sides are the double sum
+`sum_j sum_k A i j * B j k * x k`, so this is `M2` read one vector at a time and
+it is what turns "`G` and its inverse are integral" into "`G` maps the lattice
+onto itself". -/
+public theorem apply_mul [CommRing α] (A : Mat m n α) (B : Mat n p α) (x : Vec p α) :
+    apply (mul A B) x = apply A (apply B x) := by
+  funext i
+  show Vec.sum (fun k => CommRing.mul (Vec.sum fun j => CommRing.mul (A i j) (B j k)) (x k))
+    = Vec.sum (fun j => CommRing.mul (A i j) (Vec.sum fun k => CommRing.mul (B j k) (x k)))
+  have distribute :
+      (Vec.sum fun k => CommRing.mul (Vec.sum fun j => CommRing.mul (A i j) (B j k)) (x k))
+        = Vec.sum (fun k => Vec.sum fun j => CommRing.mul (CommRing.mul (A i j) (B j k)) (x k)) :=
+    Vec.sum_congr (fun k => Vec.sum_mul _ _)
+  rw [distribute, Vec.sum_exchange]
+  refine Vec.sum_congr (fun j => ?_)
+  rw [Vec.mul_sum]
+  exact Vec.sum_congr (fun k => CommRing.mul_assoc (A i j) (B j k) (x k))
+
+/-- The identity matrix acts as the identity on vectors. -/
+public theorem apply_id [CommRing α] (x : Vec n α) : apply (id : Mat n n α) x = x := by
+  funext i
+  show Vec.sum (fun j => CommRing.mul ((id : Mat n n α) i j) (x j)) = x i
+  have h : ∀ j : Fin n, CommRing.mul ((id : Mat n n α) i j) (x j)
+      = (if i = j then x j else AddCommGroup.zero) :=
+    fun j => Decidable.byCases (p := i = j)
+      (fun hij => by rw [id_apply, if_pos hij, if_pos hij, CommRing.one_mul])
+      (fun hij => by rw [id_apply, if_neg hij, if_neg hij, zero_mul])
+  rw [Vec.sum_congr h, Vec.sum_ite_eq]
+
 public theorem transpose_transpose (A : Mat m n α) : transpose (transpose A) = A := rfl
 
 public theorem transpose_mul [CommRing α] (A : Mat m n α) (B : Mat n p α) :

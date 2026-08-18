@@ -369,13 +369,45 @@ lattice. -/
 /-- `D37`. `L_v* := { y in V_v : <y,x>_v in Z_v for all x in L_v }`. -/
 @[expose] public def D37 (p : Place) (c : Vec 8 p.Amb) : Prop := InDual p.incl (gramAt p) c
 
-/-- `V72`. An integer matrix with an integer inverse stays invertible over the
-local ring. This is `BC1` at the place, and it is the step that puts the
-integral action of `D21` inside `GL_8(Z_v)`. -/
-public theorem V72 (p : Place) {G : Mat 8 8 Int} (hG : InGL G) :
+/-- An integer matrix with an integer inverse stays invertible over the local
+ring. This is `BC1` at the place, and it is the step that puts the integral
+action of `D21` inside `GL_8(Z_v)`. It is not yet `V72`: being invertible over
+`Z_v` is the *reason* the lattice is preserved, not the statement that it is. -/
+public theorem localInGL (p : Place) {G : Mat 8 8 Int} (hG : InGL G) :
     InGL (Mat.map p.fromInt G) := BC1 p.fromInt hG
 
-public theorem gramAt_InGL (p : Place) : InGL (gramAt p) := V72 p gram_InGL
+/-- A matrix with entries in `Z_v` carries `L_v` into `L_v`: every coordinate of
+the image is a sum of products of local integers, and the image of a ring
+homomorphism is closed under both. -/
+public theorem locL_apply (p : Place) (A : Mat 8 8 p.Loc) {c : Vec 8 p.Amb}
+    (hc : locL p c) : locL p (Mat.apply (Mat.map p.incl A) c) :=
+  fun i => InImage.sum p.incl _ (fun j => InImage.mul ⟨A i j, rfl⟩ (hc j))
+
+/-- Base change to `Q_v` factors through `Z_v`, because `Z -> Q_v` is by
+definition `Z -> Z_v -> Q_v`. -/
+public theorem map_fromIntAmb (p : Place) (G : Mat 8 8 Int) :
+    Mat.map p.fromIntAmb G = Mat.map p.incl (Mat.map p.fromInt G) := rfl
+
+/-- `V72`. Every `g` in the integral action preserves `L_v`. The matrix carries
+the lattice into itself because its entries are local integers, and its inverse
+-- which `BC1` supplies through `localInGL` -- carries it back, so the
+containment is an equality rather than merely an inclusion. -/
+public theorem V72 (p : Place) {G : Mat 8 8 Int} (hG : InGL G) :
+    (∀ c : Vec 8 p.Amb, locL p c → locL p (Mat.apply (Mat.map p.fromIntAmb G) c))
+      ∧ (∀ c : Vec 8 p.Amb, locL p c →
+          ∃ d : Vec 8 p.Amb, locL p d ∧ Mat.apply (Mat.map p.fromIntAmb G) d = c) := by
+  obtain ⟨H, hGH, _⟩ := hG
+  refine ⟨fun c hc => map_fromIntAmb p G ▸ locL_apply p (Mat.map p.fromInt G) hc,
+    fun c hc => ⟨Mat.apply (Mat.map p.fromIntAmb H) c, ?_, ?_⟩⟩
+  · exact map_fromIntAmb p H ▸ locL_apply p (Mat.map p.fromInt H) hc
+  · have hmap : Mat.mul (Mat.map p.fromIntAmb G) (Mat.map p.fromIntAmb H)
+        = (Mat.id : Mat 8 8 p.Amb) := by
+      funext i j
+      rw [← Mat.map_mul_apply, hGH]
+      exact congrFun (congrFun (map_id p.fromIntAmb) i) j
+    rw [← Mat.apply_mul, hmap, Mat.apply_id]
+
+public theorem gramAt_InGL (p : Place) : InGL (gramAt p) := localInGL p gram_InGL
 
 /-- `V69`. `L_v` is self-dual, at every place. `SD1` supplies the argument and
 `T58x` -- through `gram_InGL` and `BC1` -- supplies its hypothesis. -/
