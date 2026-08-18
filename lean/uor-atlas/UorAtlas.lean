@@ -9,3 +9,4 @@ public import UorAtlas.Parameters
 public import UorAtlas.Glue
 public import UorAtlas.Roots
 public import UorAtlas.Blocks
+public import UorAtlas.Category
