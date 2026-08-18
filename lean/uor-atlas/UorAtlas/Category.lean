@@ -3,7 +3,8 @@ public import Init
 public import UorAtlas.Prelude.Perm
 
 /-!
-Sections 7 and 9 of `UOR-ATLAS-FORMAL-001`: the categorical layer. `D23`
+Sections 7 and 9 of `UOR-ATLAS-FORMAL-001` and the categorical half of
+section 11: the categorical layer. `D23`
 makes the AtlasInstances of `D22a` the objects of a category whose morphisms
 are the elements of `Aut` that carry one instance to another, and sections 7
 and 9 are the structural consequences: it is a connected groupoid (`T33`,
@@ -14,7 +15,11 @@ category is equivalent to the one-object groupoid on `Aut(W)` (`T38`).
 Dividing out the torsor action gives the thin category `D26`, in which every
 hom-set is a singleton (`T44`, `D59`), every object is a zero object (`T45`),
 and the skeleton is the one-object category whose object is the Atlas of `D27`
-(`T46`).
+(`T46`). `T47` refutes the strengthening of `T36` to strict initiality, on the
+same arithmetic. Section 11 reads the quotient off once more, sharpening *a*
+zero object to *the* zero object: the Atlas is it in `Atl // Aut` (`T63`) and
+in the skeleton (`T63a`), and every thin morphism factors uniquely through
+every object, in the skeleton through the Atlas (`T64`).
 
 ## What this module is parameterised over, and why
 
@@ -37,12 +42,11 @@ are about.
 
 ## What is not here
 
-`T47` and section 11's `T61` to `T64` are absent. A label is a claim about the
-document and not merely about the mathematics, and the text of those five was
-not available to this pass; a declaration named after a statement nobody read
-would be indistinguishable from one that says something else, which is the
-single failure this library exists to avoid. `T39p` and `T39` are likewise
-absent, being the part of section 7 the group layer states.
+`T39p` and `T39` are absent, being the part of section 7 the group layer
+states. Section 11's remaining labels are stated where their subject matter
+lives rather than here: `T61` and `T62` are rank statements about blocks and
+frames and `UorAtlas.Places` carries them, as `UorAtlas.Blocks` carries
+`T61a`.
 
 ## Counting without enumerating
 
@@ -624,6 +628,107 @@ public theorem T46 {n : Nat} (A : ActionData n) : IsZero (skelThin A) (D27 A) :=
   · exact (T34 A (skelRep A q) (skelRep A (D27 A))).elim fun f =>
       ⟨Quot.mk (ThinRel A (skelRep A q) (skelRep A (D27 A))) f,
         fun g => thin_unique A (skelRep A q) (skelRep A (D27 A)) g _⟩
+
+/-! ## `T47`: strict initiality would force a trivial automorphism group
+
+A strictly initial object is initial with every morphism into it invertible.
+The first half already fixes the count: an initial object has exactly one
+endomorphism. `T36` refutes initiality for `Atl` and `T47` refutes the stronger
+property by the same arithmetic, which the document gives as its whole content:
+`|Aut(W)| = 4608` and `4608 > 1`. -/
+
+/-- **Strict initiality**: initial, and every morphism into the object is an
+isomorphism. -/
+@[expose] public def IsStrictInitial (C : Cat) (X : C.Ob) : Prop :=
+  D24 C X ∧ ∀ (Y : C.Ob) (f : C.Hom Y X),
+    ∃ g : C.Hom X Y, C.comp g f = C.idm Y ∧ C.comp f g = C.idm X
+
+/-- An initial object has exactly one endomorphism, namely the unique morphism
+from it to itself. -/
+public theorem card_end_one_of_initial {C : Cat} {X : C.Ob} (h : D24 C X) :
+    HasCard (C.Hom X X) 1 :=
+  (h X).elim fun f hf => HasCard.one_of_unique f hf
+
+/-- `T47`. **No object of `Atl` is strictly initial.** Strict initiality would
+force `|Aut(W)| = 1`; `T29` makes it `4608`. The three clauses are the
+document's argument in order: what strict initiality would force, what the
+count actually is, and the conclusion that follows because `4608 > 1`. -/
+public theorem T47 {n : Nat} (A : AtlasAction n) (X : Atl.Ob A.toActionData) :
+    (IsStrictInitial (D23 A.toActionData) X → HasCard (D25 A.toActionData X) 1)
+      ∧ HasCard (D25 A.toActionData X) 4608
+      ∧ ¬ IsStrictInitial (D23 A.toActionData) X := by
+  refine ⟨fun h => card_end_one_of_initial h.1,
+    card_aut_of_card_base X A.stab_card, fun h => T36 A X h.1⟩
+
+/-! ## Section 11: `T63`, `T63a`, `T64`
+
+`T45` says every object of `Atl // Aut` is a zero object and `T46` says the
+Atlas is one in the skeleton. Section 11 says more than either: that the zero
+object is *the* zero object -- in `Atl // Aut` any two objects are connected by
+exactly one morphism each way, so the zero object is unique up to a unique
+isomorphism, and in the skeleton there is literally one object to be it -- and
+that every thin morphism factors uniquely through every object, hence in the
+skeleton through the Atlas. Each of the three is proved by `thin_unique`: once
+every hom-set of the quotient is a singleton, existence comes from `T34` and
+uniqueness is the singleton property. -/
+
+/-- `T63`. In `Atl // Aut` the Atlas is **the** zero object: the AtlasInstance
+`W` is initial and terminal, and every object is connected to it by exactly one
+morphism in each direction, those two composing to the identities. Uniqueness
+of the connecting morphisms is what makes this a statement about *the* zero
+object rather than `T45`'s statement that every object is *a* zero object. -/
+public theorem T63 {n : Nat} (A : ActionData n) :
+    IsZero (D26 A) (basePt A)
+      ∧ ∀ X : Atl.Ob A,
+          ∃ u : (D26 A).Hom X (basePt A), ∃ v : (D26 A).Hom (basePt A) X,
+            (D26 A).comp v u = (D26 A).idm X
+              ∧ (D26 A).comp u v = (D26 A).idm (basePt A)
+              ∧ (∀ u' : (D26 A).Hom X (basePt A), u' = u)
+              ∧ (∀ v' : (D26 A).Hom (basePt A) X, v' = v) := by
+  refine ⟨T45 A (basePt A), fun X => ?_⟩
+  refine (T34 A X (basePt A)).elim fun u0 => (T34 A (basePt A) X).elim fun v0 => ?_
+  exact ⟨Quot.mk (ThinRel A X (basePt A)) u0, Quot.mk (ThinRel A (basePt A) X) v0,
+    thin_unique A X X _ _, thin_unique A (basePt A) (basePt A) _ _,
+    fun u' => thin_unique A X (basePt A) u' _,
+    fun v' => thin_unique A (basePt A) X v' _⟩
+
+/-- `T63a`. The Atlas is **the** zero object of `skel(Thin(Atl))`: the skeleton
+has one object, that object is `D27`, and it is a zero object. The last clause
+is `T46`; the first two are what upgrade "a zero object" to "the". -/
+public theorem T63a {n : Nat} (A : ActionData n) :
+    HasCard (skelThin A).Ob 1
+      ∧ (∀ p : (skelThin A).Ob, p = D27 A)
+      ∧ IsZero (skelThin A) (D27 A) :=
+  ⟨T37 A, skel_unique A, T46 A⟩
+
+/-- `T64`. **Unique factorisation.** Every morphism of `Thin(Atl)` factors
+through *every* object, and both factors are unique; in the skeleton this
+specialises to factorisation through the Atlas, `D27`. Factoring through an
+arbitrary object is possible because `T34` connects any two objects, and it is
+unique because `T44` leaves one morphism in each hom-set. -/
+public theorem T64 {n : Nat} (A : ActionData n) :
+    (∀ (W X Y : Atl.Ob A) (f : (D26 A).Hom X Y),
+        ∃ u : (D26 A).Hom X W, ∃ v : (D26 A).Hom W Y,
+          (D26 A).comp v u = f
+            ∧ (∀ u' : (D26 A).Hom X W, u' = u)
+            ∧ (∀ v' : (D26 A).Hom W Y, v' = v))
+      ∧ (∀ (p q : (skelThin A).Ob) (f : (skelThin A).Hom p q),
+        ∃ u : (skelThin A).Hom p (D27 A), ∃ v : (skelThin A).Hom (D27 A) q,
+          (skelThin A).comp v u = f
+            ∧ (∀ u' : (skelThin A).Hom p (D27 A), u' = u)
+            ∧ (∀ v' : (skelThin A).Hom (D27 A) q, v' = v)) := by
+  refine ⟨fun W X Y f => ?_, fun p q f => ?_⟩
+  · refine (T34 A X W).elim fun u0 => (T34 A W Y).elim fun v0 => ?_
+    exact ⟨Quot.mk (ThinRel A X W) u0, Quot.mk (ThinRel A W Y) v0,
+      thin_unique A X Y _ _, fun u' => thin_unique A X W u' _,
+      fun v' => thin_unique A W Y v' _⟩
+  · refine (T34 A (skelRep A p) (skelRep A (D27 A))).elim fun u0 =>
+      (T34 A (skelRep A (D27 A)) (skelRep A q)).elim fun v0 => ?_
+    exact ⟨Quot.mk (ThinRel A (skelRep A p) (skelRep A (D27 A))) u0,
+      Quot.mk (ThinRel A (skelRep A (D27 A)) (skelRep A q)) v0,
+      thin_unique A (skelRep A p) (skelRep A q) _ _,
+      fun u' => thin_unique A (skelRep A p) (skelRep A (D27 A)) u' _,
+      fun v' => thin_unique A (skelRep A (D27 A)) (skelRep A q) v' _⟩
 
 /-! ## The framework is inhabited
 

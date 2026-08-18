@@ -3816,48 +3816,6 @@ public theorem apply_e_of_eig {s t : Fin nE} (hst : s ≠ t) (y : Vec n Rat)
 
 end SpecSys
 
-/-- `RC1`. Complete reducibility, in the form the spectral argument uses it:
-the ambient rational space is the direct sum of the five eigenspaces of `A`.
-Every vector splits as the sum of its five projections, each summand is an
-eigenvector, and any other such splitting is that one. Section 4.4 of the
-release plan fixes this route: `RC1` is discharged through `S41a` and `S41c`,
-the exact idempotent facts, rather than through a semisimplicity theorem. -/
-public theorem RC1 {nE n : Nat} (S : SpecSys nE n) (x : Vec n Rat) :
-    (∀ i, Vec.sum (fun t : Fin nE => Mat.apply (S.e t) x i) = x i)
-      ∧ (∀ (t : Fin nE) (i : Fin n), Mat.apply S.Aq (Mat.apply (S.e t) x) i
-          = ((S.lam t : Int) : Rat) * Mat.apply (S.e t) x i)
-      ∧ (∀ y : Fin nE → Vec n Rat,
-          (∀ (t : Fin nE) (i : Fin n), Mat.apply S.Aq (y t) i = ((S.lam t : Int) : Rat) * y t i) →
-          (∀ i, Vec.sum (fun t : Fin nE => y t i) = x i) →
-          ∀ (t : Fin nE) (i : Fin n), y t i = Mat.apply (S.e t) x i) := by
-  refine ⟨S.apply_sum_e x, fun t i => S.apply_e_eig t x i, fun y hy hsum t i => ?_⟩
-  have hkill : ∀ (s u : Fin nE), s ≠ u → ∀ i, Mat.apply (S.e s) (y u) i = 0 :=
-    fun s u hsu i => S.apply_e_of_eig hsu (y u) (fun k => hy u k) i
-  have hself : ∀ (u : Fin nE) (i : Fin n), Mat.apply (S.e u) (y u) i = y u i := by
-    intro u i
-    have h1 : Vec.sum (fun s : Fin nE => Mat.apply (S.e s) (y u) i) = y u i :=
-      S.apply_sum_e (y u) i
-    have h2 : ∀ s : Fin nE, Mat.apply (S.e s) (y u) i
-        = if u = s then Mat.apply (S.e u) (y u) i else AddCommGroup.zero := by
-      intro s
-      by_cases hs : u = s
-      · rw [if_pos hs, hs]
-      · rw [if_neg hs]
-        exact hkill s u (fun h => hs h.symm) i
-    rw [Vec.sum_congr h2, Vec.sum_ite_eq u (fun _ => Mat.apply (S.e u) (y u) i)] at h1
-    exact h1
-  have hx : Mat.apply (S.e t) x i = Mat.apply (S.e t) (y t) i := by
-    have hxfun : x = fun j => Vec.sum (fun s : Fin nE => y s j) := funext (fun j => (hsum j).symm)
-    rw [hxfun, apply_sum (S.e t) y i]
-    have h2 : ∀ s : Fin nE, Mat.apply (S.e t) (y s) i
-        = if t = s then Mat.apply (S.e t) (y t) i else AddCommGroup.zero := by
-      intro s
-      by_cases hs : t = s
-      · rw [if_pos hs, hs]
-      · rw [if_neg hs]
-        exact hkill t s hs i
-    rw [Vec.sum_congr h2, Vec.sum_ite_eq t (fun _ => Mat.apply (S.e t) (y t) i)]
-  rw [hx, hself t i]
 
 
 /-! ### The algebra the projections span -/
@@ -3937,8 +3895,142 @@ public theorem e_sandwich (t : Fin nE) (c : Vec nE Rat) (i j : Fin n) :
   show c t * Mat.mul (S.e t) (S.e t) i j = _
   rw [S.e_idem t i j]
 
+/-- The general element of the algebra `C` the projections span. -/
+@[expose] public def comb (c : Vec nE Rat) : Mat n n Rat :=
+  fun a b => Vec.sum (fun u : Fin nE => CommRing.mul (c u) (S.e u a b))
+
+/-- An idempotent of `C` that lies inside the component `e_t` is `0` or `e_t`:
+the component has no proper invariant summand. This is the irreducibility half
+of `RC1`, and it is read off `e_sandwich` -- the exact fact
+`dim(e_t C e_t) = 1` of `S41c` -- rather than off a semisimplicity theorem. -/
+public theorem e_minimal (t : Fin nE) (c : Vec nE Rat)
+    (hne : ∃ p q : Fin n, S.e t p q ≠ 0)
+    (hidem : ∀ i j : Fin n, Mat.mul (S.comb c) (S.comb c) i j = S.comb c i j)
+    (hL : ∀ i j : Fin n, Mat.mul (S.e t) (S.comb c) i j = S.comb c i j)
+    (hR : ∀ i j : Fin n, Mat.mul (S.comb c) (S.e t) i j = S.comb c i j) :
+    (∀ i j : Fin n, S.comb c i j = 0) ∨ (∀ i j : Fin n, S.comb c i j = S.e t i j) := by
+  have hRfun : Mat.mul (S.comb c) (S.e t) = S.comb c := funext fun a => funext fun b => hR a b
+  have hsand : ∀ i j : Fin n, Mat.mul (Mat.mul (S.e t) (S.comb c)) (S.e t) i j
+      = CommRing.mul (c t) (S.e t i j) := fun i j => S.e_sandwich t c i j
+  have hkey : ∀ i j : Fin n, S.comb c i j = CommRing.mul (c t) (S.e t i j) := by
+    intro i j
+    have h1 : Mat.mul (Mat.mul (S.e t) (S.comb c)) (S.e t) i j
+        = Mat.mul (S.e t) (Mat.mul (S.comb c) (S.e t)) i j :=
+      Mat.mul_assoc_apply (S.e t) (S.comb c) (S.e t) i j
+    rw [hsand i j, hRfun, hL i j] at h1
+    exact h1.symm
+  have hsq : ∀ i j : Fin n, Mat.mul (S.comb c) (S.comb c) i j
+      = CommRing.mul (CommRing.mul (c t) (c t)) (S.e t i j) := by
+    intro i j
+    have hstep : ∀ k : Fin n, CommRing.mul (S.comb c i k) (S.comb c k j)
+        = CommRing.mul (CommRing.mul (c t) (c t)) (CommRing.mul (S.e t i k) (S.e t k j)) := by
+      intro k
+      rw [hkey i k, hkey k j]
+      show c t * S.e t i k * (c t * S.e t k j) = c t * c t * (S.e t i k * S.e t k j)
+      rw [Rat.mul_assoc, Rat.mul_assoc, ← Rat.mul_assoc (S.e t i k) (c t) (S.e t k j),
+        Rat.mul_comm (S.e t i k) (c t), Rat.mul_assoc]
+    show Vec.sum (fun k : Fin n => CommRing.mul (S.comb c i k) (S.comb c k j)) = _
+    rw [Vec.sum_congr hstep, ← Vec.mul_sum]
+    exact congrArg (fun z => CommRing.mul (CommRing.mul (c t) (c t)) z) (S.e_idem t i j)
+  obtain ⟨p, q, hpq⟩ := hne
+  have hepq : S.e t p q * (S.e t p q)⁻¹ = 1 := Rat.mul_inv_cancel _ hpq
+  have hc : c t * c t = c t := by
+    have h1 : c t * c t * S.e t p q = c t * S.e t p q := by
+      have h0 := hsq p q
+      rw [hidem p q, hkey p q] at h0
+      exact h0.symm
+    have h2 := congrArg (fun z : Rat => z * (S.e t p q)⁻¹) h1
+    show c t * c t = c t
+    have h3 : c t * c t * (S.e t p q * (S.e t p q)⁻¹) = c t * (S.e t p q * (S.e t p q)⁻¹) := by
+      rw [← Rat.mul_assoc, ← Rat.mul_assoc]
+      exact h2
+    rw [hepq, Rat.mul_one, Rat.mul_one] at h3
+    exact h3
+  by_cases h0 : c t = 0
+  · refine Or.inl (fun i j => ?_)
+    rw [hkey i j]
+    show c t * S.e t i j = 0
+    rw [h0]
+    exact Rat.zero_mul _
+  · have hc1 : c t = 1 := by
+      have h2 := congrArg (fun z : Rat => z * (c t)⁻¹) hc
+      have h3 : c t * (c t * (c t)⁻¹) = c t * (c t)⁻¹ := by
+        rw [← Rat.mul_assoc]
+        exact h2
+      rw [Rat.mul_inv_cancel (c t) h0, Rat.mul_one] at h3
+      exact h3
+    refine Or.inr (fun i j => ?_)
+    rw [hkey i j]
+    show c t * S.e t i j = S.e t i j
+    rw [hc1]
+    exact Rat.one_mul _
+
 end SpecSys
 
+
+/-- `RC1`. The last of the twelve ambient lemmas of section 19.6, discharged
+the way section 4.4 of the release plan fixes: through `S41a` and `S41c`, the
+exact idempotent facts, rather than through a semisimplicity theorem.
+
+The first three clauses are complete reducibility: the ambient rational space
+is the direct sum of the eigenspaces of `A`, every vector splits as the sum of
+its projections, each summand is an eigenvector, and any other such splitting
+is that one. The last two are what the document's `RC1` is used for. The
+fourth is `End(U_t) = Q`, the *real type* clause: every element of the algebra
+`C` that the projections span is a scalar on the component `U_t = im(e_t)`,
+which is `dim(e_t C e_t) = 1` of `S41c`. The fifth is *irreducibility* of
+`U_t`: an idempotent of `C` lying inside `e_t` is `0` or `e_t`, so `U_t` has no
+proper invariant summand.
+
+Scope of the irreducibility clause. It is stated against invariant
+**summands**, presented as idempotents of `C`, not against arbitrary invariant
+subspaces. Passing from a subspace to a summand is exactly the semisimplicity
+step that the release plan replaces by `S41a` and `S41c`; it is neither assumed
+nor proved here. -/
+public theorem RC1 {nE n : Nat} (S : SpecSys nE n) (x : Vec n Rat) :
+    (∀ i, Vec.sum (fun t : Fin nE => Mat.apply (S.e t) x i) = x i)
+      ∧ (∀ (t : Fin nE) (i : Fin n), Mat.apply S.Aq (Mat.apply (S.e t) x) i
+          = ((S.lam t : Int) : Rat) * Mat.apply (S.e t) x i)
+      ∧ (∀ y : Fin nE → Vec n Rat,
+          (∀ (t : Fin nE) (i : Fin n), Mat.apply S.Aq (y t) i = ((S.lam t : Int) : Rat) * y t i) →
+          (∀ i, Vec.sum (fun t : Fin nE => y t i) = x i) →
+          ∀ (t : Fin nE) (i : Fin n), y t i = Mat.apply (S.e t) x i)
+      ∧ (∀ (t : Fin nE) (c : Vec nE Rat) (i j : Fin n),
+          Mat.mul (Mat.mul (S.e t) (S.comb c)) (S.e t) i j = c t * S.e t i j)
+      ∧ (∀ (t : Fin nE) (c : Vec nE Rat), (∃ p q : Fin n, S.e t p q ≠ 0) →
+          (∀ i j : Fin n, Mat.mul (S.comb c) (S.comb c) i j = S.comb c i j) →
+          (∀ i j : Fin n, Mat.mul (S.e t) (S.comb c) i j = S.comb c i j) →
+          (∀ i j : Fin n, Mat.mul (S.comb c) (S.e t) i j = S.comb c i j) →
+          (∀ i j : Fin n, S.comb c i j = 0) ∨ (∀ i j : Fin n, S.comb c i j = S.e t i j)) := by
+  refine ⟨S.apply_sum_e x, fun t i => S.apply_e_eig t x i, fun y hy hsum t i => ?_,
+    fun t c i j => S.e_sandwich t c i j, fun t c => S.e_minimal t c⟩
+  have hkill : ∀ (s u : Fin nE), s ≠ u → ∀ i, Mat.apply (S.e s) (y u) i = 0 :=
+    fun s u hsu i => S.apply_e_of_eig hsu (y u) (fun k => hy u k) i
+  have hself : ∀ (u : Fin nE) (i : Fin n), Mat.apply (S.e u) (y u) i = y u i := by
+    intro u i
+    have h1 : Vec.sum (fun s : Fin nE => Mat.apply (S.e s) (y u) i) = y u i :=
+      S.apply_sum_e (y u) i
+    have h2 : ∀ s : Fin nE, Mat.apply (S.e s) (y u) i
+        = if u = s then Mat.apply (S.e u) (y u) i else AddCommGroup.zero := by
+      intro s
+      by_cases hs : u = s
+      · rw [if_pos hs, hs]
+      · rw [if_neg hs]
+        exact hkill s u (fun h => hs h.symm) i
+    rw [Vec.sum_congr h2, Vec.sum_ite_eq u (fun _ => Mat.apply (S.e u) (y u) i)] at h1
+    exact h1
+  have hx : Mat.apply (S.e t) x i = Mat.apply (S.e t) (y t) i := by
+    have hxfun : x = fun j => Vec.sum (fun s : Fin nE => y s j) := funext (fun j => (hsum j).symm)
+    rw [hxfun, apply_sum (S.e t) y i]
+    have h2 : ∀ s : Fin nE, Mat.apply (S.e t) (y s) i
+        = if t = s then Mat.apply (S.e t) (y t) i else AddCommGroup.zero := by
+      intro s
+      by_cases hs : t = s
+      · rw [if_pos hs, hs]
+      · rw [if_neg hs]
+        exact hkill t s hs i
+    rw [Vec.sum_congr h2, Vec.sum_ite_eq t (fun _ => Mat.apply (S.e t) (y t) i)]
+  rw [hx, hself t i]
 
 /-! ## The labelled spectral facts of the AtlasInstance -/
 
@@ -4002,7 +4094,7 @@ public theorem xRC1 (x : Vec 48 Rat) :
             Mat.apply xSpec.Aq (y t) i = ((xLam t : Int) : Rat) * y t i) →
           (∀ i, Vec.sum (fun t : Fin 5 => y t i) = x i) →
           ∀ (t : Fin 5) (i : Fin 48), y t i = Mat.apply (xProj t) x i) :=
-  RC1 xSpec x
+  ⟨(RC1 xSpec x).1, (RC1 xSpec x).2.1, (RC1 xSpec x).2.2.1⟩
 
 
 /-! ## `S41d`: the same decomposition at the class graph
