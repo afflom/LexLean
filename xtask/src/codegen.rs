@@ -62,6 +62,7 @@ pub fn check_model(root: &Path, write: bool) -> Result<(), Fail> {
     crate::audit::audit_no_unsafe(root)?;
     crate::audit::audit_surface_disjointness(root)?;
     crate::audit::audit_atlas_library(root)?;
+    crate::audit::audit_atlas_registers(root)?;
 
     println!(
         "validate-model: documents current, {} ids, {} codes, meta-gate and audits clean (R1)",

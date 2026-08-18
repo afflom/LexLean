@@ -1,0 +1,90 @@
+# language/uor/atlas-registers.toml --- the UOR-ATLAS-FORMAL-001 label registers.
+#
+# Derived mechanically from the document, which this repository cites and does
+# not vendor (see model/authorities.toml). Section 20 partitions the labels and
+# the registers below are that partition. Every register keys on EXACT
+# identifiers, never prefixes: `T57` is retracted while `T57a` to `T57c` are
+# live, `T10` is superseded while `T10a` to `T10c` are live, and `F8` to `F11`
+# are retracted while `F1` to `F7` and `F12` are live. A prefix-matching
+# register would reject exactly those live labels.
+#
+# This file participates in the compiler-semantics digest.
+
+spec = "lexlean/atlas-registers/1"
+document = "UOR-ATLAS-FORMAL-001"
+
+# Every live label: one entry denoting a declaration in the vendored library.
+entry = [
+    "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8",
+    "T1", "T2", "T3", "T4", "D9", "D10", "D11", "D12",
+    "D13", "T5", "T6", "T7", "T8", "T9", "D14", "D15",
+    "D16", "D17", "D17a", "D18", "D19", "T11", "T12", "T13",
+    "T14", "T15", "T16", "T17", "T18", "T19", "D19a", "D20",
+    "D21", "D21a", "D22", "D22a", "T22", "T23", "T24", "T25",
+    "T25x", "T26", "T26x", "T27", "T28", "T29", "T30", "T31",
+    "T32", "D23", "D24", "T33", "T34", "T35", "T36", "T37",
+    "T38", "T39p", "T39", "D25", "D26", "D27", "T40", "T41",
+    "T42", "T43", "T44", "T45", "T46", "T47", "D28", "D28a",
+    "D29", "D30", "T49", "T50", "T51", "T52", "T53", "T54",
+    "T55", "T56", "D31", "D32", "T58", "T59", "T59p0", "T59p",
+    "T59a", "T60", "T61", "T62", "T63", "T63a", "T64", "D33",
+    "D34", "D35", "D35a", "D36", "D37", "D38", "D39", "D40",
+    "D41", "D42", "D43", "D44", "D45", "D46", "D46a", "D47",
+    "D48", "D49", "D49a", "D49b", "D50", "D51a", "T80p", "T80a",
+    "D51", "T65", "T66", "T67", "T68", "T69", "T70", "T71",
+    "T72", "T73", "T74", "T75", "T76", "T77", "T77a", "T78",
+    "T79", "T80", "T81", "T82", "T83", "D52", "D53", "S1",
+    "S2", "S3", "S4", "S5", "D54", "D54a", "S6", "S7",
+    "S8", "S9", "S9a", "S10", "S11", "S12", "D55", "S13",
+    "S14", "S15", "S16", "S17", "S18", "S26", "S27", "S19",
+    "S20", "S28", "S29", "S30", "S31", "S32", "D56", "D57",
+    "D58", "D59", "D60", "D61", "S33", "S34", "S35", "S36",
+    "S37", "S38", "S39", "S40", "S41", "S41a", "S41c", "S41d",
+    "S42", "S43", "S23", "S24", "S25", "P1", "P2", "S21",
+    "S22", "D62", "D63", "F1", "F2", "F3", "F4", "F5",
+    "F6p", "F6", "F7", "D64", "D65", "F12", "T76a", "F22",
+    "F17", "F19a", "F15a", "F13", "F14", "F15", "F15p", "F16",
+    "D66", "F18", "D67", "F19", "F20", "F21", "M1", "M2",
+    "M3", "M4", "A1", "V65a", "V65b", "V65c", "V66a", "V66b",
+    "V66c", "V67", "V68a", "V68b", "V69", "V70", "V71", "V72",
+    "V73", "V74", "V75", "V76", "V77", "T9a", "T10a", "T10b",
+    "T10c", "T16x", "T20", "T20a", "T21", "T22a", "T26a", "T26b",
+    "T57a", "T57b", "T57c", "T58x", "T61a", "T84", "T85",
+]
+
+# Section 19.6: used by the document and established nowhere in it.
+ambient = [
+    "BC1", "LI1", "QL1", "RH1", "FI1", "SD1",
+    "FR1", "TI1", "IG1", "DV1", "RC1", "RP1",
+]
+
+# Section 19.4: SMT-VALIDATED, never a premise; no entry and no name in the tree.
+non_denotable = ["L1", "L2"]
+
+[[retracted]]
+label = "F8"
+reason = "folded into `F17`, which is correctly typed"
+
+[[retracted]]
+label = "F9"
+reason = "ill-typed: `Id` and `Loc_v` have different codomains"
+
+[[retracted]]
+label = "F10"
+reason = "inherits the `F9` typing gap"
+
+[[retracted]]
+label = "F11"
+reason = "inherits the `F9` typing gap"
+
+[[retracted]]
+label = "T48"
+reason = "false: an initial object has one endomorphism; `4608` is isotropy in `Atl`"
+
+[[retracted]]
+label = "T57"
+reason = "false: `L_n` is closed iff `2|n`, integral iff `4|n`, even iff `8|n`; replaced by `T57a`, `T57b`, `T57c`"
+
+[[superseded]]
+label = "T10"
+replacement = "`T10a` exact bound, `T10b` equality form, `T10c` equality = tightness"

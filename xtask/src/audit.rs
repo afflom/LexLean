@@ -297,6 +297,191 @@ pub fn audit_surface_disjointness(_root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
+/// The Atlas label registers partition the document's labels, and no
+/// declaration in the vendored library claims a label the registers withhold
+/// (release plan §2.8 Criterion 1).
+///
+/// The registers key on EXACT identifiers. That is the whole point of §2.8's
+/// "exact-match semantics": `T57` is retracted while `T57a`..`T57c` are live,
+/// `T10` is superseded while `T10a`..`T10c` are live, and `F8`..`F11` are
+/// retracted while `F1`..`F7` and `F12` are live, so a register that matched by
+/// prefix would reject exactly the live labels it exists to admit.
+///
+/// # Errors
+/// Returns the offending label, or reports the gate armed when the registers
+/// carry no row yet.
+pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
+    let path = root.join("language/uor/atlas-registers.toml");
+    if !path.exists() {
+        println!("audit-atlas-registers: no register file; the gate is armed by the first one");
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&path)?;
+    let data: toml::Value = text.parse()?;
+    let list = |key: &str| -> BTreeSet<String> {
+        data.get(key)
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let rows = |key: &str| -> BTreeSet<String> {
+        data.get(key)
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.get("label").and_then(|label| label.as_str()))
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let entry = list("entry");
+    let ambient = list("ambient");
+    let non_denotable = list("non_denotable");
+    let retracted = rows("retracted");
+    let superseded = rows("superseded");
+    if entry.is_empty() {
+        println!("audit-atlas-registers: the entry register is empty; the gate is armed by the first row");
+        return Ok(());
+    }
+
+    // The four dispositions are a partition: no label may carry two.
+    let named: [(&str, &BTreeSet<String>); 5] = [
+        ("entry", &entry),
+        ("ambient", &ambient),
+        ("non-denotable", &non_denotable),
+        ("retracted", &retracted),
+        ("superseded", &superseded),
+    ];
+    for (i, (left_name, left)) in named.iter().enumerate() {
+        for (right_name, right) in named.iter().skip(i + 1) {
+            if let Some(both) = left.intersection(right).next() {
+                return Err(Fail::from(format!(
+                    "R4: `{both}` is in both the {left_name} and {right_name} registers; §2.8 gives every label exactly one disposition"
+                )));
+            }
+        }
+    }
+
+    // A declaration may not claim a label the registers withhold. Only
+    // label-shaped names are considered, so the library's own helpers are not
+    // forced into the register.
+    let withheld: BTreeSet<&String> = retracted
+        .iter()
+        .chain(superseded.iter())
+        .chain(non_denotable.iter())
+        .collect();
+    let live: BTreeSet<&String> = entry.iter().chain(ambient.iter()).collect();
+    let mut files = Vec::new();
+    gather(root, &["lean"], &[".lean"], &mut files);
+    files.retain(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "lean")
+    });
+    files.sort();
+    let mut declared = 0usize;
+    let mut lookalike: Vec<String> = Vec::new();
+    for path in &files {
+        for name in declaration_names(&std::fs::read_to_string(path)?) {
+            if !is_label_shaped(&name) {
+                continue;
+            }
+            if withheld.contains(&name) {
+                return Err(Fail::from(format!(
+                    "R4: {} declares `{name}`, which the registers withhold (retracted, superseded, or non-denotable); citing it is a failure, not a definition",
+                    path.display()
+                )));
+            }
+            if live.contains(&name) {
+                declared += 1;
+            } else {
+                // Label-shaped but not a label: the library names its own
+                // witnesses and helpers, and `A0` beside the document's `A1` is
+                // a collision of shape, not of meaning. Counted and reported so
+                // a reviewer sees it, not failed --- §2.8's "no entry denotes an
+                // unregistered label" governs the pack's entries, not the
+                // library's internal names.
+                lookalike.push(format!("{name} in {}", path.display()));
+            }
+        }
+    }
+    println!(
+        "audit-atlas-registers: {} labels registered ({} entry, {} ambient, {} withheld), dispositions disjoint, {declared} declared in the library",
+        entry.len() + ambient.len() + non_denotable.len() + retracted.len() + superseded.len(),
+        entry.len(),
+        ambient.len(),
+        non_denotable.len() + retracted.len() + superseded.len(),
+    );
+    if !lookalike.is_empty() {
+        println!(
+            "audit-atlas-registers: {} label-shaped name(s) that are not document labels: {}",
+            lookalike.len(),
+            lookalike.join(", ")
+        );
+    }
+    Ok(())
+}
+
+/// Is this identifier shaped like a document label --- one or two capitals then
+/// digits, optionally with a lower-case suffix (`T57a`, `V65c`, `T59p0`)?
+fn is_label_shaped(name: &str) -> bool {
+    let letters = name.chars().take_while(char::is_ascii_uppercase).count();
+    if letters == 0 || letters > 2 || name.len() == letters {
+        return false;
+    }
+    let rest = &name[letters..];
+    rest.starts_with(|c: char| c.is_ascii_digit())
+        && rest.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// The names a Lean module declares publicly.
+fn declaration_names(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let mut line = line.trim_start();
+        // Attributes precede the visibility modifier, and the parameters carry
+        // `@[expose]` so downstream modules get definitional access; reading
+        // only bare `public` would miss every one of them and quietly report a
+        // lower coverage than the library actually has.
+        while let Some(rest) = line.strip_prefix("@[") {
+            match rest.find(']') {
+                Some(end) => line = rest[end + 1..].trim_start(),
+                None => break,
+            }
+        }
+        let Some(rest) = line.strip_prefix("public ") else {
+            continue;
+        };
+        for keyword in [
+            "theorem ",
+            "def ",
+            "abbrev ",
+            "instance ",
+            "structure ",
+            "class ",
+        ] {
+            if let Some(tail) = rest.strip_prefix(keyword) {
+                let name: String = tail
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '\'')
+                    .collect();
+                if !name.is_empty() {
+                    out.push(name);
+                }
+                break;
+            }
+        }
+    }
+    out
+}
+
 /// R4: nothing is deferred. The markers are spelled in halves so this gate
 /// can scan its own source; exempting the file would put a hole exactly
 /// where a deferral parked in a gate would sit.

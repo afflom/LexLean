@@ -8,3 +8,4 @@ public import UorAtlas.Prelude.RingLemmas
 public import UorAtlas.Parameters
 public import UorAtlas.Glue
 public import UorAtlas.Roots
+public import UorAtlas.Blocks
