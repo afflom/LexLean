@@ -307,6 +307,11 @@ pub fn audit_surface_disjointness(_root: &Path) -> Result<(), Fail> {
 /// retracted while `F1`..`F7` and `F12` are live, so a register that matched by
 /// prefix would reject exactly the live labels it exists to admit.
 ///
+/// A label may be declared exactly once in the whole library, including twice
+/// within one module: Lean permits `SpecSys.RC1` beside `RC1` because their
+/// qualified names differ, but a pack entry denoting `RC1` then has two
+/// constants to choose between, which is ambiguity rather than redundancy.
+///
 /// # Errors
 /// Returns the offending label, or reports the gate armed when the registers
 /// carry no row yet.
@@ -406,11 +411,14 @@ pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
             }
             if live.contains(&name) {
                 if let Some(first) = declared.insert(name.clone(), module.clone()) {
-                    if first != module {
-                        return Err(Fail::from(format!(
-                            "R4: `{name}` is declared in both {first} and {module}; a label has one denotation, so a pack entry naming it must have one declaration to name"
-                        )));
-                    }
+                    let where_ = if first == module {
+                        format!("twice in {module}")
+                    } else {
+                        format!("in both {first} and {module}")
+                    };
+                    return Err(Fail::from(format!(
+                        "R4: `{name}` is declared {where_}; a label has one denotation, so a pack entry naming it must have one declaration to name"
+                    )));
                 }
             } else {
                 // Label-shaped but not a label: the library names its own

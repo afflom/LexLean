@@ -13,3 +13,4 @@ public import UorAtlas.Category
 public import UorAtlas.Places
 public import UorAtlas.Functor
 public import UorAtlas.Scales
+public import UorAtlas.Group
