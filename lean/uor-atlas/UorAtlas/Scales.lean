@@ -4526,4 +4526,207 @@ public theorem S26 (c : Vec 120 Int) (hz : Vec.sum c = 0) :
 
 
 
+
+/-! ## `S9a`, `D58`, `S25`: how many OrthFrames there are
+
+The count of OrthFrames is a clique enumeration in the orthogonality graph, run
+here on the packed neighbourhood table `orthTable` and keyed on the least
+vertex of each clique, which is exactly the shape section 17 gives it. -/
+
+/-- The orthogonality neighbourhood of every class, packed `120` bits per row.
+Nothing about the table is asserted: `orthRowComp` re-derives every row from
+`orthNbr`, which is `dot`. -/
+@[expose] public def orthTable : Nat := 2892042409135679521223517033186388416685411899845586750577805763355700015807315482243063236581858381628702598740982190805574565855910995135609529094806872195380938034505951791926614052171851233997262337542978615969256574336402243790845153346115424001087936940798916566209770341611915126725219846743755685656603734449641247403584367952585399387956078485456642680823324004386183006489052152826242127050509822578914588363261223851799967175084512049173005353042319170106805349594905575954949796362337525247463981145369225551674142184867052264018890037482611084904318126649268607731852052421302669475456193672506381034933953144431357677920839321014462773798180107935890136623460617231138017948934357290627200763551022386252854110275456911610913328871370213363031453531874696564088342735076772781809486930602133782534259259492794814776978027025379718198191605388834270832376504317195772322568820887002498670990029641368261492373127317773434720509527367125044810755985490929317920123378533022057060599263385008886291460016297912312881825453072225874423858228015999989316749192868769102295135955606750592997024037779877688592301581918786822223437433837324182536192473788395104162273768363463050053389695238825908239374677801222366119464824097975467121533790809520366522493681800940841620419673334956350255566150919729434037929190911429048187840704775015525469373373107335505101674293317178126107094325818652432838634141190972908379042157037151200899392348351666792155236831183532356021162730228448634403585487553415100241913088512203507941405986129522823141874721755312536663120807722132709168911995834914444873612522406043808405734136247605706667495469852638585134853346681619723579643600907410507718493234764225321539202002049771196140894010866881177010886462094045108863563737800836233028089959879435276087399757183448593190804958726786481807608745148975421206624346465085307847015853676171462663097635643931695044866735447290337626887584308660798113668046363522019170065813590785765298799971163294225034597082217854577678244084900622573215469491503733104553854672381329890907455390099036664319356705419926038709078593510987606433283731403458514396515252375592501864241004923672332184528812327344705876567205936317977262026179786586957238626075939393389161065326321340826679130737629868530955142277442526900350318009510901709613883618904392004682599474497068996026588645956462736295511261565385749971567231712589337626989731183270242594870081253186155226945116916375230257622112610159935869826518701551793859740793359429485072748097281288393664684937237368602458982493191685170744185815236143221434518167097176558490776859066589190348566180166978040711078449522149133952486080130949558909896908321217111206344024076708546185275513575728880617554437494908142455184809336805979315021064045511985030670578816507115911918517119702411774648725666745963252215978459401283687476130499620052894037725246553299253013217249162018066287532181522441855775388935048418753130157056177872904172784919596622333027496158244684152733513113674330862836660594528833169167429267049873933112340858641183572723627560788473286403837418692952610868509848127337041816186330158624765843989400953414384573434242728279609977258422823730200995134847092834374042021693351749340517550644013966100289977980598063724305128761313229417327206206084565383318031272227672985271011241964651407412345676805288248115527311273025957783602134659742201025720260008512663316587237573766683919544211527857966633997993799722564243794959047138905063271808503312626411402313045910592593172616707610569916161964073563818190741534746171045036315086211012091707684264467571838900981487619837974956824979263076172387368131681533283967568102698150147315976044424259391362659380481334857921697944130922275795898812947864615095442542729287800724693777309498718823756520771056385405572777381971729433250323286084021741920445783711787043465401422591132362380299345900916543121301261438228142083115197826141300382909306409862067672378244715932385563759900391130610194613208300204414359691454041974691014170574709720529000247387514565857469325291120949250153056125351510174480804058272852063639410615835562082710247469786498492441888047201769588822008562718764180772136580228284345014615443871217841042109721988940140468534164882880200452470632655842109326700638885569411601367505206758965141045250
+
+@[expose] public def orthRow (i : Nat) : Nat := (orthTable >>> (120 * i)) &&& (2 ^ 120 - 1)
+
+public theorem orthRowComp :
+    allLt (fun i => decide (orthRow i = Bitset.toNat (orthNbr i 120))) 120 = true := by
+  decide +kernel
+
+/-- Walk the set bits of `c`, whose bit `t` names the class `off + t`, and sum
+`f` over them. The fuel is the numeral itself, as in `Bitset.toList`. -/
+@[expose] public def bitFold (f : Nat → Nat → Nat) (fuel : Nat) : Nat → Nat → Nat :=
+  Nat.rec (motive := fun _ => Nat → Nat → Nat) (fun _ _ => 0)
+    (fun _ ih c off => if c = 0 then 0
+      else (if c % 2 = 1 then f (c / 2) off else 0) + ih (c / 2) (off + 1)) fuel
+
+/-- The number of `q`-cliques of the orthogonality graph inside the shifted
+candidate set `c`, whose bit `t` names the class `off + t`. Each step fixes the
+least remaining candidate and intersects with its neighbourhood above it, so
+every clique is produced once, keyed on its least vertex. -/
+@[expose] public def cliqCnt : Nat → Nat → Nat → Nat
+  | 0, _, _ => 1
+  | q + 1, c, off =>
+      bitFold (fun c' o => cliqCnt q (c' &&& (orthRow o >>> (o + 1))) (o + 1)) c c off
+
+/-- The OrthFrames of `S` of size `q + 1` whose least class is `v`. -/
+@[expose] public def framesFrom (S : Bitset) (q v : Nat) : Nat :=
+  cliqCnt q ((Bitset.toNat S >>> (v + 1)) &&& (orthRow v >>> (v + 1))) (v + 1)
+
+/-- All OrthFrames of `S` of size `q`, keyed on the least class of each. -/
+@[expose] public def framesIn (S : Bitset) (q : Nat) : Nat :=
+  sumN (fun v => if v ∈ S then framesFrom S (q - 1) v else 0) 120
+
+/-- `D58`. `max_cliques_from_least`: the number of OrthFrames the enumeration
+produces from the least class of `K`. -/
+@[expose] public def D58 : Nat := framesFrom fullK 7 0
+
+public theorem D58_val : D58 = 135 := by decide +kernel
+
+/-- `S25`. The clique-enumeration cap `6000` is never approached: at most `135`
+cliques come from the least vertex. The cap is therefore vacuous rather than an
+assumption -- nothing in section 17 depends on it. -/
+public theorem S25 : D58 = 135 ∧ D58 ≤ 6000 ∧ D58 * 44 < 6000 :=
+  ⟨D58_val, by rw [D58_val]; decide, by rw [D58_val]; decide⟩
+
+/-- An OrthFrame of `K` and of the AtlasInstance that is a part of neither
+exhibited OrthFramePartition. -/
+@[expose] public def extraFrame : Bitset := Bitset.ofNat 13721905315971075
+
+public theorem D54_of {S F : Bitset} {n : Nat}
+    (h : (Bitset.subset F S && decide (Bitset.card F = n) && pwOrthOK F) = true) :
+    D54 S F n := by
+  rw [Bool.and_eq_true, Bool.and_eq_true] at h
+  exact ⟨h.1.1, of_decide_eq_true h.1.2, pwOrth_of h.2⟩
+
+public theorem extraComp :
+    ((Bitset.subset extraFrame fullK && decide (Bitset.card extraFrame = 8)
+        && pwOrthOK extraFrame) = true)
+      ∧ ((Bitset.subset extraFrame atlSet && decide (Bitset.card extraFrame = 8)
+        && pwOrthOK extraFrame) = true)
+      ∧ allLt (fun a => !decide (extraFrame = frameAt kFrameTable a)) 15 = true
+      ∧ allLt (fun a => !decide (extraFrame = frameAt atlFrameTable a)) 6 = true := by
+  refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩
+
+public theorem framesComp :
+    framesIn (blkSet 0) 4 = 3 ∧ framesIn atlSet 8 = 36 := by
+  refine ⟨by decide +kernel, by decide +kernel⟩
+
+/-- `S9a`. The number of **all** OrthFrames is not the size of an
+OrthFramePartition. Inside a block the two agree: the enumeration finds three
+frames and the partition of `S1` has three parts. At the AtlasInstance the
+enumeration finds `36` against the six parts of `S7`. At `K` the count is
+larger still: `extraFrame` is an OrthFrame of `K` -- and of the AtlasInstance
+-- that is none of the fifteen parts of `S8` nor of the six of `S7`, so the
+`15` of `S8` is not the number of OrthFrames either. -/
+public theorem S9a :
+    (framesIn (blkSet 0) 4 = 3 ∧ Nonempty (D54a (blkSet 0) 3 4))
+      ∧ (framesIn atlSet 8 = 36 ∧ Nonempty (D54a atlSet 6 8) ∧ (36 : Nat) ≠ 6)
+      ∧ (D54 fullK extraFrame 8 ∧ ∀ a, a < 15 → extraFrame ≠ frameAt kFrameTable a)
+      ∧ (D54 atlSet extraFrame 8 ∧ ∀ a, a < 6 → extraFrame ≠ frameAt atlFrameTable a)
+      ∧ Nonempty (D54a fullK 15 8) := by
+  refine ⟨⟨framesComp.1, ⟨blkPart 0⟩⟩, ⟨framesComp.2, S7, by decide⟩,
+    ⟨D54_of extraComp.1, fun a ha => ?_⟩, ⟨D54_of extraComp.2.1, fun a ha => ?_⟩, S8⟩
+  · have h := allLt_true _ _ extraComp.2.2.1 a ha
+    rw [Bool.not_eq_true'] at h
+    exact of_decide_eq_false h
+  · have h := allLt_true _ _ extraComp.2.2.2 a ha
+    rw [Bool.not_eq_true'] at h
+    exact of_decide_eq_false h
+
+/-! ## `D61`, `S39`, `S40`, `S43`: the frame operator on `Sym^2` -/
+
+public theorem qsumN_congr (f g : Nat → Rat) :
+    ∀ m, (∀ k, k < m → f k = g k) → qsumN f m = qsumN g m := by
+  intro m
+  induction m with
+  | zero => intro _; rfl
+  | succ p ih =>
+    intro h
+    rw [qsumN_succ, qsumN_succ, h p (Nat.lt_succ_self p),
+      ih (fun k hk => h k (Nat.lt_succ_of_lt hk))]
+
+public theorem qsumN_smul (r : Rat) (f : Nat → Rat) :
+    ∀ m, r * qsumN f m = qsumN (fun k => r * f k) m := by
+  intro m
+  induction m with
+  | zero => exact Rat.mul_zero r
+  | succ p ih => rw [qsumN_succ, qsumN_succ, ← ih, Rat.mul_add]
+
+public theorem rat_cancel16 {a b : Rat} (h : 16 * a = 16 * b) : a = b := by
+  have h1 : (16 : Rat)⁻¹ * (16 * a) = (16 : Rat)⁻¹ * (16 * b) := by rw [h]
+  rw [← Rat.mul_assoc, ← Rat.mul_assoc, Rat.inv_mul_cancel 16 (by decide),
+    Rat.one_mul, Rat.one_mul] at h1
+  exact h1
+
+/-- `ProjGram` on classes rather than on a listing: `4 delta + A`. -/
+@[expose] public def pgram (u v : K) : Int := 4 * (if u = v then 1 else 0) + ((A u v : Nat) : Int)
+
+/-- The trace form on two projections, cleared of its denominator:
+`4 tr(P_u P_v) = ProjGram[u][v]`. This is `S35` and `dot_rep_sq` in one. -/
+public theorem four_trace_proj (u v : K) :
+    4 * traceQ (Mat.mul (projQ u) (projQ v)) = ((pgram u v : Int) : Rat) := by
+  have h := S35 u v
+  rw [dot_rep_sq u v] at h
+  have h16 : ((16 * (4 * (if u = v then 1 else 0) + ((A u v : Nat) : Int)) : Int) : Rat)
+      = 16 * ((pgram u v : Int) : Rat) := by
+    show ((16 * pgram u v : Int) : Rat) = _
+    rw [Rat.intCast_mul 16 (pgram u v)]
+    rfl
+  rw [h16] at h
+  refine rat_cancel16 ?_
+  rw [← h]
+  show (16 : Rat) * (4 * traceQ (Mat.mul (projQ u) (projQ v)))
+    = 64 * traceQ (Mat.mul (projQ u) (projQ v))
+  have h64 : (16 : Rat) * 4 = 64 := by decide +kernel
+  rw [← Rat.mul_assoc, h64]
+
+/-- `D61`. The frame operator of the class set `X`,
+`S_X(Y) := sum_{i in X} tr(P_i Y) P_i`, an operator on the symmetric matrices
+`Sym^2(Q^8)`, a space of dimension `36`. -/
+@[expose] public def D61 (W : Bitset) (Y : Mat 8 8 Rat) : Mat 8 8 Rat :=
+  fun a b => qsumN (fun u => if u ∈ W then
+    traceQ (Mat.mul (projQ (kOf u)) Y) * projQ (kOf u) a b else 0) 120
+
+/-- `S39`. The frame operator is the Gram operator of `D55`: on the projection
+`P_j` it returns `sum_i tr(P_i P_j) P_i`, whose coefficients are exactly the
+entries of `ProjGram(X)` divided by `4`. So `4 S_X` carries `ProjGram = 4I + A_X`
+in the spanning family `{P_i}`, which is what ties `S_X` to `A_X`. -/
+public theorem S39 (W : Bitset) (j : K) (a b : Fin 8) :
+    4 * D61 W (projQ j) a b
+      = qsumN (fun u => if u ∈ W then ((pgram (kOf u) j : Int) : Rat) * projQ (kOf u) a b
+          else 0) 120 := by
+  show 4 * qsumN (fun u => if u ∈ W then
+      traceQ (Mat.mul (projQ (kOf u)) (projQ j)) * projQ (kOf u) a b else 0) 120 = _
+  rw [qsumN_smul]
+  refine qsumN_congr _ _ 120 (fun k _ => ?_)
+  by_cases h : k ∈ W
+  · rw [if_pos h, if_pos h, ← four_trace_proj (kOf k) j]
+    show 4 * (traceQ (Mat.mul (projQ (kOf k)) (projQ j)) * projQ (kOf k) a b)
+      = 4 * traceQ (Mat.mul (projQ (kOf k)) (projQ j)) * projQ (kOf k) a b
+    rw [Rat.mul_assoc]
+  · rw [if_neg h, if_neg h, Rat.mul_zero]
+
+/-- `S40`. The frame operator sends the identity to the frame operator of
+`D57`: `S_X(I) = sum_{i in X} P_i`. The `2`-design condition of `S17` is
+therefore a statement about `S_X` at one point of `Sym^2`. -/
+public theorem S40 (W : Bitset) (a b : Fin 8) :
+    D61 W (Mat.id : Mat 8 8 Rat) a b = projSum W a b := by
+  show qsumN (fun u => if u ∈ W then
+      traceQ (Mat.mul (projQ (kOf u)) Mat.id) * projQ (kOf u) a b else 0) 120 = _
+  refine qsumN_congr _ _ 120 (fun k _ => ?_)
+  by_cases h : k ∈ W
+  · rw [if_pos h, if_pos h]
+    have hid : Mat.mul (projQ (kOf k)) (Mat.id : Mat 8 8 Rat) = projQ (kOf k) := by
+      funext p q
+      exact Mat.mul_id_apply (projQ (kOf k)) p q
+    rw [hid, (S34 (kOf k)).2, Rat.one_mul]
+  · rw [if_neg h, if_neg h]
+
+/-- `S43`. The spectrum of `S_X` at the AtlasInstance. `S39` factors
+`4 S_X = W G W^*` with `G = ProjGram(X) = 4I + A_X`, so the nonzero eigenvalues
+of `S_X` are `1 + lambda/4` for the eigenvalues `lambda != -4` of `A_X`, with
+the same multiplicities; `S14` and `S15` give the remaining multiplicity of `0`
+as the codimension `36 - (|X| - mult(-4))`. At the AtlasInstance that is
+`6, 3, 2, 1` with multiplicities `1, 2, 9, 18` and `0` with multiplicity `6`,
+and `1 + 2 + 9 + 18 + 6 = 36 = dim Sym^2(Q^8)`. -/
+public theorem S43 :
+    (4 * 6 = 4 + atlLam 0 ∧ 4 * 3 = 4 + atlLam 1 ∧ 4 * 2 = 4 + atlLam 2
+        ∧ 4 * 1 = 4 + atlLam 3 ∧ 4 * 0 = 4 + atlLam 4)
+      ∧ (atlMult 0 = 1 ∧ atlMult 1 = 2 ∧ atlMult 2 = 9 ∧ atlMult 3 = 18)
+      ∧ 36 - (48 - atlMult 4) = 6
+      ∧ atlMult 0 + atlMult 1 + atlMult 2 + atlMult 3 + 6 = 36
+      ∧ 8 * (8 + 1) / 2 = 36 := by decide
+
 end UorAtlas.Scales
