@@ -49,6 +49,51 @@ public class Field (α : Type u) extends CommRing α where
   one_ne_zero : one ≠ (zero : α)
   mul_inv_cancel : ∀ a : α, a ≠ zero → mul a (inv a) = one
 
+/-! ## The companions of the axioms
+
+`AddCommGroup` and `CommRing` state their laws in minimal form --- `a + 0 = a`
+but not `0 + a = a`, `1 * a = a` but not `a * 1 = a` --- so the mirrored forms
+and the cancellation laws are theorems. They live here, beside the classes they
+follow from, because every module below needs them and a second proof of a
+settled fact is a second thing to keep true. -/
+
+section Consequences
+
+variable {α : Type u}
+
+public theorem zero_add [AddCommGroup α] (a : α) :
+    AddCommGroup.add AddCommGroup.zero a = a :=
+  (AddCommGroup.add_comm AddCommGroup.zero a).trans (AddCommGroup.add_zero a)
+
+public theorem neg_add_cancel [AddCommGroup α] (a : α) :
+    AddCommGroup.add (AddCommGroup.neg a) a = AddCommGroup.zero :=
+  (AddCommGroup.add_comm (AddCommGroup.neg a) a).trans (AddCommGroup.add_neg a)
+
+public theorem add_left_cancel [AddCommGroup α] {a b c : α}
+    (h : AddCommGroup.add a b = AddCommGroup.add a c) : b = c := by
+  have h' := congrArg (AddCommGroup.add (AddCommGroup.neg a)) h
+  rwa [← AddCommGroup.add_assoc, ← AddCommGroup.add_assoc, neg_add_cancel, zero_add,
+    zero_add] at h'
+
+public theorem mul_zero [CommRing α] (a : α) :
+    CommRing.mul a (AddCommGroup.zero : α) = AddCommGroup.zero :=
+  add_left_cancel <|
+    calc AddCommGroup.add (CommRing.mul a AddCommGroup.zero) (CommRing.mul a AddCommGroup.zero)
+        = CommRing.mul a (AddCommGroup.add AddCommGroup.zero AddCommGroup.zero) :=
+          (CommRing.left_distrib a AddCommGroup.zero AddCommGroup.zero).symm
+      _ = CommRing.mul a AddCommGroup.zero := by rw [AddCommGroup.add_zero]
+      _ = AddCommGroup.add (CommRing.mul a AddCommGroup.zero) AddCommGroup.zero :=
+          (AddCommGroup.add_zero _).symm
+
+public theorem zero_mul [CommRing α] (a : α) :
+    CommRing.mul (AddCommGroup.zero : α) a = AddCommGroup.zero :=
+  (CommRing.mul_comm AddCommGroup.zero a).trans (mul_zero a)
+
+public theorem mul_one [CommRing α] (a : α) : CommRing.mul a CommRing.one = a :=
+  (CommRing.mul_comm a CommRing.one).trans (CommRing.one_mul a)
+
+end Consequences
+
 /-- A homomorphism of commutative rings. `RH1` is the statement that such a
 map commutes with any integer-polynomial expression; `FI1` is that it is
 injective when its source is a field. -/

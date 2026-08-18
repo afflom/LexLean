@@ -4,6 +4,7 @@ public import UorAtlas.Prelude.Algebra
 public import UorAtlas.Prelude.NumInstances
 public import UorAtlas.Prelude.Linear
 public import UorAtlas.Prelude.Bitset
+public import UorAtlas.Glue
 public import UorAtlas.Roots
 
 /-!
@@ -123,7 +124,7 @@ public theorem indep_of_orth {k : Nat} (b : Fin k → Vec 8 Int)
   intro c hc i
   have hz : Vec.inner (qComb b c) (qOf (b i)) = (0 : Rat) := by
     have hp : ∀ j : Fin 8, mul (qComb b c j) (qOf (b i) j) = (0 : Rat) := by
-      intro j; rw [hc j]; exact Linear.zero_mul _
+      intro j; rw [hc j]; exact zero_mul _
     show Vec.sum (fun j => mul (qComb b c j) (qOf (b i) j)) = (0 : Rat)
     rw [Vec.sum_congr hp]
     exact Vec.sum_zero
@@ -135,12 +136,12 @@ public theorem indep_of_orth {k : Nat} (b : Fin k → Vec 8 Int)
     by_cases ht : t = i
     · rw [if_pos ht, if_pos ht.symm]; rfl
     · rw [if_neg ht, if_neg (fun hh => ht hh.symm)]
-      exact Linear.mul_zero (c t)
+      exact mul_zero (c t)
   rw [Vec.sum_congr hterm, Vec.sum_ite_eq i (fun t => mul (c t) 8)] at hz
   have hz2 : c i * 8 = 0 := hz
   have hone : (8 : Rat) * (8 : Rat)⁻¹ = 1 := Rat.mul_inv_cancel 8 (by decide)
   have h2 : c i * 8 * (8 : Rat)⁻¹ = c i := by rw [Rat.mul_assoc, hone, Rat.mul_one]
-  have hzm : (0 : Rat) * (8 : Rat)⁻¹ = 0 := Linear.zero_mul _
+  have hzm : (0 : Rat) * (8 : Rat)⁻¹ = 0 := zero_mul _
   rw [← h2, hz2, hzm]
 
 /-- The reconstruction identity `8 v = sum_i <v,b_i> b_i` puts `v` in the
@@ -338,7 +339,7 @@ public theorem Recon.neg {b : Fin 4 → Vec 8 Int} {v : Vec 8 Int} (h : Recon b 
   have hj : (AddCommGroup.neg v : Vec 8 Int) j = -(v j) := rfl
   have hsum : Vec.sumInt (fun i : Fin 4 => dot (AddCommGroup.neg v) (b i) * b i j)
       = Vec.sumInt (fun i : Fin 4 => -(dot v (b i) * b i j)) := by
-    refine sumInt_congr (fun i => ?_)
+    refine Glue.sumInt_congr (fun i => ?_)
     rw [dot_neg_left v (b i), Int.neg_mul]
   rw [hj, hsum, sumInt_negate, ← h j, Int.mul_neg]
 

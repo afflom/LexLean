@@ -310,10 +310,6 @@ public theorem coord_bound {a : Int} (h : a * a ≤ 8) : -2 ≤ a ∧ a ≤ 2 :=
       have h5 : (3 : Int) * 3 ≤ a * a := Int.mul_le_mul h3 h3 (by decide) (by omega)
       omega
 
-public theorem sumInt_congr {n : Nat} {x y : Vec n Int} (h : ∀ i, x i = y i) :
-    Vec.sumInt x = Vec.sumInt y := by
-  rw [Vec.sumInt_eq_sum, Vec.sumInt_eq_sum]; exact Vec.sum_congr h
-
 public theorem mul_self_nonneg (a : Int) : 0 ≤ a * a := by
   rcases Int.le_total 0 a with h | h
   · exact Int.mul_nonneg h h

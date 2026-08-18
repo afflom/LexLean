@@ -94,33 +94,10 @@ section CommRingLemmas
 
 variable {R : Type u} [CommRing R]
 
-public theorem zero_add (a : R) : add zero a = a :=
-  (add_comm zero a).trans (add_zero a)
-
-public theorem neg_add (a : R) : add (neg a) a = zero :=
-  (add_comm (neg a) a).trans (add_neg a)
-
-public theorem add_left_cancel {a b c : R} (h : add a b = add a c) : b = c := by
-  have h' := congrArg (add (neg a)) h
-  rwa [← add_assoc, ← add_assoc, neg_add, zero_add, zero_add] at h'
-
-public theorem mul_zero (a : R) : mul a (zero : R) = zero :=
-  add_left_cancel <|
-    calc add (mul a zero) (mul a zero)
-        = mul a (add zero zero) := (left_distrib a zero zero).symm
-      _ = mul a zero := by rw [add_zero]
-      _ = add (mul a zero) zero := (add_zero _).symm
-
-public theorem zero_mul (a : R) : mul (zero : R) a = zero :=
-  (mul_comm zero a).trans (mul_zero a)
-
-public theorem mul_one (a : R) : mul a one = a :=
-  (mul_comm a one).trans (one_mul a)
-
 /-- The step that turns a kernel membership back into an equation. -/
 public theorem eq_of_add_neg_eq_zero {a b : R} (h : add a (neg b) = zero) : a = b := by
   have h' : add (add a (neg b)) b = add zero b := by rw [h]
-  rwa [add_assoc, neg_add, add_zero, zero_add] at h'
+  rwa [add_assoc, neg_add_cancel, add_zero, zero_add] at h'
 
 end CommRingLemmas
 

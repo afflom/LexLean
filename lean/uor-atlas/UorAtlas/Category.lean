@@ -673,8 +673,10 @@ public theorem fixZero_gen : Gen symThreeGens fixZero :=
 analogue of `T29`, and it is what `AtlasAction.stab_card` will carry for
 `Aut`. -/
 public theorem stab_card : HasCard (D25 action (basePt action)) 2 := by
-  refine ⟨[idHom action (basePt action), ⟨fixZero, fixZero_gen, by show fixZero.toFun (0 : Fin 3) = (0 : Fin 3); decide +kernel⟩],
-    ?_, ?_, rfl⟩
+  have hfix : action.act fixZero (basePt action).val = (basePt action).val := by
+    show fixZero.toFun (0 : Fin 3) = (0 : Fin 3)
+    decide +kernel
+  refine ⟨[idHom action (basePt action), ⟨fixZero, fixZero_gen, hfix⟩], ?_, ?_, rfl⟩
   · refine List.nodup_cons.mpr ⟨?_, List.nodup_cons.mpr ⟨by simp, List.nodup_nil⟩⟩
     intro hm
     have hv : (idHom action (basePt action)).val = fixZero :=

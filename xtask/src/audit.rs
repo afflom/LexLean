@@ -543,6 +543,137 @@ pub fn audit_authority_scope(root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
+/// No two modules of the vendored library state the same theorem.
+///
+/// Lean rejects a repeated fully-qualified name, so what survives compilation
+/// is the same statement proved twice under two namespaces --- which is what
+/// happened to `sumInt_congr`, proved in `Glue` and again in `Roots`, which
+/// imports it. A second proof of a settled fact is not merely untidy: it is a
+/// second thing to keep true, and the two can drift.
+///
+/// The comparison is the declaration's name together with the conclusion of
+/// its statement, whitespace-normalized. Binders differ freely between two
+/// spellings of one lemma --- one module binds `{n : Nat}` where another takes
+/// it from a section variable --- so comparing whole statements misses exactly
+/// the redundancy this gate exists to find, while comparing conclusions catches
+/// it and still lets two genuinely different lemmas share a name, as
+/// `Linear.neg_add` and `NumInstances.neg_add` did.
+///
+/// What it does not catch, stated so nobody reads more into a green line than
+/// it carries: the conclusions are compared as text, so the same lemma written
+/// once fully qualified and once through an `open` reads as two. This gate
+/// narrows duplication; it does not decide it.
+///
+/// # Errors
+/// Returns the repeated statement and the modules that carry it, or reports the
+/// gate armed when the library has no module yet.
+pub fn audit_atlas_duplication(root: &Path) -> Result<(), Fail> {
+    let mut files = Vec::new();
+    gather(root, &["lean"], &[".lean"], &mut files);
+    files.retain(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "lean")
+    });
+    files.sort();
+    if files.is_empty() {
+        println!("audit-atlas-duplication: no vendored module; the gate is armed by the first one");
+        return Ok(());
+    }
+    let mut seen: std::collections::BTreeMap<String, (String, String)> =
+        std::collections::BTreeMap::new();
+    let mut counted = 0usize;
+    for path in &files {
+        let text = std::fs::read_to_string(path)?;
+        let module = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .into_owned();
+        for (name, statement) in public_statements(&text) {
+            counted += 1;
+            let key = format!("{name} :: {statement}");
+            if let Some((first_module, _)) = seen.get(&key) {
+                if *first_module != module {
+                    return Err(Fail::from(format!(
+                        "R4: `{name}` is stated identically in {first_module} and {module}; one proof of a settled fact, not two that can drift"
+                    )));
+                }
+            } else {
+                seen.insert(key, (module.clone(), name));
+            }
+        }
+    }
+    println!(
+        "audit-atlas-duplication: {counted} public statements across {} vendored modules, none repeated (R4)",
+        files.len()
+    );
+    Ok(())
+}
+
+/// Each public declaration's name and the conclusion of its statement.
+fn public_statements(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut index = 0usize;
+    while index < lines.len() {
+        let mut line = lines[index].trim_start();
+        while let Some(rest) = line.strip_prefix("@[") {
+            match rest.find(']') {
+                Some(end) => line = rest[end + 1..].trim_start(),
+                None => break,
+            }
+        }
+        let Some(rest) = line.strip_prefix("public ") else {
+            index += 1;
+            continue;
+        };
+        let Some((keyword, tail)) = ["theorem ", "def ", "abbrev "]
+            .iter()
+            .find_map(|keyword| rest.strip_prefix(keyword).map(|tail| (*keyword, tail)))
+        else {
+            index += 1;
+            continue;
+        };
+        let _ = keyword;
+        let name: String = tail
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '\'' || *c == '.')
+            .collect();
+        // The statement runs to the proof, which may be several lines below.
+        let mut statement = String::new();
+        let mut cursor = index;
+        while cursor < lines.len() && cursor < index + 24 {
+            let piece = if cursor == index {
+                &tail[name.len()..]
+            } else {
+                lines[cursor]
+            };
+            if let Some(cut) = piece.find(":=") {
+                statement.push(' ');
+                statement.push_str(&piece[..cut]);
+                break;
+            }
+            statement.push(' ');
+            statement.push_str(piece);
+            if piece.trim_end().ends_with(":= by") || piece.trim_end().ends_with("by") {
+                break;
+            }
+            cursor += 1;
+        }
+        // Compare conclusions, not whole statements. The same lemma written in
+        // two modules rarely matches character for character --- one may bind
+        // `{n : Nat}` explicitly where the other takes it from a section
+        // variable --- and an exact match therefore misses exactly the
+        // redundancy this gate exists to find.
+        let normalized = conclusion_of(&statement);
+        if !name.is_empty() && !normalized.is_empty() {
+            out.push((name, normalized));
+        }
+        index += 1;
+    }
+    out
+}
+
 /// R4: nothing is deferred. The markers are spelled in halves so this gate
 /// can scan its own source; exempting the file would put a hole exactly
 /// where a deferral parked in a gate would sit.
@@ -1235,4 +1366,40 @@ pub fn audit_no_unsafe(root: &Path) -> Result<(), Fail> {
     }
     println!("audit-no-unsafe: the prohibition is active (RP-09)");
     Ok(())
+}
+
+/// The conclusion of a statement: what follows its last binder-closing `:` at
+/// bracket depth zero, whitespace-normalized. Binders differ freely between two
+/// spellings of one lemma; the conclusion does not.
+fn conclusion_of(statement: &str) -> String {
+    let bytes: Vec<char> = statement.chars().collect();
+    let mut depth = 0i32;
+    let mut last = None;
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            '(' | '[' | '{' | '\u{27e8}' => depth += 1,
+            ')' | ']' | '}' | '\u{27e9}' => depth -= 1,
+            ':' if depth == 0 => {
+                // `::` is a qualified-name separator, never a binder close.
+                if bytes.get(index + 1) != Some(&':')
+                    && bytes.get(index.wrapping_sub(1)) != Some(&':')
+                {
+                    last = Some(index);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    let tail = match last {
+        Some(at) => {
+            &statement[statement
+                .char_indices()
+                .nth(at + 1)
+                .map_or(statement.len(), |(i, _)| i)..]
+        }
+        None => statement,
+    };
+    tail.split_whitespace().collect::<Vec<&str>>().join(" ")
 }

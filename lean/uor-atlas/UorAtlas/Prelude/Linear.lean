@@ -44,9 +44,6 @@ section Group
 
 variable [AddCommGroup α]
 
-public theorem zero_add (a : α) : add zero a = a := by
-  rw [add_comm]; exact add_zero a
-
 public theorem add_left_comm (a b c : α) : add a (add b c) = add b (add a c) := by
   rw [← add_assoc, add_comm a b, add_assoc]
 
@@ -57,9 +54,6 @@ public theorem add_add_add_comm (a b c d : α) :
 public theorem add_right_cancel {a b c : α} (h : add a c = add b c) : a = b := by
   have h' : add (add a c) (neg c) = add (add b c) (neg c) := by rw [h]
   rwa [add_assoc, add_neg, add_zero, add_assoc, add_neg, add_zero] at h'
-
-public theorem add_left_cancel {a b c : α} (h : add a b = add a c) : b = c :=
-  add_right_cancel (by rw [add_comm b a, add_comm c a]; exact h)
 
 public theorem neg_zero : neg (zero : α) = zero := by
   have h : add zero (neg zero) = (zero : α) := add_neg zero
@@ -74,18 +68,6 @@ end Group
 section Ring
 
 variable [CommRing α]
-
-public theorem mul_one (a : α) : mul a one = a := by
-  rw [mul_comm]; exact one_mul a
-
-public theorem mul_zero (a : α) : mul a zero = (zero : α) := by
-  have hd : mul a (add zero zero) = add (mul a zero) (mul a zero) := left_distrib a zero zero
-  rw [add_zero] at hd
-  have h : add (mul a zero) zero = add (mul a zero) (mul a zero) := by rw [add_zero]; exact hd
-  exact (add_left_cancel h).symm
-
-public theorem zero_mul (a : α) : mul zero a = (zero : α) := by
-  rw [mul_comm]; exact mul_zero a
 
 public theorem right_distrib (a b c : α) : mul (add a b) c = add (mul a c) (mul b c) := by
   rw [mul_comm (add a b) c, left_distrib, mul_comm c a, mul_comm c b]
