@@ -1380,13 +1380,12 @@ fn conclusion_of(statement: &str) -> String {
         match bytes[index] {
             '(' | '[' | '{' | '\u{27e8}' => depth += 1,
             ')' | ']' | '}' | '\u{27e9}' => depth -= 1,
-            ':' if depth == 0 => {
-                // `::` is a qualified-name separator, never a binder close.
-                if bytes.get(index + 1) != Some(&':')
-                    && bytes.get(index.wrapping_sub(1)) != Some(&':')
-                {
-                    last = Some(index);
-                }
+            // `::` is a qualified-name separator, never a binder close.
+            ':' if depth == 0
+                && bytes.get(index + 1) != Some(&':')
+                && bytes.get(index.wrapping_sub(1)) != Some(&':') =>
+            {
+                last = Some(index);
             }
             _ => {}
         }
