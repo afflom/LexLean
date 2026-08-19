@@ -239,6 +239,18 @@ Removed: both restored; the audit reports 257 entries, every surface prefix-free
 
 The prefix rule is not hygiene. `T59p`'s surface followed by `lexlean.std.nat`'s `zero` reads as `T59p0`, and the exhaustive module was rejected with `LLP2002`, two distinct linked interpretations, until every Atlas surface was given a closing word. Pairwise distinctness --- which `audit-surface-disjointness` already checks --- does not give the disjointness §2.4 makes the compatibility condition, because a surface can be extended into another by a word the closure supplies.
 
+### atlas-pack can fail
+
+Planted: `atlas-t5.toml`'s `features` list edited by hand, a change the surface-level gates cannot see. Command: `cargo xtask validate-model`. Expected: the check reports the pack is not the one the library implies and names the repair.
+
+```text
+gate failed: the Atlas pack is not the one the library implies: 1 stale, 0 missing; run `cargo xtask atlas-pack --write`
+```
+
+Removed: restored; the check reports 261 entries derived from the library are current.
+
+The pack is generated data and is checked against its generator, the discipline `check-golden` applies to build oracles. `audit-atlas-denotations` already catches an entry that denotes nothing or a proved label the pack withholds; this catches the rest --- a hand edit to a field no other gate reads. The generator also writes the exhaustive module, so the pack and the document that exercises it cannot drift apart: growing one without the other fails `audit-atlas-exercise` immediately.
+
 ### honesty-vocabulary can fail
 
 Planted: the sentence "The authority `LEAN-REL-4-32-1` proves every generated theorem." appended to `README.md`. Command: `cargo xtask validate-model`. Expected: R2 rejects assertive vocabulary about a cited authority, naming the appended line (its number is the file's last line, so it moves as the README grows).

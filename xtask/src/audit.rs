@@ -464,7 +464,7 @@ fn is_label_shaped(name: &str) -> bool {
 }
 
 /// The names a Lean module declares publicly.
-fn declaration_names(text: &str) -> Vec<String> {
+pub fn declaration_names(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in text.lines() {
         let mut line = line.trim_start();

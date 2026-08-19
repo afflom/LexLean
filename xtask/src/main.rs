@@ -9,6 +9,7 @@ use std::process::ExitCode;
 
 use camino::Utf8PathBuf;
 
+mod atlas_pack;
 mod audit;
 mod codegen;
 mod spec_links;
@@ -26,6 +27,7 @@ fn main() -> ExitCode {
 
     let result = match task.as_str() {
         "validate-model" => codegen::check_model(&root, write),
+        "atlas-pack" => atlas_pack::generate(&root, write),
         "validate-spec-links" => spec_links::validate(&root),
         "verify-examples" => verify_examples(&root, write),
         "check-golden" => check_golden(&root, write),
