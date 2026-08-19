@@ -75,6 +75,15 @@ public theorem add_left_cancel [AddCommGroup α] {a b c : α}
   rwa [← AddCommGroup.add_assoc, ← AddCommGroup.add_assoc, neg_add_cancel, zero_add,
     zero_add] at h'
 
+/-- Double negation. Stated here rather than in a consumer: it is a fact about
+`AddCommGroup` and nothing else, and it was previously proved twice --- once in
+`Places` and once in `Functor` --- under two names, which is the shape the
+duplication gate could not see until it began comparing conclusions. -/
+public theorem neg_neg [AddCommGroup α] (a : α) :
+    AddCommGroup.neg (AddCommGroup.neg a) = a :=
+  add_left_cancel (a := AddCommGroup.neg a)
+    ((AddCommGroup.add_neg (AddCommGroup.neg a)).trans (neg_add_cancel a).symm)
+
 public theorem mul_zero [CommRing α] (a : α) :
     CommRing.mul a (AddCommGroup.zero : α) = AddCommGroup.zero :=
   add_left_cancel <|

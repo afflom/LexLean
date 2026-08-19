@@ -1,0 +1,18 @@
+spec = "lexlean/entry/1"
+id = "atlas-presentation"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Blocks"
+name = "UorAtlas.Blocks.D17"
+
+[[form]]
+id = "atlas-presentation"
+channel = "text"
+surface = "AtlasPresentation"
+canonical_source = true
+features = ["article-an", "lower-case", "singular"]

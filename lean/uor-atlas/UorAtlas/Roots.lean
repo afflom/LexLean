@@ -378,11 +378,8 @@ public theorem D9_iff_MemD (y : Vec 8 Int) : D9 y ↔ Glue.MemD 8 y :=
   (Glue.MemD_iff 8 y).symm
 
 public theorem sumInt_sub_one (y : Vec 8 Int) :
-    Vec.sumInt (fun i => y i - 1) = Vec.sumInt y - 8 := by
-  have h : (fun i : Fin 8 => y i - 1) = fun i : Fin 8 => y i + (-1) := by
-    funext i; omega
-  rw [h, Glue.sumInt_add, Glue.sumInt_const]
-  omega
+    Vec.sumInt (fun i => y i - 1) = Vec.sumInt y - 8 :=
+  sumInt8_sub_one y
 
 public theorem D10_iff_MemL (y : Vec 8 Int) : D10 y ↔ Glue.MemL 8 y := by
   constructor
@@ -701,6 +698,22 @@ a root is sent to the index of the representative of its sign pair.
 `120` representatives meet every class exactly once. -/
 @[expose] public def D12 (x : Vec 8 Int) : K :=
   ⟨findCode (codeOf (nrm x)) % 120, Nat.mod_lt _ (by decide)⟩
+
+/-- The pairing of two *distinct* class representatives is `0` or `+-4`. The
+values `+-8` are excluded because they force `v = +-u`, which distinct classes
+cannot be.
+
+This is one finite check and three layers rest on it: it is what makes
+orthogonality and adjacency complementary in the scale layer, and what collapses
+span membership to a bitset intersection in the census. It is stated here, over
+`repN` and `dot8`, because that is what it is about --- a fact about the root
+representatives, not about either layer that consumes it. -/
+public theorem dotTri :
+    allLt (fun i => allLt (fun j => decide (i = j)
+      || decide (dot8 (repN i) (repN j) = 0)
+      || decide (dot8 (repN i) (repN j) = 4)
+      || decide (dot8 (repN i) (repN j) = -4)) 120) 120 = true := by
+  decide +kernel
 
 public theorem repIsRoot : allLt (fun i => isD11 (repN i)) 120 = true := by decide +kernel
 

@@ -202,6 +202,14 @@ pub fn generate(root: &Path, write: bool) -> Result<(), Fail> {
     }
 
     let dir = root.join("language/uor/atlas/entries");
+    // Entries whose id carries no digit name no label: they are the *object*
+    // entries a live definition introduces --- `atlas-presentation` for `D17`
+    // and the rest of that chain --- and they are written by hand, because
+    // their signatures are what make one non-interchangeable with another and
+    // no rule derives those from a Lean declaration. The generator owns the
+    // label entries and leaves the object entries alone.
+    let is_label_entry =
+        |id: &str| id.starts_with("atlas-") && id.chars().any(|c| c.is_ascii_digit());
     let mut stale = Vec::new();
     if dir.exists() {
         for entry in std::fs::read_dir(&dir)?.flatten() {
@@ -212,6 +220,9 @@ pub fn generate(root: &Path, write: bool) -> Result<(), Fail> {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .into_owned();
+                if !is_label_entry(&id) {
+                    continue;
+                }
                 match wanted.get(&id) {
                     Some(expected) if std::fs::read_to_string(&path)? == *expected => {}
                     _ => stale.push(id),
@@ -242,7 +253,12 @@ pub fn generate(root: &Path, write: bool) -> Result<(), Fail> {
     std::fs::create_dir_all(&dir)?;
     for entry in std::fs::read_dir(&dir)?.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|e| e == "toml") {
+        let id = path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        if path.extension().is_some_and(|e| e == "toml") && is_label_entry(&id) {
             std::fs::remove_file(path)?;
         }
     }
@@ -258,7 +274,7 @@ pub fn generate(root: &Path, write: bool) -> Result<(), Fail> {
     if module.exists() {
         let mut out =
             String::from("\\begin{lexlean}{Labels}\n\\title{Atlas definition one label}\n");
-        for (id, _) in &wanted {
+        for id in wanted.keys() {
             let text = surfaces
                 .iter()
                 .find(|(_, label)| format!("atlas-{}", label.to_ascii_lowercase()) == **id)

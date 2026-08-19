@@ -27,6 +27,15 @@ def auditAxioms : CoreM Unit := do
     for ax in (← collectAxioms name) do
       unless permitted.contains ax do
         offences := offences.push (name, ax)
+  -- A gate that inspected nothing has not passed. If the prefix filter ever
+  -- stops matching --- a namespace rename, a root module that no longer pulls
+  -- the library in, an `import` dropped from this file --- every `continue`
+  -- above fires, `offences` stays empty, and the audit would report success
+  -- over zero declarations. The floor is deliberately far below the real count
+  -- so it never needs updating, and far above zero so it cannot be satisfied
+  -- by an empty environment.
+  if checked < 100 then
+    throwError s!"atlas-library-axioms: only {checked} declaration(s) were inspected; the library is not in this environment and the audit has checked nothing"
   if offences.isEmpty then
     IO.println s!"atlas-library-axioms: {checked} declarations, none depends on an axiom outside Lean's three"
   else

@@ -49,17 +49,6 @@ public theorem orthN_iff (u v : K) : orthN u.val v.val = true ↔ D52 u v := by
   · intro h
     exact ⟨decide_eq_false (fun he => h.1 (Fin.eq_of_val_eq he)), decide_eq_true h.2⟩
 
-/-- The inner product of two distinct class representatives is `0` or `+-4`:
-the values `+-8` are excluded because they force `v = +-u`. This is the one
-finite check that makes orthogonality and adjacency complementary, and it is
-what `D52` and `D13` are read against everywhere below. -/
-public theorem dotTri :
-    allLt (fun i => allLt (fun j => decide (i = j)
-      || decide (dot8 (repN i) (repN j) = 0)
-      || decide (dot8 (repN i) (repN j) = 4)
-      || decide (dot8 (repN i) (repN j) = -4)) 120) 120 = true := by
-  decide +kernel
-
 /-- Orthogonality is the complement of adjacency on distinct classes. -/
 public theorem D52_iff_not_D13 {u v : K} (h : u ≠ v) : D52 u v ↔ ¬ D13 u v := by
   have htri := allLt_true _ _ (allLt_true _ _ dotTri u.val u.isLt) v.val v.isLt
@@ -894,10 +883,6 @@ generates. -/
 @[expose] public def comb (a b c : Int) : Mat 120 120 Int :=
   fun u v => a * (if u = v then 1 else 0) + b * Aint u v + c
 
-/-- Pulling a scalar out of an integer sum on the left. -/
-public theorem isum_mul_left {n : Nat} (c : Int) (x : Vec n Int) :
-    c * Vec.sum x = Vec.sum (fun i => c * x i) := Vec.mul_sum c x
-
 /-- The nine-term split of a sum, right nested: the shape `comb_mul` expands
 its summand into. -/
 public theorem isum9 (f1 f2 f3 f4 f5 f6 f7 f8 f9 : K → Int) :
@@ -943,10 +928,10 @@ public theorem comb_mul (a b c a' b' c' : Int) (u v : K) :
     isum_ite u (fun k => a * b' * Aint k v),
     isum_ite u (fun _ : K => a * c'),
     isum_ite' v (fun k => b * a' * Aint u k),
-    ← isum_mul_left (b * b') (fun k : K => Aint u k * Aint k v),
-    ← isum_mul_left (b * c') (fun k : K => Aint u k),
+    ← Blocks.isum_scale (b * b') (fun k : K => Aint u k * Aint k v),
+    ← Blocks.isum_scale (b * c') (fun k : K => Aint u k),
     isum_ite' v (fun _ : K => c * a'),
-    ← isum_mul_left (c * b') (fun k : K => Aint k v),
+    ← Blocks.isum_scale (c * b') (fun k : K => Aint k v),
     isum_const (c * c'), nsmulInt,
     deg_cast u, T7 u, col_sum v]
   show a * a' * (if u = v then (1 : Int) else 0) + (a * b' * Aint u v + (a * c'

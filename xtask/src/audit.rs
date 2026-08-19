@@ -432,8 +432,17 @@ pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
             }
         }
     }
+    // The count is of names, and the message says so. This gate matches a
+    // declaration's *name* against the register; nothing here reads the
+    // statement, so it cannot tell a label carrying the document's theorem from
+    // a label carrying something weaker under the same name. That distinction
+    // is made by review against the document, and it has already moved this
+    // number in both directions: six labels were stripped when their statements
+    // turned out not to be theirs, and `S38` was withdrawn when the document
+    // proved to carry a second clause. A reader who takes this figure for
+    // "proved as stated" is reading more than the gate checked.
     println!(
-        "audit-atlas-registers: {} labels registered ({} entry, {} ambient, {} withheld), dispositions disjoint, {} of {} declared in the library",
+        "audit-atlas-registers: {} labels registered ({} entry, {} ambient, {} withheld), dispositions disjoint, {} of {} declared under a matching name (names, not statements)",
         entry.len() + ambient.len() + non_denotable.len() + retracted.len() + superseded.len(),
         entry.len(),
         ambient.len(),
@@ -629,11 +638,16 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
             .unwrap_or_default();
         let bare = name.rsplit('.').next().unwrap_or_default().to_owned();
         let display = path.file_name().unwrap_or_default().to_string_lossy();
-        // `atlas-t57a` names `T57a`: the leading run of letters is the label's
-        // prefix and is upper case, the rest is as written.
+        // `atlas-t57a` names the label `T57a`: the leading run of letters is
+        // the label's prefix and is upper case, the rest is as written. An id
+        // with no digit names no label --- those are the entries for the
+        // *objects* a live definition introduces, `atlas-presentation` for
+        // `D17` and the rest of that chain, which the document does not label
+        // and which are checked here only for having a real denotation.
         if let Some(stem) = display
             .strip_suffix(".toml")
             .and_then(|s| s.strip_prefix("atlas-"))
+            .filter(|stem| stem.chars().any(|c| c.is_ascii_digit()))
         {
             let split = stem
                 .find(|c: char| !c.is_ascii_alphabetic())
@@ -665,9 +679,19 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
             }
             Some(_) => {}
         }
-        if !denoted.insert(bare.clone()) {
+        // One entry per label, counted among the label entries only. An object
+        // entry denotes the same Lean declaration as the label that introduces
+        // it --- `atlas-presentation` and `atlas-d17` both name
+        // `UorAtlas.Blocks.D17` --- because the document labels the definition
+        // and the definition introduces the object. That is two entries for one
+        // declaration on purpose, and not two entries for one label.
+        let label_entry = display
+            .strip_suffix(".toml")
+            .and_then(|s| s.strip_prefix("atlas-"))
+            .is_some_and(|stem| stem.chars().any(|c| c.is_ascii_digit()));
+        if label_entry && !denoted.insert(bare.clone()) {
             return Err(Fail::from(format!(
-                "R4: `{bare}` is denoted by more than one entry; one label, one entry"
+                "R4: `{bare}` is denoted by more than one label entry; one label, one entry"
             )));
         }
     }
@@ -897,7 +921,17 @@ pub fn audit_atlas_duplication(root: &Path) -> Result<(), Fail> {
     }
     let mut seen: std::collections::BTreeMap<String, (String, String)> =
         std::collections::BTreeMap::new();
+    // Keyed on the conclusion alone, so a fact re-proved under a *different*
+    // name is caught too. Keying on `name :: conclusion` misses exactly the
+    // case that keeps happening: `imgSet` and its five lemmas were a complete
+    // duplicate of `actP` and its lemmas, invisible here because only the
+    // names differed, and `dotTri` was re-proved in a second module on purpose.
+    // Re-proving locally is never the fix; importing is, and when there is no
+    // common home, moving the fact down to one is the task.
+    let mut by_conclusion: std::collections::BTreeMap<String, (String, String, String)> =
+        std::collections::BTreeMap::new();
     let mut counted = 0usize;
+    let mut review: Vec<String> = Vec::new();
     for path in &files {
         let text = std::fs::read_to_string(path)?;
         let module = path
@@ -905,29 +939,116 @@ pub fn audit_atlas_duplication(root: &Path) -> Result<(), Fail> {
             .unwrap_or(path)
             .to_string_lossy()
             .into_owned();
-        for (name, statement) in public_statements(&text) {
+        for (name, signature, statement, is_theorem, body) in public_statements(&text) {
             counted += 1;
-            let key = format!("{name} :: {statement}");
+            // Keyed on the FULL signature, not the conclusion. `conclusion_of`
+            // strips binders, so two different functions that share a name and a
+            // return type --- `blkIdx (a b c d : Nat) : Nat` searching a table
+            // and `blkIdx (i : Nat) : Nat` reading a packed byte --- would read
+            // as one declaration and the gate would report a duplicate that is
+            // only a name collision.
+            let key = format!("{name} :: {signature}");
             if let Some((first_module, _)) = seen.get(&key) {
-                if *first_module != module {
-                    return Err(Fail::from(format!(
-                        "R4: `{name}` is stated identically in {first_module} and {module}; one proof of a settled fact, not two that can drift"
-                    )));
-                }
+                // Reported whether or not the two are in the same file. Keying
+                // the report on `first_module != module` made every same-file
+                // duplicate invisible, and the modules this gate reads run to
+                // six thousand lines --- the file where a redundant lemma is
+                // *most* likely to be written twice is the one too long to hold
+                // in view.
+                let where_ = if *first_module == module {
+                    format!("twice in {module}")
+                } else {
+                    format!("in {first_module} and {module}")
+                };
+                return Err(Fail::from(format!(
+                    "R4: `{name}` is stated identically {where_}; one proof of a settled fact, not two that can drift"
+                )));
             } else {
-                seen.insert(key, (module.clone(), name));
+                seen.insert(key, (module.clone(), name.clone()));
+            }
+            // Only theorems, and only conclusions that name something. A
+            // `def ... : Prop` concludes `Prop`, and an extensionality lemma
+            // concludes `a = b`; both are shapes shared by unrelated results,
+            // and matching on them reports nothing but noise. Requiring a
+            // qualified name in the conclusion keeps the check on statements
+            // that are *about* a specific object, which is what a re-proved
+            // fact looks like. It is a net rather than a proof: a duplicate
+            // written entirely in opened names would slip through, and only
+            // reading catches that one.
+            if !is_theorem || !statement.contains('.') {
+                continue;
+            }
+            if let Some((first_module, first_name, first_body)) = by_conclusion.get(&statement) {
+                // What R4 forbids is a second *proof*, so the proof is what
+                // this compares. Two exemptions follow from that, and both are
+                // real cases in this library rather than hypotheticals.
+                //
+                // Delegation: `T79`'s proof is `F6 L v g x`. Section 13 and
+                // section 19.5 name one equation twice, so one proof carries
+                // two document labels --- that is compliance, not a breach.
+                //
+                // A different argument: `aut_fix_trivial` and `autA_trivial`
+                // both conclude `g = Perm.one 120`, one by sifting a stabiliser
+                // chain from `D21 g` and one by profile pinning from `AutA g`.
+                // Neither can be derived from the other without circularity,
+                // because `T59a` --- the theorem that makes the two hypotheses
+                // interchangeable --- is proved *from* the second. Same
+                // conclusion, different theorems.
+                //
+                // So a collision is reported only when the two proofs are
+                // substantially the same text. That is a net, not a proof: two
+                // spellings of one argument slip through, and only reading
+                // catches those.
+                if body.contains(first_name.as_str()) {
+                    continue;
+                }
+                let normalize = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+                // Identical proof text is one proof written twice, and that is
+                // decidable. Merely *similar* text is not: `inSpan_append_lo`
+                // and `inSpan_append_hi` conclude the same thing by parallel
+                // arguments about different hypotheses, and no threshold
+                // separates that from a genuine copy without over-fitting to
+                // whatever happens to sit in the tree today. So the gate fails
+                // on the decidable case and reports the rest for review --- the
+                // duplicates removed today were found exactly that way, by
+                // reading a candidate list.
+                if normalize(&body) != normalize(first_body) {
+                    review.push(format!(
+                        "  {name} in {module} and {first_name} in {first_module}"
+                    ));
+                    continue;
+                }
+                let where_ = if *first_module == module {
+                    format!("`{first_name}` in the same module")
+                } else {
+                    format!("`{first_name}` in {first_module}")
+                };
+                return Err(Fail::from(format!(
+                    "R4: `{name}` in {module} proves the same conclusion as {where_}; import it, or move it to a module both import --- never a second proof"
+                )));
+            } else {
+                by_conclusion.insert(statement, (module.clone(), name, body));
             }
         }
     }
+    if !review.is_empty() {
+        println!(
+            "audit-atlas-duplication: {} pair(s) share a conclusion by different proofs; not a failure, and not nothing --- read them:",
+            review.len()
+        );
+        for line in &review {
+            println!("{line}");
+        }
+    }
     println!(
-        "audit-atlas-duplication: {counted} public statements across {} vendored modules, none repeated (R4)",
+        "audit-atlas-duplication: {counted} public statements across {} vendored modules, no proof written twice (R4)",
         files.len()
     );
     Ok(())
 }
 
 /// Each public declaration's name and the conclusion of its statement.
-fn public_statements(text: &str) -> Vec<(String, String)> {
+fn public_statements(text: &str) -> Vec<(String, String, String, bool, String)> {
     let mut out = Vec::new();
     let lines: Vec<&str> = text.lines().collect();
     let mut index = 0usize;
@@ -950,7 +1071,7 @@ fn public_statements(text: &str) -> Vec<(String, String)> {
             index += 1;
             continue;
         };
-        let _ = keyword;
+        let is_theorem = keyword == "theorem ";
         let name: String = tail
             .chars()
             .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '\'' || *c == '.')
@@ -982,8 +1103,18 @@ fn public_statements(text: &str) -> Vec<(String, String)> {
         // variable --- and an exact match therefore misses exactly the
         // redundancy this gate exists to find.
         let normalized = conclusion_of(&statement);
+        let signature = statement.split_whitespace().collect::<Vec<_>>().join(" ");
+        // A slice of the proof, enough to see whether this declaration simply
+        // applies an earlier one. Two labels may share a single proof --- the
+        // document names one equation in two sections --- and a declaration
+        // that delegates is not a second proof of anything.
+        let mut body = String::new();
+        for line in lines.iter().skip(cursor).take(6) {
+            body.push(' ');
+            body.push_str(line);
+        }
         if !name.is_empty() && !normalized.is_empty() {
-            out.push((name, normalized));
+            out.push((name, signature, normalized, is_theorem, body));
         }
         index += 1;
     }

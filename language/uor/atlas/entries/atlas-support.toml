@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "atlas-support"
+category = "function"
+signature = "(pi ((explicit a (const lexlean.uor.atlas::atlas-presentation))) (const lexlean.std.nat::nat))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Blocks"
+name = "UorAtlas.Blocks.D17a"
+
+[[form]]
+id = "atlas-support"
+channel = "math"
+surface = "atlasSupport"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name atlasSupport) (paren (slot 0)))"

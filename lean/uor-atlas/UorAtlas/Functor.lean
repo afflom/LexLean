@@ -176,12 +176,6 @@ public theorem apply_neg {α : Type} [CommRing α] {m n : Nat} (A : Mat m n α) 
   rw [Linear.neg_mul, CommRing.mul_comm (A i j) (AddCommGroup.neg (x j)), Linear.neg_mul,
     CommRing.mul_comm (x j) (A i j)]
 
-/-- Double negation, needed wherever the diagonal sign quotient is unwound. -/
-public theorem neg_neg {α : Type} [AddCommGroup α] (a : α) :
-    AddCommGroup.neg (AddCommGroup.neg a) = a := by
-  refine Prelude.add_left_cancel (a := AddCommGroup.neg a) ?_
-  rw [AddCommGroup.add_neg, neg_add_cancel]
-
 /-- Base change is compatible with negation, entrywise on a matrix. -/
 public theorem map_neg_mat {A B : Type} [CommRing A] [CommRing B] (φ : RingHom A B)
     {m n : Nat} (M : Mat m n A) :
@@ -466,7 +460,7 @@ public abbrev PAddr (L : LocData) : Type :=
 `D44`. -/
 public theorem paddrMk_neg (L : LocData) (x : Addr L) :
     paddrMk L (AddCommGroup.neg x) = paddrMk L x :=
-  Quot.sound ⟨true, neg_neg x⟩
+  Quot.sound ⟨true, Prelude.neg_neg x⟩
 
 /-- The action of one element of `WLin` on `Addr(L)`: extension of scalars of
 its matrix, then the matrix action. This is the `g_v` of `D43` assembled over
@@ -1350,7 +1344,7 @@ public theorem mul_neg_neg {α : Type} [CommRing α] {m n p : Nat}
     = Vec.sum (fun k => CommRing.mul (A i k) (B k j))
   refine Vec.sum_congr (fun k => ?_)
   rw [Linear.neg_mul, CommRing.mul_comm (A i k) (AddCommGroup.neg (B k j)), Linear.neg_mul,
-    neg_neg, CommRing.mul_comm (B k j) (A i k)]
+    Prelude.neg_neg, CommRing.mul_comm (B k j) (A i k)]
 
 /-- `WLin = {+I,-I}` at rank `1`: the group `D41` cuts out when the only linear
 symmetries are the two global signs. Each element is its own inverse. -/
@@ -1412,7 +1406,7 @@ class. -/
   krep_act g _ := by
     refine Or.elim g.property (fun ha => ?_) (fun ha => ?_)
     · exact Or.inl (by rw [ha]; exact (apply_id _).symm)
-    · exact Or.inr (by rw [ha, M4, apply_id]; exact (neg_neg _).symm)
+    · exact Or.inr (by rw [ha, M4, apply_id]; exact (Prelude.neg_neg _).symm)
 
 /-- `+I` and `-I` are two different lifts of the same automorphism, so `D46`
 has a choice to make at the witness. -/

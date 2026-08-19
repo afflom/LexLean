@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t59a"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Group"
+name = "UorAtlas.Group.T59a"
+
+[[form]]
+id = "atlas-t59a"
+channel = "text"
+surface = "Atlas theorem fifty nine a label"
+canonical_source = true
+features = ["sentence-case", "singular"]

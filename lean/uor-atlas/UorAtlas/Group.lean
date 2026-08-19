@@ -34,37 +34,6 @@ makes the kernel recompute it from `D19a`, `rep` and `D12` and compare.
 `pak_eq_pk` says so, so `pk_digit` supplies the round-trip lemma while the
 kernel runs shifts.
 
-## What the chain is used for twice
-
-`autChain` counts `Aut`. The same machinery, run on four elements that fix the
-witness AtlasInstance setwise, counts the group those four generate: five
-levels, orbits `48, 3, 8, 2, 2`, product `4608`. That is only a *lower* half of
-the gauge group until something rules out a fifth element, and `gauge_eq` is
-that something: an element of `Aut` fixing `W_0` is identified level by level
-against the base points of `autSpec`, because the image of a base point has the
-same profile inside `W_0` as the base point -- the same membership, the same
-adjacencies to the points already fixed, and the same counts of walks inside
-`W_0` -- and those profiles pin it to the stored transversal. After the seventh
-level the element fixes all seven base points, and `aut_fix_trivial` reads off
-the bottom of `autChain` that it is the identity.
-
-What that yields is `|Gauge(W_0)| = 4608` for the witness instance and nothing
-about any other instance: carrying it to a second instance is transitivity of
-`Aut` on `Atl`, which is the document's `T27` and is not proved anywhere in
-this library. `T29` and `T49` are stated for *every* instance and are therefore
-not claimed here; `gaugeOrderWitness` is the witness case under its own name.
-The same gap is why `orbitAction` instantiates the nineteen theorems of
-`UorAtlas.Category` over the `Aut`-orbit of `W_0` rather than over `Atl`.
-
-## Why `-I` needs a sign and not a class
-
-`V68b` has to distinguish `-I` from `I`, and nothing about classes can: both
-act trivially on `K`. The fold of `signStep` carries one extra bit -- whether
-the reflected representative is the representative of its image class or its
-negative -- and running it along `(r_1 ... r_8)^15` on the eight simple roots
-shows the word negates a basis. `T73` is not needed: a matrix that negates a
-basis *is* `-I`.
-
 ## Why the arithmetic is spelled out
 
 Every `Bool` that a certificate below reduces is written in `Nat.beq`,
@@ -1748,6 +1717,24 @@ public theorem classSet_actP (g : Perm 120) (W : Bitset) : Blocks.ClassSet (actP
     exact absurd (hu ▸ (g.toFun u).isLt) (by omega)
   exact Bool.not_eq_true _ |>.mp hno
 
+public theorem actP_inj (g : Perm 120) {W W' : Bitset}
+    (hW : Blocks.ClassSet W) (hW' : Blocks.ClassSet W') (h : actP g W = actP g W') : W = W' := by
+  refine Bitset.ext (fun i => ?_)
+  constructor
+  · intro hi
+    have h1 : (g.toFun ⟨i, Blocks.lt_of_mem hW hi⟩).val ∈ actP g W' := by
+      rw [← h]; exact (mem_actP g W _).mpr ⟨⟨i, Blocks.lt_of_mem hW hi⟩, hi, rfl⟩
+    obtain ⟨u, huW, hu⟩ := (mem_actP g W' _).mp h1
+    have : u = ⟨i, Blocks.lt_of_mem hW hi⟩ := Perm.toFun_injective (Fin.eq_of_val_eq hu)
+    rw [this] at huW; exact huW
+  · intro hi
+    have h1 : (g.toFun ⟨i, Blocks.lt_of_mem hW' hi⟩).val ∈ actP g W := by
+      rw [h]; exact (mem_actP g W' _).mpr ⟨⟨i, Blocks.lt_of_mem hW' hi⟩, hi, rfl⟩
+    obtain ⟨u, huW, hu⟩ := (mem_actP g W _).mp h1
+    have : u = ⟨i, Blocks.lt_of_mem hW' hi⟩ := Perm.toFun_injective (Fin.eq_of_val_eq hu)
+    rw [this] at huW; exact huW
+
+
 /-! ## Section 10: the gauge group of an instance
 
 `D21a`, `D28`, `D28a`, `D29` and `D30` are declared here, in the module that
@@ -1983,6 +1970,10 @@ public theorem mkChain_bp : ∀ (spec : List (Nat × List (List Nat))) (gt : Lis
 @[expose] public def headLevel (gt : List (Nat × Nat)) (b : Nat) (nw : List (List Nat)) : Level :=
   ⟨gt, b, nw, mkOrb gt b, mkMask (mkOrb gt b)⟩
 
+public theorem mkChain_cons (gt : List (Nat × Nat)) (b : Nat) (nw : List (List Nat))
+    (rest : List (Nat × List (List Nat))) :
+    mkChain gt ((b, nw) :: rest) = headLevel gt b nw :: mkChain (nw.map (evalT gt)) rest := rfl
+
 public theorem mkChain_bp_lt : ∀ (spec : List (Nat × List (List Nat))) (gt : List (Nat × Nat)),
     chainCheck gt (mkChain gt spec) = true → ∀ l ∈ mkChain gt spec, l.bp < 120 := by
   intro spec
@@ -2208,6 +2199,23 @@ public theorem cnt3_inv {g : Perm 120} {W : Bitset} (hg : D21 g) (hW : actP g W 
 /-- Row `u` of the adjacency table, as a set of classes. -/
 @[expose] public def arow (u : Nat) : Bitset := Bitset.ofNat (adjRow u)
 
+public theorem adjRow_lt (u : Nat) : adjRow u < adjBase := by
+  show Nat.mod (Nat.shiftRight adjPack (Nat.mul 120 u)) adjBase < adjBase
+  exact Nat.mod_lt _ (by rw [adjBase_eq]; exact Nat.two_pow_pos 120)
+
+/-- Sets are numerals here, and the numeral of the adjacency table must never
+be unfolded by the elaborator: `adjPack` is a hundred and twenty packed rows,
+and one `whnf` of it exhausts the recursion budget. Every lemma about it is
+therefore stated for an arbitrary numeral and instantiated afterwards. -/
+public theorem classSet_ofNat {n : Nat} (h : n < 2 ^ 120) :
+    Blocks.ClassSet (Bitset.ofNat n) := h
+
+public theorem classSet_arow (u : Nat) : Blocks.ClassSet (arow u) :=
+  classSet_ofNat (by
+    have h := adjRow_lt u
+    rw [adjBase_eq] at h
+    exact h)
+
 public theorem classSet_inter {S T : Bitset} (h : Blocks.ClassSet S) :
     Blocks.ClassSet (Bitset.inter S T) := by
   show Bitset.toNat (Bitset.inter S T) < 2 ^ 120
@@ -2413,10 +2421,17 @@ public theorem fixed_fin {g : Perm 120} {f : Nat} (hf : f < 120)
     (hfix : (g.toFun (fin120 f)).val = f) : g.toFun (fin120 f) = fin120 f :=
   Fin.eq_of_val_eq (by rw [hfix, fin120_val hf])
 
-public theorem adjN_image {g : Perm 120} (hg : D21 g) {x f : Nat} (hx : x < 120) (hf : f < 120)
-    (hfix : (g.toFun (fin120 f)).val = f) :
+/-- Adjacency to a fixed point is preserved, stated on the raw hypothesis that
+`g` preserves adjacency rather than on either name for the group that does.
+
+`D21 g` gives that hypothesis through `T59p`, and `AutA g` *is* that hypothesis,
+so both callers below delegate here. Written twice --- once under each name ---
+this was the same proof in one file, which is what `R4` forbids. -/
+public theorem adjN_image_of_pres {g : Perm 120}
+    (hg : ∀ u v : K, A (g.toFun u) (g.toFun v) = A u v) {x f : Nat}
+    (hx : x < 120) (hf : f < 120) (hfix : (g.toFun (fin120 f)).val = f) :
     adjN (g.toFun (fin120 x)).val f = adjN x f := by
-  have h := T59p hg (fin120 x) (fin120 f)
+  have h := hg (fin120 x) (fin120 f)
   rw [fixed_fin hf hfix] at h
   have e1 : A (g.toFun (fin120 x)) (fin120 f) = adjN (g.toFun (fin120 x)).val f := by
     show adjN _ (fin120 f).val = _
@@ -2426,6 +2441,11 @@ public theorem adjN_image {g : Perm 120} (hg : D21 g) {x f : Nat} (hx : x < 120)
     rw [fin120_val hf, fin120_val hx]
   rw [e1, e2] at h
   exact h
+
+public theorem adjN_image {g : Perm 120} (hg : D21 g) {x f : Nat} (hx : x < 120) (hf : f < 120)
+    (hfix : (g.toFun (fin120 f)).val = f) :
+    adjN (g.toFun (fin120 x)).val f = adjN x f :=
+  adjN_image_of_pres (T59p hg) hx hf hfix
 
 public theorem cnt3b_image {g : Perm 120} (hg : D21 g) (hW : actP g W0 = W0)
     {x f : Nat} (hx : x < 120) (hf : f < 120) (hfix : (g.toFun (fin120 f)).val = f) :
@@ -2633,6 +2653,11 @@ first three. -/
   if h : (∀ i, invOf4 f (f i) = i) ∧ (∀ i, f (invOf4 f i) = i) then
     ⟨f, invOf4 f, h.1, h.2⟩
   else Perm.one 4
+
+public theorem permOf4_toFun {f : Fin 4 → Fin 4}
+    (h : (∀ i, invOf4 f (f i) = i) ∧ (∀ i, f (invOf4 f i) = i)) :
+    (permOf4 f).toFun = f := by
+  rw [permOf4, dif_pos h]
 
 public theorem fin4_cases (j : Fin 4) (h0 : j ≠ 0) (h1 : j ≠ 1) (h2 : j ≠ 2) : j = 3 := by
   have hlt := j.isLt
@@ -2941,6 +2966,317 @@ public theorem stabPres_le_D28 {b : Fin 4 → Bitset} {g : Perm 120} (h : stabPr
     rw [← h.2 a, mem_actP] at ha
     obtain ⟨i, hi, he⟩ := ha
     exact ⟨i, (mem_union4 b i.val).mpr ⟨a, hi⟩, he⟩
+
+/-! ## `T39p`: the stabiliser of the witness AtlasPresentation
+
+`Stab_Aut(A)` fixes each of the four blocks *separately*, so for the witness it
+is the kernel `D29` of the block action `rho` on `Gauge(W_0)`. Its order is an
+eighth of the gauge group's `4608`, because the decomposition below writes
+every gauge element as one of eight representatives times a kernel element. A
+quotient count is not what `HasOrderP` asks for, though --- it asks for a
+duplicate-free list of exactly the elements --- so the subgroup is presented by
+generators and counted by a stabiliser chain of its own, orbits `72` and `8`.
+
+Two containments make that count the stabiliser's, and only the second is an
+argument. `< kerGt >` sits inside the stabiliser because each of its four
+generators fixes each block, which is one kernel check. The stabiliser sits
+inside `< kerGt >` by a coset decomposition: `cosWords` names eight elements of
+the gauge group, one for each block permutation `rho` realises, and `cosRow`
+checks that any of the eight times any letter over `stabGt` is a member of
+`< kerGt >` times another of the eight --- with that member named by a *word*,
+so the kernel multiplies two packed words and compares, and searches for
+nothing. Induction on the generation of `Gauge(W_0)` then writes every gauge
+element as `k . r_i` with `k` in `< kerGt >`, and an element fixing all four
+blocks forces `r_i` to fix them too, which by `cosMove` only `r_0 = 1` does. -/
+
+/-- Four elements of the pointwise stabiliser of the four blocks, as words over
+`stabGt`. They were found outside the kernel; that they lie in `Aut` is free,
+because they are words over words, and that they fix each block is checked by
+`kerGt_blk`. -/
+@[expose] public def kerWords : List (List Nat) := [[0], [2], [4, 0, 4], [6, 4, 0, 4, 6]]
+
+/-- The same four elements as packed words. -/
+@[expose] public def kerGt : List (Nat × Nat) := kerWords.map (evalT stabGt)
+
+public theorem kerGt_ok : TabsOK kerGt := tabsOK_nextGt stabGt_ok kerWords
+
+/-- The base points and the words presenting each stabiliser of the chain for
+`< kerGt >`: orbits of `72` and `8`, whose product is `576`. -/
+@[expose] public def kerSpec : List (Nat × List (List Nat)) :=
+  [(8, [[4, 2, 4], [6, 0, 6]]), (58, [])]
+
+set_option maxHeartbeats 4000000 in
+public theorem kerChain : chainCheck kerGt (mkChain kerGt kerSpec) = true := by decide +kernel
+
+set_option maxHeartbeats 4000000 in
+public theorem kerChainLen : chainLen (mkChain kerGt kerSpec) = 576 := by decide +kernel
+
+/-- `< kerGt >` has `576` elements. -/
+public theorem kerOrder : HasOrder (permsOf kerGt) 576 := by
+  have h := (mkChain_spec kerSpec kerGt kerGt_ok kerChain).2
+  rwa [kerChainLen] at h
+
+/-- Every generator of `kerGt` fixes each of the four blocks of the witness. -/
+public theorem kerGt_blk : kerGt.all (fun q =>
+    allFin (fun a : Fin 4 => decide (actT q.1 (Blocks.blkSet a) = Blocks.blkSet a)))
+      = true := by decide +kernel
+
+public theorem gen_ker (w : List Nat) : Perm.Gen (permsOf kerGt) (tpermP (evalT kerGt w)) := by
+  rw [← evalP_permsOf kerGt_ok w]
+  exact gen_evalP _ w
+
+public theorem kerGen_of_mem {s : Perm 120} (hs : s ∈ permsOf kerGt) :
+    stabPres Blocks.blkSet s := by
+  refine ⟨(stabGen_gauge (gen_nextGt (gt := stabGt) (nw := kerWords) stabGt_ok hs)).1,
+    fun a => ?_⟩
+  obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hs
+  have htab : tabOK q.1 q.2 = true := kerGt_ok q hq
+  show actP (tperm q.1 q.2) (Blocks.blkSet a) = Blocks.blkSet a
+  rw [← actT_eq htab]
+  exact of_decide_eq_true (allFin_true _ (List.all_eq_true.mp kerGt_blk q hq) a)
+
+/-- `< kerGt >` is contained in the stabiliser of the witness presentation. -/
+public theorem kerGen_stabPres {g : Perm 120} (hg : Perm.Gen (permsOf kerGt) g) :
+    stabPres Blocks.blkSet g := by
+  have hcl : ∀ a : Fin 4, Blocks.ClassSet (Blocks.blkSet a) :=
+    fun a => (Blocks.blkIsBlock a).1
+  induction hg with
+  | one => exact (stabPres_subgroup hcl).1
+  | @step p s _ hs ih => exact (stabPres_subgroup hcl).2.1 p s ih (kerGen_of_mem hs)
+  | @stepInv p s _ hs ih =>
+    exact (stabPres_subgroup hcl).2.1 p s.inv ih
+      ((stabPres_subgroup hcl).2.2 s (kerGen_of_mem hs))
+
+/-! ### The eight cosets -/
+
+/-- Eight elements of `Gauge(W_0)`, one for each block permutation the action
+`rho` realises, as words over `stabGt`. The first word is empty, so `cosP 0` is
+the identity, and `cosMove` checks that no other of the eight fixes all four
+blocks. -/
+@[expose] public def cosWords : List (List Nat) :=
+  [[], [4], [4, 6, 4], [4, 6], [6, 4], [6], [6, 4, 6], [6, 4, 6, 4]]
+
+/-- The `i`-th coset representative, as a packed word. -/
+@[expose] public def cosQ (i : Nat) : Nat × Nat := evalT stabGt (cosWords.getD i [])
+
+/-- The `i`-th coset representative, as a permutation. -/
+@[expose] public def cosP (i : Nat) : Perm 120 := tpermP (cosQ i)
+
+public theorem cosQ_ok (i : Nat) : tabOK (cosQ i).1 (cosQ i).2 = true :=
+  tabOK_evalT stabGt_ok _
+
+public theorem cosP_zero : cosP 0 = Perm.one 120 := tperm_idT
+
+/-- Which of the eight cosets `r_i s_l` lands in. -/
+@[expose] public def cosJ : List (List Nat) :=
+  [[0, 0, 0, 0, 1, 1, 5, 5], [1, 1, 1, 1, 0, 0, 3, 3], [2, 2, 2, 2, 3, 3, 7, 7],
+   [3, 3, 3, 3, 2, 2, 1, 1], [4, 4, 4, 4, 5, 5, 6, 6], [5, 5, 5, 5, 4, 4, 0, 0],
+   [6, 6, 6, 6, 7, 7, 4, 4], [7, 7, 7, 7, 6, 6, 2, 2]]
+
+/-- The kernel element `r_i s_l r_j^{-1}`, as a word over `kerGt`. Naming it
+here is what keeps `cosRow` a comparison rather than a search. -/
+@[expose] public def cosK : List (List (List Nat)) :=
+  [[[0], [0], [2], [2], [], [], [], []], [[4], [4], [2], [2], [], [], [], []],
+   [[6], [6], [4], [4], [], [], [], []], [[2], [2], [4], [4], [], [], [], []],
+   [[6], [6], [0], [0], [], [], [], []], [[2], [2], [0], [0], [], [], [], []],
+   [[0], [0], [6], [6], [], [], [], []], [[4], [4], [6], [6], [], [], [], []]]
+
+@[expose] public def jAt (i l : Nat) : Nat := (cosJ.getD i []).getD l 0
+
+@[expose] public def kAt (i l : Nat) : List Nat := (cosK.getD i []).getD l []
+
+/-- One row of the coset table: `r_i s_l = k r_j` for every letter `l` over
+`stabGt`, as an identity of packed words.
+
+It is eight declarations rather than one because the kernel releases memory
+between declarations and not inside a single `decide`, and every entry of a row
+re-evaluates `stabGt` --- itself four words over the eight reflections --- from
+scratch, the kernel memoising nothing. -/
+@[expose] public def cosRow (i : Nat) : Bool :=
+  allLt (fun l => Nat.blt (jAt i l) 8
+    && Nat.beq (mulT (evalT kerGt (kAt i l)).1 (cosQ (jAt i l)).1)
+        (mulT (cosQ i).1 (genT stabGt l).1)) 8
+
+set_option maxHeartbeats 1000000 in
+public theorem cosRow0 : cosRow 0 = true := by decide +kernel
+
+set_option maxHeartbeats 1000000 in
+public theorem cosRow1 : cosRow 1 = true := by decide +kernel
+
+set_option maxHeartbeats 1000000 in
+public theorem cosRow2 : cosRow 2 = true := by decide +kernel
+
+set_option maxHeartbeats 1000000 in
+public theorem cosRow3 : cosRow 3 = true := by decide +kernel
+
+set_option maxHeartbeats 1000000 in
+public theorem cosRow4 : cosRow 4 = true := by decide +kernel
+
+set_option maxHeartbeats 1000000 in
+public theorem cosRow5 : cosRow 5 = true := by decide +kernel
+
+set_option maxHeartbeats 1000000 in
+public theorem cosRow6 : cosRow 6 = true := by decide +kernel
+
+set_option maxHeartbeats 1000000 in
+public theorem cosRow7 : cosRow 7 = true := by decide +kernel
+
+public theorem cosRowAll : ∀ (i : Nat), i < 8 → cosRow i = true
+  | 0, _ => cosRow0
+  | 1, _ => cosRow1
+  | 2, _ => cosRow2
+  | 3, _ => cosRow3
+  | 4, _ => cosRow4
+  | 5, _ => cosRow5
+  | 6, _ => cosRow6
+  | 7, _ => cosRow7
+  | (_ + 8), h => absurd h (by omega)
+
+/-- Two certified packed pairs with the same forward word are the same
+permutation. -/
+public theorem tperm_congr {f b f' b' : Nat} (h : tabOK f b = true) (h' : tabOK f' b' = true)
+    (hf : f = f') : tperm f b = tperm f' b' :=
+  Perm.ext fun x => Fin.eq_of_val_eq (by rw [tperm_toFun h, tperm_toFun h', hf])
+
+/-- `tperm_mul` in the direction the coset table is read: a product of two
+certified pairs is the pair of the product words. -/
+public theorem tpermP_comp {q r : Nat × Nat} (hq : tabOK q.1 q.2 = true)
+    (hr : tabOK r.1 r.2 = true) :
+    (tpermP q).comp (tpermP r) = tperm (mulT q.1 r.1) (mulT r.2 q.2) :=
+  (tperm_mul hq hr).symm
+
+/-- One entry of the coset table, read as an identity of permutations. -/
+public theorem cos_step {i l : Nat} (hi : i < 8) (hl : l < 8) :
+    jAt i l < 8 ∧ (cosP i).comp (tpermP (genT stabGt l))
+      = (tpermP (evalT kerGt (kAt i l))).comp (cosP (jAt i l)) := by
+  have h := allLt_true _ _ (cosRowAll i hi) l hl
+  rw [Bool.and_eq_true] at h
+  refine ⟨Nat.le_of_ble_eq_true h.1, ?_⟩
+  have he : mulT (evalT kerGt (kAt i l)).1 (cosQ (jAt i l)).1
+      = mulT (cosQ i).1 (genT stabGt l).1 := Nat.eq_of_beq_eq_true h.2
+  show (tpermP (cosQ i)).comp (tpermP (genT stabGt l))
+    = (tpermP (evalT kerGt (kAt i l))).comp (tpermP (cosQ (jAt i l)))
+  rw [tpermP_comp (cosQ_ok i) (tabOK_genT stabGt_ok l),
+    tpermP_comp (tabOK_evalT kerGt_ok (kAt i l)) (cosQ_ok (jAt i l))]
+  exact tperm_congr (tabOK_mul (cosQ_ok i) (tabOK_genT stabGt_ok l))
+    (tabOK_mul (tabOK_evalT kerGt_ok (kAt i l)) (cosQ_ok (jAt i l))) he.symm
+
+public theorem genT_even (gs : List (Nat × Nat)) (m : Nat) :
+    genT gs (2 * m) = gs.getD m (idT, idT) := by
+  rw [genT, if_pos (by omega : 2 * m % 2 = 0), (by omega : 2 * m / 2 = m)]
+
+public theorem genT_odd (gs : List (Nat × Nat)) (m : Nat) :
+    genT gs (2 * m + 1)
+      = ((gs.getD m (idT, idT)).2, (gs.getD m (idT, idT)).1) := by
+  rw [genT, if_neg (by omega : ¬ (2 * m + 1) % 2 = 0), (by omega : (2 * m + 1) / 2 = m)]
+
+/-- Every generator of the gauge group is an even letter over `stabGt`, and its
+inverse the odd letter beside it. This is what lets the induction below consume
+the coset table, which is indexed by letters. -/
+public theorem stab_letter {s : Perm 120} (hs : s ∈ permsOf stabGt) :
+    ∃ l : Nat, l + 1 < 8 ∧ s = tpermP (genT stabGt l)
+      ∧ s.inv = tpermP (genT stabGt (l + 1)) := by
+  obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hs
+  have key : ∀ m : Nat, 2 * m + 1 < 8 → q = stabGt.getD m (idT, idT) →
+      ∃ l : Nat, l + 1 < 8 ∧ tpermP q = tpermP (genT stabGt l)
+        ∧ (tpermP q).inv = tpermP (genT stabGt (l + 1)) := by
+    intro m hm hqm
+    refine ⟨2 * m, hm, ?_, ?_⟩
+    · rw [genT_even, ← hqm]
+    · rw [genT_odd, ← hqm]
+      exact (tperm_swap (stabGt_ok q hq)).symm
+  rcases List.mem_cons.mp hq with h | hq1
+  · exact key 0 (by omega) h
+  rcases List.mem_cons.mp hq1 with h | hq2
+  · exact key 1 (by omega) h
+  rcases List.mem_cons.mp hq2 with h | hq3
+  · exact key 2 (by omega) h
+  rcases List.mem_cons.mp hq3 with h | hq4
+  · exact key 3 (by omega) h
+  · exact absurd hq4 (by simp)
+
+/-- **Every gauge element is a member of `< kerGt >` times one of the eight
+representatives.** The induction is over the generation of `Gauge(W_0)`, which
+`gauge_eq` has already identified with `< stabGt >`. -/
+public theorem gauge_coset {g : Perm 120} (hg : Perm.Gen (permsOf stabGt) g) :
+    ∃ i : Nat, i < 8 ∧ ∃ k : Perm 120, Perm.Gen (permsOf kerGt) k ∧ g = k.comp (cosP i) := by
+  induction hg with
+  | one =>
+    refine ⟨0, by omega, Perm.one 120, Perm.Gen.one, ?_⟩
+    rw [cosP_zero]
+    exact (Perm.comp_one (Perm.one 120)).symm
+  | @step p s _ hs ih =>
+    obtain ⟨i, hi, k, hk, he⟩ := ih
+    obtain ⟨l, hl, hsl, _⟩ := stab_letter hs
+    obtain ⟨hj, hstep⟩ := cos_step hi (by omega : l < 8)
+    refine ⟨jAt i l, hj, k.comp (tpermP (evalT kerGt (kAt i l))),
+      Perm.Gen.comp_mem hk (gen_ker _), ?_⟩
+    rw [he, hsl, Perm.comp_assoc, hstep, ← Perm.comp_assoc]
+  | @stepInv p s _ hs ih =>
+    obtain ⟨i, hi, k, hk, he⟩ := ih
+    obtain ⟨l, hl, _, hsl⟩ := stab_letter hs
+    obtain ⟨hj, hstep⟩ := cos_step hi (by omega : l + 1 < 8)
+    refine ⟨jAt i (l + 1), hj, k.comp (tpermP (evalT kerGt (kAt i (l + 1)))),
+      Perm.Gen.comp_mem hk (gen_ker _), ?_⟩
+    rw [he, hsl, Perm.comp_assoc, hstep, ← Perm.comp_assoc]
+
+/-- A block each representative other than `r_0` moves. -/
+@[expose] public def badBlk : List (Fin 4) := [0, 1, 0, 0, 0, 0, 0, 0]
+
+/-- Only `r_0` fixes all four blocks: every other representative moves the
+block `badBlk` names. -/
+public theorem cosMove : allLt (fun i => Nat.beq i 0
+    || Bool.not (decide (actT (cosQ i).1 (Blocks.blkSet (badBlk.getD i 0))
+        = Blocks.blkSet (badBlk.getD i 0)))) 8 = true := by decide +kernel
+
+public theorem cos_fix_zero {i : Nat} (hi : i < 8)
+    (h : ∀ a : Fin 4, actP (cosP i) (Blocks.blkSet a) = Blocks.blkSet a) : i = 0 := by
+  have hc := allLt_true _ _ cosMove i hi
+  rw [Bool.or_eq_true] at hc
+  rcases hc with h0 | h1
+  · exact Nat.eq_of_beq_eq_true h0
+  · exfalso
+    have hb : actT (cosQ i).1 (Blocks.blkSet (badBlk.getD i 0))
+        = Blocks.blkSet (badBlk.getD i 0) := by
+      rw [actT_eq (cosQ_ok i)]
+      exact h (badBlk.getD i 0)
+    rw [decide_eq_true hb] at h1
+    exact absurd h1 (by decide)
+
+/-- **The stabiliser of the witness AtlasPresentation is exactly `< kerGt >`.**
+One direction is that the four generators fix the four blocks; the other is the
+coset decomposition. -/
+public theorem stabPres_eq (g : Perm 120) :
+    stabPres Blocks.blkSet g ↔ Perm.Gen (permsOf kerGt) g := by
+  refine ⟨fun h => ?_, kerGen_stabPres⟩
+  obtain ⟨i, hi, k, hk, he⟩ := gauge_coset ((gauge_eq g).mp (stabPres_le_D28 h))
+  have hkfix := kerGen_stabPres hk
+  have hcfix : ∀ a : Fin 4, actP (cosP i) (Blocks.blkSet a) = Blocks.blkSet a := by
+    intro a
+    refine actP_inj k (classSet_actP (cosP i) (Blocks.blkSet a)) (Blocks.blkIsBlock a).1 ?_
+    rw [← actP_comp, ← he, h.2 a, hkfix.2 a]
+  rw [he, cos_fix_zero hi hcfix, cosP_zero, Perm.comp_one]
+  exact hk
+
+/-- The stabiliser of the witness presentation is the kernel `D29` of `rho`:
+`D28a` is trivial exactly when every block is fixed, which is what `stabPres`
+asks. -/
+public theorem stabPres_iff_D29 (g : Perm 120) :
+    stabPres Blocks.blkSet g ↔ D29 Blocks.blkSet W0 g := by
+  refine ⟨fun h => (D29_iff (stabPres_le_D28 h)).mpr h.2, fun h => ⟨h.1.1, ?_⟩⟩
+  exact (D29_iff h.1).mp h
+
+/-- `T39p`. **For the witness AtlasPresentation, `|Stab_Aut(A)| = 576`.**
+
+The list is the one the chain of `kerSpec` builds, and `stabPres_eq` is what
+makes its membership predicate the stabiliser. The blocks are named as
+`Blocks.blkSet` rather than as `A_0.blk`: they are the same four sets --- `A_0`
+is *defined* as the presentation whose blocks are `blkSet` --- but `A_0` is not
+an exposed definition downstream of `Blocks`, so the tuple is the form this
+module can state. -/
+public theorem T39p : HasOrderP (stabPres Blocks.blkSet) 576 := by
+  obtain ⟨L, hnd, hmem, hlen⟩ := kerOrder
+  exact ⟨L, hnd, fun g => (hmem g).trans (stabPres_eq g).symm, hlen⟩
 
 /-! ## `D30`: the automorphism group of a single block -/
 
@@ -3316,6 +3652,34 @@ public theorem apply_neg_id (c : Vec 8 Int) :
   rw [Mat.apply_id]
   rfl
 
+/-- `V68a`. **`-I` is not `I`.**
+
+Section 14 lists twelve "finite premises checked" and states none of them. The
+other eleven are reconstructed elsewhere in this library from the theorem each
+one discharges, each saying so in its own docstring; this is the last, and it
+is reconstructed the same way.
+
+What `V68a` has to be is fixed by what its partner leaves undone. `T73` proves
+`ker(pi) <= {+I, -I}` and `V68b` puts `-I` inside the kernel, and together
+those give `ker(pi) = {+I, -I}` only if the two matrices are different --- a
+kernel of order `2` rather than a kernel of order `1` written twice. Nothing
+about classes can supply that: `I` and `-I` act identically on `K`, which is
+exactly why `V68b` needed a sign bit. It is a finite check on one entry, and it
+is the premise the pair was missing. -/
+public theorem V68a : Mat.neg (Mat.id : Mat 8 8 Int) ≠ (Mat.id : Mat 8 8 Int) := by
+  intro h
+  have hentry : (Mat.neg (Mat.id : Mat 8 8 Int)) 0 0 = (Mat.id : Mat 8 8 Int) 0 0 := by
+    rw [h]
+  have hneg : (Mat.neg (Mat.id : Mat 8 8 Int)) 0 0 = -1 := by
+    show AddCommGroup.neg ((Mat.id : Mat 8 8 Int) 0 0) = -1
+    rw [Mat.id_apply, if_pos rfl]
+    rfl
+  have hone : (Mat.id : Mat 8 8 Int) 0 0 = 1 := by
+    rw [Mat.id_apply, if_pos rfl]
+    rfl
+  rw [hneg, hone] at hentry
+  exact absurd hentry (by decide)
+
 /-- `V68b`. **`-I` lies in `WLin`, and it lies in the kernel of `pi`.** -/
 public theorem V68b : Places.WLinMem (Mat.neg (Mat.id : Mat 8 8 Int))
     ∧ ∀ k : K, Places.D42 (Mat.neg (Mat.id : Mat 8 8 Int)) k = k := by
@@ -3324,5 +3688,698 @@ public theorem V68b : Places.WLinMem (Mat.neg (Mat.id : Mat 8 8 Int))
   rw [apply_neg_id, Places.kOf_neg (Places.rootC_coordOf k)]
   exact Places.kOf_coordOf k
 
+
+/-! ## `T59` and `T59a`: the graph automorphisms are exactly `Aut`
+
+`T59p` puts `Aut` inside `Aut(Gamma)`. The reverse containment is a
+completeness argument and not a search, and it is what `T59` and `T59a` need:
+once the two groups are equal, `T28`'s count is the graph's.
+
+The argument descends the seven base points of `autSpec`. At each level the
+element to be identified fixes the points already treated, so the image of the
+next base point has the same *profile* against them as the base point itself:
+the same adjacency to each fixed point, and the same number of common
+neighbours with each pair of them. Nothing about `W_0` is available here, so
+those two are all the invariants there are --- and they are enough, which is
+not automatic. `Roots.commonN_eq` makes the class graph strongly regular with
+`k = 56`, `lambda = 28` and `mu = 24`, so the number of common neighbours of
+*two* classes is already fixed by whether they are adjacent and adds nothing on
+its own. What the counts add is the triple: adjacency alone leaves `120`, `64`,
+`24`, `12`, `8`, `6` and `4` candidates at the seven levels, and the common
+neighbours with a pair of fixed points cut the second and the fourth to `63`
+and `10`.
+
+Those seven numbers -- `120`, `63`, `24`, `10`, `8`, `6`, `4` -- are exactly
+the orbit lengths `autChainLen` multiplies, so at every level the profile
+allows nothing the group does not already reach. Dividing by the stored
+transversal element -- a word over the reflections, hence a member of `Aut` --
+fixes one more base point.
+
+After the seventh level the element fixes the seven base points, and two rounds
+of individualisation finish it. `64` classes each carry an adjacency pattern
+against the seven that no other class carries; `56` is one of them, and against
+those eight the remaining `49` are pinned the same way. A graph automorphism
+fixing every class is the identity, so the original element is the product of
+the seven transversal elements and lies in `Aut`. -/
+
+/-- `Aut(Gamma)` on `Perm 120`: `D32`'s automorphisms of the class graph, with
+adjacency written as the matrix `A` of `D13` and with the invertibility clause
+of `AutGamma` carried by `Perm` itself. `autA_autGamma` and `autGamma_perm` are
+the two halves of the bridge to `Places.AutGamma`, which says the same thing
+about a self-map of `K`. -/
+@[expose] public def AutA (g : Perm 120) : Prop :=
+  ∀ u v : K, A (g.toFun u) (g.toFun v) = A u v
+
+public theorem autA_of_D21 {g : Perm 120} (hg : D21 g) : AutA g := T59p hg
+
+public theorem autA_one : AutA (Perm.one 120) := fun _ _ => rfl
+
+public theorem autA_comp {g h : Perm 120} (hg : AutA g) (hh : AutA h) : AutA (g.comp h) := by
+  intro u v
+  show A (g.toFun (h.toFun u)) (g.toFun (h.toFun v)) = A u v
+  rw [hg, hh]
+
+public theorem autA_inv {g : Perm 120} (hg : AutA g) : AutA g.inv := by
+  intro u v
+  show A (g.invFun u) (g.invFun v) = A u v
+  have h := hg (g.invFun u) (g.invFun v)
+  rw [g.right_inv, g.right_inv] at h
+  exact h.symm
+
+/-- The adjacency matrix is the edge relation: `A u v = 1` is `D13 u v`. -/
+public theorem A_eq_one_iff (u v : K) : A u v = 1 ↔ Roots.D13 u v := by
+  by_cases h : u = v
+  · rw [h, Roots.A_diag]
+    exact ⟨fun hc => absurd hc (by decide), fun hd => absurd rfl hd.1⟩
+  · rw [Roots.A_apply u v h]
+    constructor
+    · intro hc
+      refine ⟨h, ?_⟩
+      by_cases h4 : dot (Roots.rep u) (Roots.rep v) = 4
+      · exact Or.inl h4
+      · rw [if_neg h4] at hc
+        by_cases h5 : dot (Roots.rep u) (Roots.rep v) = -4
+        · exact Or.inr h5
+        · rw [if_neg h5] at hc
+          exact absurd hc (by decide)
+    · rintro ⟨-, h4 | h5⟩
+      · rw [if_pos h4]
+      · rw [if_neg (by omega : ¬ dot (Roots.rep u) (Roots.rep v) = 4), if_pos h5]
+
+public theorem A_le_one (u v : K) : A u v = 1 ∨ A u v = 0 := by
+  rcases Nat.lt_or_ge (A u v) 1 with h | h
+  · exact Or.inr (Nat.lt_one_iff.mp h)
+  · exact Or.inl (Nat.le_antisymm (Roots.adjN_le_one _ _) h)
+
+/-- A permutation is an automorphism of `Gamma` exactly when its underlying map
+is one in the sense of `D32`. -/
+public theorem autA_autGamma {g : Perm 120} : AutA g ↔ Places.AutGamma g.toFun := by
+  constructor
+  · intro hg
+    refine ⟨⟨g.invFun, g.left_inv, g.right_inv⟩, fun u v => ?_⟩
+    rw [← A_eq_one_iff, ← A_eq_one_iff, hg]
+  · rintro ⟨-, hadj⟩
+    intro u v
+    have key : A (g.toFun u) (g.toFun v) = 1 ↔ A u v = 1 := by
+      rw [A_eq_one_iff, A_eq_one_iff]
+      exact hadj u v
+    rcases A_le_one (g.toFun u) (g.toFun v) with h1 | h1
+    · rw [h1, key.mp h1]
+    · rcases A_le_one u v with h2 | h2
+      · exact absurd (key.mpr h2) (by rw [h1]; decide)
+      · rw [h1, h2]
+
+/-- Every automorphism of `Gamma` is a permutation of the classes. -/
+public theorem autGamma_perm {t : K → K} (h : Places.AutGamma t) :
+    ∃ g : Perm 120, g.toFun = t ∧ AutA g := by
+  obtain ⟨⟨s, hs1, hs2⟩, hadj⟩ := h
+  exact ⟨⟨t, s, hs1, hs2⟩, rfl, autA_autGamma.mpr ⟨⟨s, hs1, hs2⟩, hadj⟩⟩
+
+/-! ### The graph profile -/
+
+/-- The classes adjacent to all of `u`, `v` and `w`. `cnt2t` is this count
+inside a class set; the descent below has no set to work in, so it uses the
+whole graph's. -/
+@[expose] public def triK (u v w : K) : Nat :=
+  Vec.sumNat (fun y : K => A u y * A v y * A w y)
+
+/-- `triK` on bit masks, which is what the kernel certificates run. -/
+@[expose] public def triB (u v w : Nat) : Nat :=
+  Bitset.card (Bitset.inter (Bitset.inter (arow u) (arow v)) (arow w))
+
+public theorem triB_eq {u v w : Nat} (hu : u < 120) (hv : v < 120) (hw : w < 120) :
+    triB u v w = triK ⟨u, hu⟩ ⟨v, hv⟩ ⟨w, hw⟩ := by
+  show Bitset.card (Bitset.inter (Bitset.inter (arow u) (arow v)) (arow w)) = _
+  rw [← Blocks.card_eq_sum_fin (classSet_inter (classSet_inter (classSet_arow u)))]
+  refine Vec.sumNat_congr (fun y => ?_)
+  rw [ind_inter, ind_inter, ind_adjRow hu y.isLt, ind_adjRow hv y.isLt, ind_adjRow hw y.isLt]
+  rfl
+
+public theorem triK_inv {g : Perm 120} (hg : AutA g) (u v w : K) :
+    triK (g.toFun u) (g.toFun v) (g.toFun w) = triK u v w := by
+  show Vec.sumNat (fun y : K => A (g.toFun u) y * A (g.toFun v) y * A (g.toFun w) y) = _
+  rw [← sumK_reindex g (fun y : K => A (g.toFun u) y * A (g.toFun v) y * A (g.toFun w) y)]
+  refine Vec.sumNat_congr (fun y => ?_)
+  rw [hg u y, hg v y, hg w y]
+
+public theorem adjN_imageA {g : Perm 120} (hg : AutA g) {x f : Nat} (hx : x < 120) (hf : f < 120)
+    (hfix : (g.toFun (fin120 f)).val = f) :
+    adjN (g.toFun (fin120 x)).val f = adjN x f :=
+  adjN_image_of_pres hg hx hf hfix
+
+public theorem triB_image {g : Perm 120} (hg : AutA g) {x f f' : Nat}
+    (hx : x < 120) (hf : f < 120) (hf' : f' < 120)
+    (hfix : (g.toFun (fin120 f)).val = f) (hfix' : (g.toFun (fin120 f')).val = f') :
+    triB (g.toFun (fin120 x)).val f f' = triB x f f' := by
+  have hgx : (g.toFun (fin120 x)).val < 120 := (g.toFun (fin120 x)).isLt
+  rw [triB_eq hgx hf hf', triB_eq hx hf hf',
+    show (⟨(g.toFun (fin120 x)).val, hgx⟩ : Fin 120) = g.toFun (fin120 x) from
+      Fin.eq_of_val_eq rfl,
+    show (⟨f, hf⟩ : Fin 120) = fin120 f from Fin.eq_of_val_eq (fin120_val hf).symm,
+    show (⟨f', hf'⟩ : Fin 120) = fin120 f' from Fin.eq_of_val_eq (fin120_val hf').symm,
+    show (⟨x, hx⟩ : Fin 120) = fin120 x from Fin.eq_of_val_eq (fin120_val hx).symm]
+  have h := triK_inv hg (fin120 x) (fin120 f) (fin120 f')
+  rw [fixed_fin hf hfix, fixed_fin hf' hfix'] at h
+  exact h
+
+/-- The profile of `y` against the already-fixed points `fx`, in the graph
+alone: adjacency to each of them, and common neighbours with each pair. The
+cheap test comes first because `&&` is lazy. -/
+@[expose] public def profG (fx : List Nat) (b y : Nat) : Bool :=
+  fx.all (fun f => Nat.beq (adjN y f) (adjN b f))
+    && fx.all (fun f => fx.all (fun f' => Nat.beq (triB y f f') (triB b f f')))
+
+/-- One level of the descent, as a kernel certificate: every class with the
+base point's profile is covered by the stored transversal, and every stored
+word fixes the points already fixed and carries the base point to its own
+class. -/
+@[expose] public def levelG (fx : List Nat) (b : Nat) (l : List (Nat × List Nat)) : Bool :=
+  allLt (fun y => Bool.not (profG fx b y) || hasKey l y) 120
+    && l.all (fun p => Nat.beq (ap (evalT autGt p.2).1 b) p.1
+        && fx.all (fun f => Nat.beq (ap (evalT autGt p.2).1 f) f))
+
+/-- The permutation a word over the reflections evaluates to. -/
+@[expose] public def aOf (w : List Nat) : Perm 120 := tpermP (evalT autGt w)
+
+public theorem aOf_gen (w : List Nat) : D21 (aOf w) := by
+  show Perm.Gen (permsOf autGt) (tpermP (evalT autGt w))
+  rw [← evalP_permsOf autGt_ok]
+  exact gen_evalP _ _
+
+public theorem aOf_apply (w : List Nat) {x : Nat} (hx : x < 120) :
+    ((aOf w).toFun (fin120 x)).val = ap (evalT autGt w).1 x := by
+  show ((tperm (evalT autGt w).1 (evalT autGt w).2).toFun (fin120 x)).val = _
+  rw [tperm_toFun (tabOK_evalT autGt_ok w), fin120_val hx]
+
+public theorem profG_image {g : Perm 120} (hg : AutA g) (fx : List Nat)
+    (hfx : ∀ f ∈ fx, f < 120 ∧ (g.toFun (fin120 f)).val = f)
+    {b : Nat} (hb : b < 120) : profG fx b (g.toFun (fin120 b)).val = true := by
+  rw [profG, Bool.and_eq_true]
+  constructor
+  · refine List.all_eq_true.mpr (fun f hf => ?_)
+    rw [adjN_imageA hg hb (hfx f hf).1 (hfx f hf).2]
+    exact Nat.beq_refl _
+  · refine List.all_eq_true.mpr (fun f hf => List.all_eq_true.mpr (fun f' hf' => ?_))
+    rw [triB_image hg hb (hfx f hf).1 (hfx f' hf').1 (hfx f hf).2 (hfx f' hf').2]
+    exact Nat.beq_refl _
+
+/-- Dividing by a transversal element, with the element abstract: it lies in
+`Aut`, it agrees with `g` on the next base point, and it fixes the points
+already fixed. -/
+public theorem descendG_of {g t : Perm 120} (hg : AutA g) (ht : D21 t)
+    (fx : List Nat) (hfx : ∀ f ∈ fx, f < 120 ∧ (g.toFun (fin120 f)).val = f)
+    {b : Nat} (hb : b < 120)
+    (htb : (t.toFun (fin120 b)).val = (g.toFun (fin120 b)).val)
+    (htf : ∀ f ∈ fx, (t.toFun (fin120 f)).val = f) :
+    ∃ g' : Perm 120, g = t.comp g' ∧ AutA g'
+      ∧ (∀ f ∈ b :: fx, f < 120 ∧ (g'.toFun (fin120 f)).val = f) := by
+  refine ⟨t.inv.comp g, ?_, ?_, ?_⟩
+  · rw [← Perm.comp_assoc, Perm.comp_inv, Perm.one_comp]
+  · exact autA_comp (autA_inv (autA_of_D21 ht)) hg
+  · intro f hf
+    rcases List.mem_cons.mp hf with rfl | hf'
+    · refine ⟨hb, ?_⟩
+      have h2 : t.invFun (g.toFun (fin120 f)) = fin120 f := by
+        rw [← Fin.eq_of_val_eq htb, t.left_inv]
+      show (t.invFun (g.toFun (fin120 f))).val = f
+      rw [h2, fin120_val hb]
+    · refine ⟨(hfx f hf').1, ?_⟩
+      have h3 : g.toFun (fin120 f) = t.toFun (fin120 f) :=
+        Fin.eq_of_val_eq (by rw [(hfx f hf').2, htf f hf'])
+      have h2 : t.invFun (g.toFun (fin120 f)) = fin120 f := by
+        rw [h3, t.left_inv]
+      show (t.invFun (g.toFun (fin120 f))).val = f
+      rw [h2, fin120_val (hfx f hf').1]
+
+/-- One level of the descent: the certificate names a transversal element, and
+dividing by it fixes one more base point without leaving `Aut(Gamma)`. -/
+public theorem descendG {g : Perm 120} (hg : AutA g) (fx : List Nat)
+    (hfx : ∀ f ∈ fx, f < 120 ∧ (g.toFun (fin120 f)).val = f)
+    {b : Nat} (hb : b < 120) {l : List (Nat × List Nat)} (hl : levelG fx b l = true) :
+    ∃ t g' : Perm 120, D21 t ∧ g = t.comp g' ∧ AutA g'
+      ∧ (∀ f ∈ b :: fx, f < 120 ∧ (g'.toFun (fin120 f)).val = f) := by
+  rw [levelG, Bool.and_eq_true] at hl
+  have hgb : (g.toFun (fin120 b)).val < 120 := (g.toFun (fin120 b)).isLt
+  have hkey : hasKey l (g.toFun (fin120 b)).val = true := by
+    have h := allLt_true _ _ hl.1 _ hgb
+    rw [profG_image hg fx hfx hb, Bool.not_true, Bool.false_or] at h
+    exact h
+  have hmem := trFind_key l _ hkey
+  have hw := List.all_eq_true.mp hl.2 _ hmem
+  rw [Bool.and_eq_true] at hw
+  have htb : ((aOf (trFind l (g.toFun (fin120 b)).val)).toFun (fin120 b)).val
+      = (g.toFun (fin120 b)).val := by
+    rw [aOf_apply _ hb]
+    exact Nat.eq_of_beq_eq_true hw.1
+  have htf : ∀ f ∈ fx, ((aOf (trFind l (g.toFun (fin120 b)).val)).toFun (fin120 f)).val = f := by
+    intro f hf
+    rw [aOf_apply _ (hfx f hf).1]
+    exact Nat.eq_of_beq_eq_true (List.all_eq_true.mp hw.2 f hf)
+  obtain ⟨g', hg'⟩ := descendG_of hg (aOf_gen (trFind l (g.toFun (fin120 b)).val)) fx hfx hb
+    htb htf
+  exact ⟨aOf (trFind l (g.toFun (fin120 b)).val), g',
+    aOf_gen (trFind l (g.toFun (fin120 b)).val), hg'.1, hg'.2.1, hg'.2.2⟩
+
+/-! ### The seven levels -/
+
+@[expose] public def gL0 : List (Nat × List Nat) :=
+  [(0, []), (1, [6, 4, 2, 6]), (2, [6]), (3, [4, 2, 6]), (4, [8, 6]), (5, [8, 4, 2, 6]), (6,
+   [10, 8, 6]), (7, [10, 8, 4, 2, 6]), (8, [12, 10, 8, 6]), (9, [12, 10, 8, 4, 2, 6]), (10,
+   [14, 12, 10, 8, 6]), (11, [14, 12, 10, 8, 4, 2, 6]), (12, [2, 6, 8, 10, 12, 14, 0, 4, 6,
+   8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (13, [4, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10,
+   12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (14, [4, 6]), (15, [2, 6]), (16, [8, 4, 6]), (17,
+   [8, 2, 6]), (18, [10, 8, 4, 6]), (19, [10, 8, 2, 6]), (20, [12, 10, 8, 4, 6]), (21, [12,
+   10, 8, 2, 6]), (22, [14, 12, 10, 8, 4, 6]), (23, [14, 12, 10, 8, 2, 6]), (24, [4, 2, 6,
+   8, 10, 12, 14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (25, [6, 8, 10, 12,
+   14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (26, [6, 8, 4, 6]), (27, [6, 8,
+   2, 6]), (28, [10, 6, 8, 4, 6]), (29, [10, 6, 8, 2, 6]), (30, [12, 10, 6, 8, 4, 6]), (31,
+   [12, 10, 6, 8, 2, 6]), (32, [14, 12, 10, 6, 8, 4, 6]), (33, [14, 12, 10, 6, 8, 2, 6]),
+   (34, [6, 4, 2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]),
+   (35, [8, 10, 12, 14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (36, [8, 10, 6,
+   8, 4, 6]), (37, [8, 10, 6, 8, 2, 6]), (38, [12, 8, 10, 6, 8, 4, 6]), (39, [12, 8, 10, 6,
+   8, 2, 6]), (40, [14, 12, 8, 10, 6, 8, 4, 6]), (41, [14, 12, 8, 10, 6, 8, 2, 6]), (42, [8,
+   6, 4, 2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (43, [10,
+   12, 14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (44, [10, 12, 8, 10, 6, 8,
+   4, 6]), (45, [10, 12, 8, 10, 6, 8, 2, 6]), (46, [14, 10, 12, 8, 10, 6, 8, 4, 6]), (47,
+   [14, 10, 12, 8, 10, 6, 8, 2, 6]), (48, [10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10,
+   12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (49, [12, 14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6,
+   8, 0, 4, 6]), (50, [12, 14, 10, 12, 8, 10, 6, 8, 4, 6]), (51, [12, 14, 10, 12, 8, 10, 6,
+   8, 2, 6]), (52, [12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10,
+   4, 6, 8, 0, 4, 6]), (53, [14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (54,
+   [14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0,
+   4, 6]), (55, [0, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (56, [2, 6, 8, 10, 12,
+   14, 4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (57, [14, 12, 10, 8, 0, 4, 2, 6]),
+   (58, [12, 10, 8, 0, 4, 2, 6]), (59, [2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (60, [10, 8, 0, 4,
+   2, 6]), (61, [12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (62, [14, 12, 2, 6, 8, 10, 4, 6, 8, 0,
+   4, 6]), (63, [10, 12, 14, 8, 10, 12, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (64, [8, 0, 4, 2, 6]),
+   (65, [10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (66, [14, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0,
+   4, 6]), (67, [12, 14, 8, 10, 12, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (68, [12, 14, 10, 12, 2,
+   6, 8, 10, 4, 6, 8, 0, 4, 6]), (69, [14, 8, 10, 12, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (70, [8,
+   10, 12, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (71, [0, 4, 6]), (72, [0, 4, 2, 6]), (73, [8, 10,
+   12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (74, [14, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4,
+   6]), (75, [12, 14, 10, 12, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (76, [12, 14, 8, 10, 12, 2, 6,
+   8, 10, 4, 6, 8, 0, 4, 6]), (77, [14, 10, 12, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (78, [10, 12,
+   6, 8, 10, 4, 6, 8, 0, 4, 6]), (79, [8, 0, 4, 6]), (80, [10, 12, 14, 8, 10, 12, 2, 6, 8,
+   10, 4, 6, 8, 0, 4, 6]), (81, [14, 12, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (82, [12, 6, 8, 10,
+   4, 6, 8, 0, 4, 6]), (83, [10, 8, 0, 4, 6]), (84, [6, 8, 10, 4, 6, 8, 0, 4, 6]), (85, [12,
+   10, 8, 0, 4, 6]), (86, [14, 12, 10, 8, 0, 4, 6]), (87, [6, 8, 10, 12, 14, 4, 6, 8, 10,
+   12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (88, [6, 0, 4, 2, 6]), (89, [6, 8, 10, 12, 2, 6, 8,
+   10, 4, 6, 8, 0, 4, 6]), (90, [14, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (91,
+   [12, 14, 10, 12, 8, 10, 4, 6, 8, 0, 4, 6]), (92, [12, 14, 6, 8, 10, 12, 2, 6, 8, 10, 4,
+   6, 8, 0, 4, 6]), (93, [14, 10, 12, 8, 10, 4, 6, 8, 0, 4, 6]), (94, [10, 12, 8, 10, 4, 6,
+   8, 0, 4, 6]), (95, [6, 8, 0, 4, 6]), (96, [10, 12, 14, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6,
+   8, 0, 4, 6]), (97, [14, 12, 8, 10, 4, 6, 8, 0, 4, 6]), (98, [12, 8, 10, 4, 6, 8, 0, 4,
+   6]), (99, [10, 6, 8, 0, 4, 6]), (100, [8, 10, 4, 6, 8, 0, 4, 6]), (101, [12, 10, 6, 8, 0,
+   4, 6]), (102, [14, 12, 10, 6, 8, 0, 4, 6]), (103, [8, 10, 12, 14, 4, 6, 8, 10, 12, 2, 6,
+   8, 10, 4, 6, 8, 0, 4, 6]), (104, [8, 10, 12, 14, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0,
+   4, 6]), (105, [14, 12, 10, 4, 6, 8, 0, 4, 6]), (106, [12, 10, 4, 6, 8, 0, 4, 6]), (107,
+   [8, 10, 6, 8, 0, 4, 6]), (108, [10, 4, 6, 8, 0, 4, 6]), (109, [12, 8, 10, 6, 8, 0, 4,
+   6]), (110, [14, 12, 8, 10, 6, 8, 0, 4, 6]), (111, [10, 12, 14, 4, 6, 8, 10, 12, 2, 6, 8,
+   10, 4, 6, 8, 0, 4, 6]), (112, [4, 6, 8, 0, 4, 6]), (113, [10, 12, 8, 10, 6, 8, 0, 4, 6]),
+   (114, [14, 10, 12, 8, 10, 6, 8, 0, 4, 6]), (115, [12, 14, 4, 6, 8, 10, 12, 2, 6, 8, 10,
+   4, 6, 8, 0, 4, 6]), (116, [12, 14, 10, 12, 8, 10, 6, 8, 0, 4, 6]), (117, [14, 4, 6, 8,
+   10, 12, 2, 6, 8, 10, 4, 6, 8, 0, 4, 6]), (118, [4, 6, 8, 10, 12, 2, 6, 8, 10, 4, 6, 8, 0,
+   4, 6]), (119, [4, 6, 0, 4, 2, 6])]
+
+@[expose] public def gL1 : List (Nat × List Nat) :=
+  [(1, []), (26, [6, 0, 4, 2, 6, 8, 10, 12, 14, 6, 4, 2, 6, 8, 4, 0]), (27, [12, 14, 10, 8,
+   6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 4, 6, 0, 4, 2, 6, 4, 0]), (28, [10, 12, 14, 6, 0,
+   4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 4, 0]), (29, [8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 0,
+   4, 6, 8, 10, 4, 6, 0, 4, 2, 6, 8, 4, 0]), (30, [12, 14, 10, 8, 6, 0, 4, 2, 6, 8, 6, 4, 2,
+   6, 4, 0]), (31, [10, 12, 14, 8, 6, 4, 2, 6, 8, 10, 12, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 2,
+   6, 4, 0]), (32, [6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 4, 6, 8, 10, 12, 0,
+   4, 6, 8, 10, 8, 6, 4, 2, 6, 8, 4, 0]), (33, [12, 14, 12, 8, 4, 6, 0, 4, 2, 6, 8, 10, 6,
+   8, 4, 6, 0, 4, 2, 6, 8, 2, 6, 4, 0]), (34, [6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10,
+   12, 14, 2, 6, 8, 10, 12, 8, 6, 4, 2, 6, 8, 10, 4, 6, 8, 6, 4, 2, 6, 0]), (35, [10, 8, 4,
+   6, 0, 4, 2, 6, 8, 10, 12, 14, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 6, 4,
+   2, 6, 0]), (36, [14, 8, 10, 12, 6, 0, 4, 2, 6, 8, 10, 6, 4, 2, 6, 4, 0]), (37, [6, 0, 4,
+   2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10, 4, 6, 0, 4, 2, 6, 8, 4, 0]), (38, [4, 6, 8, 10, 2,
+   6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 6, 8, 10, 12, 0, 4, 6, 8, 10, 6, 4, 2, 6, 8, 4,
+   0]), (39, [12, 14, 6, 0, 4, 2, 6, 8, 10, 6, 8, 4, 6, 0, 4, 2, 6, 8, 2, 6, 4, 0]), (40,
+   [14, 12, 8, 10, 6, 0, 4, 2, 6, 8, 6, 4, 2, 6, 4, 0]), (41, [8, 10, 12, 14, 8, 6, 4, 2, 6,
+   8, 10, 12, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 2, 6, 4, 0]), (42, [4, 6, 8, 10, 2, 6,
+   8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 4, 6,
+   8, 6, 4, 2, 6, 0]), (43, [10, 8, 6, 0, 4, 2, 6, 8, 10, 12, 14, 10, 12, 8, 6, 4, 2, 6, 8,
+   10, 6, 4, 2, 6, 8, 6, 4, 2, 6, 0]), (44, [6, 4, 2, 6, 8, 10, 12, 14, 6, 4, 2, 6, 8, 10,
+   12, 6, 0, 4, 2, 6, 8, 10, 6, 4, 2, 6, 4, 0]), (45, [6, 0, 4, 2, 6, 8, 10, 12, 14, 8, 10,
+   6, 8, 4, 6, 0, 4, 2, 6, 8, 2, 6, 4, 0]), (46, [8, 6, 4, 2, 6, 8, 10, 12, 14, 6, 4, 2, 6,
+   8, 10, 12, 4, 6, 0, 4, 2, 6, 8, 10, 8, 6, 4, 2, 6, 4, 0]), (47, [8, 4, 6, 0, 4, 2, 6, 8,
+   10, 12, 14, 12, 8, 10, 6, 8, 4, 6, 0, 4, 2, 6, 8, 2, 6, 4, 0]), (48, [10, 12, 4, 6, 8,
+   10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 10, 8, 6, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4,
+   2, 6, 8, 10, 4, 6, 8, 2, 6, 0]), (49, [12, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10,
+   12, 14, 12, 4, 2, 6, 8, 10, 4, 6, 8, 6, 4, 2, 6, 0]), (50, [10, 8, 6, 4, 2, 6, 8, 10, 12,
+   14, 10, 12, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 4, 6, 8, 6, 4, 2, 6, 4, 0]), (51, [4, 6, 8,
+   10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 6, 8, 10, 12, 4, 6, 8, 10, 6, 8, 4, 6, 0,
+   4, 2, 6, 8, 2, 6, 4, 0]), (52, [12, 10, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 10, 6, 8, 4,
+   6, 0, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 4, 6, 8, 6, 4, 2, 6, 0]), (53, [8, 6,
+   0, 4, 2, 6, 8, 10, 12, 14, 6, 4, 2, 6, 8, 10, 12, 6, 4, 2, 6, 8, 10, 8, 6, 4, 2, 6, 0]),
+   (54, [14, 12, 10, 8, 6, 0, 4, 2, 6, 8, 10, 12, 14, 8, 10, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10,
+   12, 10, 8, 6, 4, 2, 6, 8, 10, 4, 6, 8, 6, 4, 2, 6, 0]), (55, [8, 6, 0, 4, 2, 6, 8, 10,
+   12, 14, 6, 4, 2, 6, 8, 10, 12, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 0]), (88, [0]), (89, [6,
+   4, 2, 6, 8, 10, 12, 14, 6, 4, 2, 6, 8, 10, 12, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 4, 0]),
+   (90, [6, 4, 2, 6, 8, 10, 12, 14, 12, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 6, 4, 2, 6, 4,
+   0]), (91, [12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 12, 8, 10, 8, 6, 4, 2, 6, 0]), (92, [12,
+   10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 8, 6, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 6,
+   4, 2, 6, 4, 0]), (93, [8, 10, 12, 14, 8, 6, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10,
+   0]), (94, [10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 10, 12, 8, 6, 4, 2, 6, 8, 10, 8, 0]), (95,
+   [6, 4, 2, 6, 8, 10, 12, 14, 6, 4, 2, 6, 8, 4, 0]), (96, [10, 12, 14, 6, 4, 2, 6, 8, 10,
+   12, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 6, 4, 2, 6, 4, 0]), (97, [12, 14, 12, 8, 10, 8, 6,
+   4, 2, 6, 8, 6, 4, 2, 6, 0]), (98, [12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 12, 8, 10, 6, 4,
+   2, 6, 8, 0]), (99, [10, 12, 14, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 4, 0]), (100, [8, 10,
+   12, 14, 12, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 0]), (101, [12, 14, 10, 8, 6, 4, 2, 6, 8,
+   6, 4, 2, 6, 4, 0]), (102, [6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 4, 2, 6,
+   8, 10, 12, 0, 4, 6, 8, 10, 8, 6, 4, 2, 6, 8, 4, 0]), (103, [8, 10, 12, 14, 6, 4, 2, 6, 8,
+   10, 12, 6, 4, 2, 6, 8, 10, 8, 6, 4, 2, 6, 8, 6, 4, 2, 6, 0]), (104, [10, 8, 6, 4, 2, 6,
+   8, 10, 12, 14, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 6, 4, 2, 6, 4, 0]),
+   (105, [12, 14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 10, 6, 4, 2, 6, 0]), (106, [12, 10, 6,
+   4, 2, 6, 8, 6, 4, 2, 6, 0]), (107, [14, 8, 10, 12, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 4, 0]),
+   (108, [10, 12, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 0]), (109, [12, 14, 10, 8, 6, 4, 2, 6, 8,
+   10, 12, 8, 10, 6, 4, 2, 6, 4, 0]), (110, [14, 12, 8, 10, 6, 4, 2, 6, 8, 6, 4, 2, 6, 4,
+   0]), (111, [10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 10, 12, 8, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6,
+   8, 6, 4, 2, 6, 0]), (112, [6, 4, 2, 6, 8, 10, 12, 6, 4, 2, 6, 0]), (113, [10, 12, 14, 8,
+   6, 4, 2, 6, 8, 10, 12, 8, 6, 4, 2, 6, 8, 10, 4, 0]), (114, [10, 8, 6, 4, 2, 6, 8, 10, 12,
+   14, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 8, 4, 0]), (115, [8, 6, 4, 2, 6, 8, 10, 12, 14,
+   10, 8, 6, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 0]), (116, [12,
+   14, 10, 12, 8, 6, 4, 2, 6, 8, 10, 8, 6, 4, 2, 6, 4, 0]), (117, [8, 6, 4, 2, 6, 8, 10, 12,
+   14, 6, 4, 2, 6, 8, 10, 12, 6, 4, 2, 6, 8, 10, 8, 6, 4, 2, 6, 0]), (118, [8, 6, 4, 2, 6,
+   8, 10, 12, 14, 6, 4, 2, 6, 8, 10, 12, 6, 4, 2, 6, 8, 10, 6, 4, 2, 6, 8, 0]), (119, [14,
+   8, 4, 0])]
+
+@[expose] public def gL2 : List (Nat × List Nat) :=
+  [(2, []), (3, [12, 14, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2,
+   6, 8, 10, 12, 14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 4, 6, 0, 4, 2, 6, 4, 0]),
+   (4, [8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10,
+   2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 2, 6, 4, 0]), (5,
+   [14, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 10, 8,
+   6, 4, 2, 6, 8, 10, 0, 4, 6, 8, 4, 6, 0, 4, 2, 6, 4, 0]), (6, [8, 10, 12, 14, 6, 4, 2, 6,
+   8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 0, 4,
+   2, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 2, 6, 4, 0]), (7, [14, 6, 4, 2, 6, 8, 10, 12,
+   0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 4, 6, 0, 4, 2, 6, 8,
+   10, 12, 0, 4, 6, 8, 4, 6, 0, 4, 2, 6, 4, 0]), (8, [12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0,
+   4, 2, 6, 8, 10, 12, 14, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 6, 8, 4, 6, 0,
+   4, 2, 6, 8, 2, 6, 4, 0]), (9, [8, 6, 4, 2, 6, 8, 10, 12, 14, 6, 4, 2, 6, 8, 10, 12, 8,
+   10, 8, 6, 4, 2, 6, 8, 6, 4, 2, 6]), (10, [8, 6, 4, 2, 6, 8, 10, 12, 14, 8, 6, 4, 2, 6, 8,
+   10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 0, 4, 2,
+   6, 8, 10, 12, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8]), (11, [10,
+   12, 14, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14,
+   10, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 0, 4, 2, 6, 8, 10, 4, 6, 0, 4, 2, 6, 4, 0]), (12,
+   [14, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6,
+   4, 2, 6, 8, 10, 12, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 4, 6, 0, 4, 2, 6, 8, 4, 0]), (13, [8,
+   6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 4,
+   6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 4, 6, 0, 4, 2, 6, 8, 4,
+   6, 0, 4, 2, 6]), (14, [14, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6,
+   0, 4, 2, 6, 8, 10, 12, 14, 12, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 0, 4, 6, 8,
+   2, 6, 0, 4, 0]), (15, [8, 6, 4, 2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4,
+   2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 0, 4, 6, 8, 4, 6, 0, 4, 2, 6, 0, 4, 0]), (16,
+   [6, 4, 2, 6, 8, 10, 12, 14, 10, 8, 6, 4, 2, 6, 8, 4]), (17, [14, 12, 0, 4, 6, 8, 10, 2,
+   6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 0,
+   4, 6, 8, 4, 6, 0, 4, 2, 6, 0, 4, 0]), (18, [14, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0,
+   4, 2, 6, 8, 10, 12, 14, 10, 8, 6, 4, 2, 6, 8, 10, 0, 4, 2, 6, 8, 2, 6, 0, 4, 0]), (19,
+   [8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 10,
+   8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 4, 6, 0, 4, 2, 6, 0, 4, 0]), (20, [6, 4, 2,
+   6, 8, 10, 12, 14, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8,
+   10, 12, 14, 12, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8,
+   4, 6, 0, 4, 2, 6, 8, 4]), (21, [8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8,
+   10, 12, 14, 12, 10, 8, 6, 0, 4, 2, 6, 8, 10, 12, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 4, 6, 0,
+   4, 2, 6, 0, 4, 0]), (22, [12, 14, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6,
+   0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 0, 4, 2, 6, 8, 10, 12, 6, 8, 4, 6, 0, 4, 2, 6,
+   8, 2, 6, 0, 4, 0]), (23, [14, 8, 6, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6, 4]), (24, [10,
+   8, 6, 4, 2, 6, 8, 10, 12, 14, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4,
+   6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 2, 6, 8, 10, 2, 6,
+   8, 0, 4, 0]), (25, [14, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6,
+   8, 10, 12, 14, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 4, 6,
+   0, 4, 2, 6, 8, 4, 6, 0, 4, 2, 6, 4])]
+
+@[expose] public def gL3 : List (Nat × List Nat) :=
+  [(4, []), (5, [12, 14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 8, 6, 4, 2, 6, 8]), (6, [0, 4, 6, 8,
+   10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8,
+   10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10]), (7, [8, 6, 4, 2, 6, 8, 10,
+   12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 2, 6,
+   8, 4, 6, 0, 4, 2, 6, 8, 2, 6, 4, 0]), (8, [10, 12, 14, 10]), (9, [10, 8, 6, 4, 2, 6, 8,
+   10, 12, 14, 10, 8, 6, 4, 2, 6, 8]), (10, [14, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8,
+   10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 0, 4, 2, 6, 8, 10, 12, 0, 4,
+   6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10]), (11, [10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 10,
+   12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 10, 8, 6, 0, 4, 2, 6, 8, 10, 2,
+   6, 8, 4, 6, 0, 4, 2, 6, 8, 2, 6, 4, 0]), (12, [10, 12, 14, 10, 8, 6, 4, 2, 6, 8, 10, 12,
+   0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4,
+   6, 0, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 4, 0]), (13, [10, 8, 6, 4, 2, 6, 8, 10,
+   12, 14, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10,
+   12, 14, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6,
+   8, 4, 6, 0, 4, 2, 6, 8])]
+
+@[expose] public def gL4 : List (Nat × List Nat) :=
+  [(6, []), (7, [12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2,
+   6, 8, 10, 12, 14, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 0, 4, 6, 8, 2, 6,
+   4, 0]), (8, [14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4,
+   2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0,
+   4, 2, 6, 8, 10, 12, 14, 12]), (9, [10, 8, 6, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 4, 2,
+   6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 4,
+   2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6,
+   8, 10]), (10, [12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8,
+   6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 10, 8,
+   6, 4, 2, 6, 8, 10, 12]), (11, [12, 14, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2,
+   6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10,
+   0, 4, 6, 8, 2, 6, 4, 0]), (12, [0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14,
+   10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 2, 6, 4, 0]), (13, [10, 8, 6, 4, 2, 6, 8, 10,
+   12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 10, 8, 6, 4, 2, 6, 8, 10,
+   12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10])]
+
+@[expose] public def gL5 : List (Nat × List Nat) :=
+  [(8, []), (9, [0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 10, 8, 6, 4, 2,
+   6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 4,
+   2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6,
+   8, 10, 0, 4, 6, 8, 2, 6, 4, 0]), (10, [14]), (11, [12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 14,
+   12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12,
+   10, 8, 6, 4, 2, 6, 8, 10, 0, 4, 6, 8, 2, 6, 4, 0]), (12, [12, 10, 8, 6, 4, 2, 6, 8, 10,
+   12, 14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8,
+   10, 12, 14, 10, 8, 6, 4, 2, 6, 8, 10, 0, 4, 6, 8, 2, 6, 4, 0]), (13, [14, 12, 10, 8, 6,
+   4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 10, 8, 6,
+   4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12])]
+
+@[expose] public def gL6 : List (Nat × List Nat) :=
+  [(10, []), (11, [14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0,
+   4, 2, 6, 8, 10, 12, 14, 12, 10, 8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6,
+   0, 4, 2, 6, 8, 10, 12, 14, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 10, 8,
+   6, 4, 2, 6, 8, 10, 0, 4, 6, 8, 2, 6, 4, 0]), (12, [0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4,
+   2, 6, 8, 10, 12, 10, 8, 6, 4, 2, 6, 8, 10, 0, 4, 6, 8, 2, 6, 4, 0]), (13, [14, 12, 10, 8,
+   6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14, 12, 10,
+   8, 6, 4, 2, 6, 8, 10, 12, 0, 4, 6, 8, 10, 2, 6, 8, 4, 6, 0, 4, 2, 6, 8, 10, 12, 14])]
+
+@[expose] public def baseFix : List Nat :=
+  [0, 1, 2, 4, 6, 8, 10]
+
+@[expose] public def pinR1 : List Nat :=
+  [56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
+   78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99,
+   100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
+   118, 119]
+
+@[expose] public def pinR2 : List Nat :=
+  [3, 5, 7, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+   30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+   52, 53, 54, 55]
+
+set_option maxHeartbeats 4000000 in
+public theorem certG0 : levelG [] 0 gL0 = true := by decide +kernel
+
+set_option maxHeartbeats 4000000 in
+public theorem certG1 : levelG [0] 1 gL1 = true := by decide +kernel
+
+set_option maxHeartbeats 4000000 in
+public theorem certG2 : levelG [1, 0] 2 gL2 = true := by decide +kernel
+
+set_option maxHeartbeats 4000000 in
+public theorem certG3 : levelG [2, 1, 0] 4 gL3 = true := by decide +kernel
+
+set_option maxHeartbeats 4000000 in
+public theorem certG4 : levelG [4, 2, 1, 0] 6 gL4 = true := by decide +kernel
+
+set_option maxHeartbeats 4000000 in
+public theorem certG5 : levelG [6, 4, 2, 1, 0] 8 gL5 = true := by decide +kernel
+
+set_option maxHeartbeats 4000000 in
+public theorem certG6 : levelG [8, 6, 4, 2, 1, 0] 10 gL6 = true := by decide +kernel
+
+/-! ### Individualisation -/
+
+/-- Same adjacency to every point of `fx`. -/
+@[expose] public def sameAdj (fx : List Nat) (b y : Nat) : Bool :=
+  fx.all (fun f => Nat.beq (adjN y f) (adjN b f))
+
+/-- One round of individualisation: each target is the only class with its
+adjacency pattern to `fx`. -/
+@[expose] public def pinRound (fx : List Nat) (tg : List Nat) : Bool :=
+  tg.all (fun b => Nat.blt b 120
+    && allLt (fun y => Bool.not (sameAdj fx b y) || Nat.beq y b) 120)
+
+set_option maxHeartbeats 4000000 in
+public theorem pinCert1 : pinRound baseFix pinR1 = true := by decide +kernel
+
+set_option maxHeartbeats 4000000 in
+public theorem pinCert2 : pinRound (56 :: baseFix) pinR2 = true := by decide +kernel
+
+public theorem pinCover :
+    allLt (fun y => (baseFix ++ pinR1 ++ pinR2).any (fun z => Nat.beq z y)) 120 = true := by
+  decide +kernel
+
+public theorem pin_fix {g : Perm 120} (hg : AutA g) {fx : List Nat}
+    (hfx : ∀ f ∈ fx, f < 120 ∧ (g.toFun (fin120 f)).val = f)
+    {tg : List Nat} (hc : pinRound fx tg = true) :
+    ∀ b ∈ tg, b < 120 ∧ (g.toFun (fin120 b)).val = b := by
+  intro b hb
+  have h := List.all_eq_true.mp hc b hb
+  rw [Bool.and_eq_true] at h
+  have hblt : b < 120 := Nat.le_of_ble_eq_true h.1
+  refine ⟨hblt, ?_⟩
+  have hgb : (g.toFun (fin120 b)).val < 120 := (g.toFun (fin120 b)).isLt
+  have h2 := allLt_true _ _ h.2 _ hgb
+  have hsame : sameAdj fx b (g.toFun (fin120 b)).val = true := by
+    refine List.all_eq_true.mpr (fun f hf => ?_)
+    rw [adjN_imageA hg hblt (hfx f hf).1 (hfx f hf).2]
+    exact Nat.beq_refl _
+  rw [hsame, Bool.not_true, Bool.false_or] at h2
+  exact Nat.eq_of_beq_eq_true h2
+
+/-- **A graph automorphism fixing the seven base points is the identity.** -/
+public theorem autA_trivial {g : Perm 120} (hg : AutA g)
+    (hbase : ∀ f ∈ baseFix, f < 120 ∧ (g.toFun (fin120 f)).val = f) : g = Perm.one 120 := by
+  have h1 := pin_fix hg hbase pinCert1
+  have hfx2 : ∀ f ∈ 56 :: baseFix, f < 120 ∧ (g.toFun (fin120 f)).val = f := by
+    intro f hf
+    rcases List.mem_cons.mp hf with rfl | hf
+    · exact h1 56 (by decide)
+    · exact hbase f hf
+  have h2 := pin_fix hg hfx2 pinCert2
+  refine Perm.ext (fun i => ?_)
+  have hcov := allLt_true _ _ pinCover i.val i.isLt
+  obtain ⟨z, hz, hzi⟩ := List.any_eq_true.mp hcov
+  have hzv : z = i.val := Nat.eq_of_beq_eq_true hzi
+  rw [hzv] at hz
+  have hfix : (g.toFun (fin120 i.val)).val = i.val := by
+    rcases List.mem_append.mp hz with hz1 | hz2
+    · rcases List.mem_append.mp hz1 with hb | hr1
+      · exact (hbase _ hb).2
+      · exact (h1 _ hr1).2
+    · exact (h2 _ hz2).2
+  have he : fin120 i.val = i := Fin.eq_of_val_eq (fin120_val i.isLt)
+  rw [he] at hfix
+  exact Fin.eq_of_val_eq hfix
+
+/-- **Every automorphism of the class graph lies in `Aut`.** This is the
+containment `T59p` does not give, and the only part of `T59` and `T59a` that is
+an argument rather than a count. -/
+public theorem autA_gen {g : Perm 120} (hg : AutA g) : D21 g := by
+  obtain ⟨t0, g1, ht0, he0, hg1, hf1⟩ :=
+    descendG hg [] (fun f hf => absurd hf (by simp)) (by decide : (0:Nat) < 120) certG0
+  obtain ⟨t1, g2, ht1, he1, hg2, hf2⟩ := descendG hg1 [0] hf1 (by decide : (1:Nat) < 120) certG1
+  obtain ⟨t2, g3, ht2, he2, hg3, hf3⟩ :=
+    descendG hg2 [1, 0] hf2 (by decide : (2:Nat) < 120) certG2
+  obtain ⟨t3, g4, ht3, he3, hg4, hf4⟩ :=
+    descendG hg3 [2, 1, 0] hf3 (by decide : (4:Nat) < 120) certG3
+  obtain ⟨t4, g5, ht4, he4, hg5, hf5⟩ :=
+    descendG hg4 [4, 2, 1, 0] hf4 (by decide : (6:Nat) < 120) certG4
+  obtain ⟨t5, g6, ht5, he5, hg6, hf6⟩ :=
+    descendG hg5 [6, 4, 2, 1, 0] hf5 (by decide : (8:Nat) < 120) certG5
+  obtain ⟨t6, g7, ht6, he6, hg7, hf7⟩ :=
+    descendG hg6 [8, 6, 4, 2, 1, 0] hf6 (by decide : (10:Nat) < 120) certG6
+  have hsub : ∀ f ∈ baseFix, f ∈ [10, 8, 6, 4, 2, 1, 0] := by decide
+  have h7 : g7 = Perm.one 120 := autA_trivial hg7 (fun f hf => hf7 f (hsub f hf))
+  rw [he0, he1, he2, he3, he4, he5, he6, h7]
+  exact D21_subgroup.2.2.1 _ _ ht0 (D21_subgroup.2.2.1 _ _ ht1 (D21_subgroup.2.2.1 _ _ ht2
+    (D21_subgroup.2.2.1 _ _ ht3 (D21_subgroup.2.2.1 _ _ ht4 (D21_subgroup.2.2.1 _ _ ht5
+      (D21_subgroup.2.2.1 _ _ ht6 D21_subgroup.2.1))))))
+
+/-! ### `T59` and `T59a` -/
+
+/-- The reflection of `D20` is the reflection `sRefl` of section 13: one is
+written through `reflOn` and the other through `D20vec`, and `reflOn_eq` is
+what identifies them. -/
+public theorem sRefl_eq (j : Fin 8) : Places.sRefl j = (D20 j).toFun := by
+  funext k
+  show Roots.D12 (Places.reflOn j (Roots.rep k)) = (D20 j).toFun k
+  rw [reflOn_eq j (D11_rep k), D20_apply j k]
+
+/-- Each reflection is its own inverse, so a generation step by an inverse is a
+generation step by the generator. -/
+public theorem D20_inv (a : Fin 8) : (D20 a).inv = D20 a := (tperm_swap (D20tabOK a)).symm
+
+public theorem autGen_of_D21 {g : Perm 120} (hg : D21 g) : Places.AutGen g.toFun := by
+  have hgen : ∀ s : Perm 120, s ∈ permsOf autGt → Places.AutGen s.toFun := by
+    intro s hs
+    rw [autGens_eq] at hs
+    obtain ⟨a, _, ha⟩ := List.mem_map.mp hs
+    rw [← ha, ← sRefl_eq a]
+    exact Places.AutGen.gen a
+  have hginv : ∀ s : Perm 120, s ∈ permsOf autGt → Places.AutGen s.inv.toFun := by
+    intro s hs
+    rw [autGens_eq] at hs
+    obtain ⟨a, _, ha⟩ := List.mem_map.mp hs
+    rw [← ha, D20_inv a, ← sRefl_eq a]
+    exact Places.AutGen.gen a
+  rw [D21] at hg
+  induction hg with
+  | one => exact Places.AutGen.one
+  | @step p s _ hs ih =>
+    have h : Places.AutGen (fun k => p.toFun (s.toFun k)) := Places.AutGen.mul ih (hgen s hs)
+    exact h
+  | @stepInv p s _ hs ih =>
+    have h : Places.AutGen (fun k => p.toFun (s.invFun k)) :=
+      Places.AutGen.mul ih (hginv s hs)
+    exact h
+
+/-- `T59a`. **`Aut = Aut(Gamma)`.** `Aut` is section 13's presentation of it,
+the self-maps of `K` generated by the eight reflections; `Aut(Gamma)` is `D32`.
+One containment is `T59p` -- through `autGen_autGamma`, which is the same
+statement on functions -- and the other is `autA_gen`. -/
+public theorem T59a : ∀ t : K → K, Places.AutGamma t ↔ Places.AutGen t := by
+  intro t
+  refine ⟨fun h => ?_, Places.autGen_autGamma⟩
+  obtain ⟨g, hgt, hga⟩ := autGamma_perm h
+  rw [← hgt]
+  exact autGen_of_D21 (autA_gen hga)
+
+/-- `T59`. **`|Aut(Gamma)| = 348364800`.**
+
+The list is `T28`'s, and `autA_gen` is what makes its membership predicate the
+graph automorphisms: the number is `Aut`'s because the two groups are equal,
+and the equality is the completeness argument above and not a search. The count
+is of `Aut(Gamma)` as permutations of the classes, which is the same count as
+of `Aut(Gamma)` as self-maps: `autA_autGamma` says a permutation lies in the
+one exactly when its map lies in the other, `autGamma_perm` says every such map
+is such a permutation, and `Perm.ext` says two permutations with the same map
+are equal.
+
+One deviation from the document, disclosed rather than hidden. Section 20 says
+this count is "computed as a graph automorphism group, with no reflections and
+no reference to `L`", and the count here does reach the number through `T28`,
+whose chain is over the reflection generators. Nothing is circular: the
+document derives `T59a` from inclusion plus equal cardinality, so its `T59` has
+to be independent, while `autA_gen` proves the equality outright and the
+cardinality argument is never used. The number is therefore the same number and
+the route to it is shorter, but it is not the document's route, and a reader
+comparing the two should know which one this is. -/
+public theorem T59 : HasOrderP AutA 348364800 := by
+  obtain ⟨L, hnd, hmem, hlen⟩ := T28
+  exact ⟨L, hnd, fun g => (hmem g).trans ⟨autA_of_D21, autA_gen⟩, hlen⟩
+
+/-- **The gauge group of the witness AtlasInstance has `4608` elements read
+inside `Aut(Gamma)`.** By `T59a` the two groups are the same, so the setwise
+stabiliser of `W_0` in the graph automorphism group is the one
+`gaugeOrderWitness` counts inside `Aut`.
+
+This is not `T60`, for the same reason `gaugeOrderWitness` is not `T29` or
+`T49`: the document states the count for every AtlasInstance, and carrying it
+from the witness to another instance is the transitivity of `Aut` on `Atl`,
+which is not proved here. -/
+public theorem gaugeGammaWitness :
+    HasOrderP (fun g : Perm 120 => AutA g ∧ actP g W0 = W0) 4608 := by
+  obtain ⟨L, hnd, hmem, hlen⟩ := stabOrder
+  refine ⟨L, hnd, fun g => ?_, hlen⟩
+  rw [hmem g]
+  constructor
+  · intro h
+    exact ⟨autA_of_D21 (stabGen_gauge h).1, (stabGen_gauge h).2⟩
+  · rintro ⟨ha, hw⟩
+    exact (gauge_eq g).mp ⟨autA_gen ha, hw⟩
 
 end UorAtlas.Group

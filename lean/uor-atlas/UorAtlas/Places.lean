@@ -1388,14 +1388,9 @@ that does the lifting is the standard one -- a predicate constant on orbits
 factors through `Quot` -- and it is stated here because nothing below the place
 layer needed it. -/
 
-public theorem negNeg {X : Type u} [AddCommGroup X] (a : X) :
-    AddCommGroup.neg (AddCommGroup.neg a) = a :=
-  add_left_cancel (a := AddCommGroup.neg a)
-    ((AddCommGroup.add_neg (AddCommGroup.neg a)).trans (neg_add_cancel a).symm)
-
 public theorem negInj {X : Type u} [AddCommGroup X] {a b : X}
     (h : AddCommGroup.neg a = AddCommGroup.neg b) : a = b := by
-  rw [← negNeg a, h, negNeg]
+  rw [← Prelude.neg_neg a, h, Prelude.neg_neg]
 
 /-- Two elements with the same class in the diagonal sign quotient differ by
 that sign. -/
@@ -1416,9 +1411,9 @@ public theorem quot_sign_eq {X : Type u} [AddCommGroup X] {a b : X}
       refine propext ⟨fun hu => ?_, fun hu => ?_⟩
       · rcases hu with hu | hu
         · exact Or.inr (by rw [hu])
-        · exact Or.inl (by rw [hu, negNeg])
+        · exact Or.inl (by rw [hu, Prelude.neg_neg])
       · rcases hu with hu | hu
-        · exact Or.inr (negInj (by rw [hu, negNeg]))
+        · exact Or.inr (negInj (by rw [hu, Prelude.neg_neg]))
         · exact Or.inl (negInj hu)
   have key : Quot.lift (fun u : X => u = b ∨ u = AddCommGroup.neg b) hf
       (Quot.mk (OrbitRel (signAct : Bool → X → X)) a)
@@ -1449,7 +1444,7 @@ public theorem paddr_diag_neg {S : PlaceSystem} (c : Vec 8 Int) :
       = paddr (D39 (S := S) (Blocks.qOf c)) := by
   rw [qOf_neg, show D39 (S := S) (AddCommGroup.neg (Blocks.qOf c))
       = AddCommGroup.neg (D39 (S := S) (Blocks.qOf c)) from diag_neg _]
-  exact Quot.sound ⟨true, negNeg _⟩
+  exact Quot.sound ⟨true, Prelude.neg_neg _⟩
 
 /-- `T75`, first half. `Delta_K` is well defined: `[Delta(x)]` is the same for
 both roots of a class, so the value at the chosen representative is the value
@@ -2065,7 +2060,7 @@ public theorem T73 {G : Mat 8 8 Int} (hG : WLinMem G) (hker : ∀ k : Roots.K, D
     · exact Or.inl (emb_inj h2.symm)
     · refine Or.inr (emb_inj ?_)
       rw [emb_neg]
-      exact ((congrArg AddCommGroup.neg h2).trans (negNeg _)).symm
+      exact ((congrArg AddCommGroup.neg h2).trans (Prelude.neg_neg _)).symm
   have hkey : ∀ i j : Fin 8, Roots.NonOrth i j →
       Mat.apply G (simZ i) = simZ i → Mat.apply G (simZ j) = simZ j := by
     intro i j hij h1
@@ -2258,7 +2253,7 @@ public theorem T76 {S : PlaceSystem} {t : Roots.K → Roots.K} {G H : Mat 8 8 In
       rw [matMap_neg]
       exact funext (fun i => Mat.apply_neg_apply (locMat (S.at_ p) H) (a.comp p) i)
     rw [hneg]
-    exact Quot.sound ⟨true, negNeg _⟩
+    exact Quot.sound ⟨true, Prelude.neg_neg _⟩
 
 /-- `V73`. `tau_Addr` is lift-independent, read at a point of `PAddr(L)`. -/
 public theorem V73 {S : PlaceSystem} {t : Roots.K → Roots.K} {G H : Mat 8 8 Int}
@@ -2677,7 +2672,7 @@ public theorem root_eq_rep {x : Vec 8 Int} (hx : Roots.D11 x) :
   rw [Roots.rep_D12 hx]
   rcases nrm_cases x with h | h
   · exact Or.inl h.symm
-  · exact Or.inr (by rw [h]; exact (negNeg x).symm)
+  · exact Or.inr (by rw [h]; exact (Prelude.neg_neg x).symm)
 
 public theorem dot_root_rep {x y : Vec 8 Int} (hx : Roots.D11 x) (hy : Roots.D11 y) :
     dot x y = dot (Roots.rep (Roots.D12 x)) (Roots.rep (Roots.D12 y))

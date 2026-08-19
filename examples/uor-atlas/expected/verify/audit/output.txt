@@ -1,3 +1,5 @@
 'LexLeanExample.Main.add_successor' does not depend on any axioms
 'LexLeanExample.Main.dimension_is_fixed' does not depend on any axioms
+'LexLeanExample.Main.presentation_is_a_type' depends on axioms: [propext, Classical.choice, Quot.sound]
 'LexLeanExample.Main.root_count_is_a_constant' does not depend on any axioms
+'LexLeanExample.Main.support_is_a_function' depends on axioms: [propext, Classical.choice, Quot.sound]
