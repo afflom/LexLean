@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t5"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Roots"
+name = "UorAtlas.Roots.T5"
+
+[[form]]
+id = "atlas-t5"
+channel = "text"
+surface = "Atlas theorem five"
+canonical_source = true
+features = ["sentence-case", "singular"]

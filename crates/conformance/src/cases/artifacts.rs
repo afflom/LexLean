@@ -470,9 +470,24 @@ pub(crate) fn run(id: &str) {
                 .filter(|row| row["kind"].as_str() == Some("lexicon"))
                 .map(|row| row["path"].as_str().expect("path"))
                 .collect();
-            assert_eq!(
-                lexicon_rows,
-                vec!["embedded", "embedded"],
+            // Every builtin lexicon input names the embedded source, and there
+            // is exactly one row per builtin package the project locks. The
+            // count is bootstrap data, not a property of §21.6: making
+            // `lexlean.uor.atlas` unconditional locks its whole import closure
+            // into every project, so a literal here would encode the size of
+            // that closure and go stale the next time it changes.
+            let locked_builtins =
+                std::fs::read_to_string(project.root.join("lexlean.lock").as_std_path())
+                    .expect("the project is locked")
+                    .lines()
+                    .filter(|line| line.trim() == "kind = \"builtin\"")
+                    .count();
+            assert!(
+                locked_builtins > 0 && lexicon_rows.len() == locked_builtins,
+                "one embedded lexicon input per locked builtin package ({locked_builtins}): {inputs:?}"
+            );
+            assert!(
+                lexicon_rows.iter().all(|path| *path == "embedded"),
                 "builtin lexicon input rows name the embedded source: {inputs:?}"
             );
             let defs = support::defs_project();

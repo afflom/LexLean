@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-s19"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Scales"
+name = "UorAtlas.Scales.S19"
+
+[[form]]
+id = "atlas-s19"
+channel = "text"
+surface = "Atlas scale nineteen"
+canonical_source = true
+features = ["sentence-case", "singular"]

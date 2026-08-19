@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d58"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Scales"
+name = "UorAtlas.Scales.D58"
+
+[[form]]
+id = "atlas-d58"
+channel = "text"
+surface = "Atlas definition fifty eight"
+canonical_source = true
+features = ["sentence-case", "singular"]

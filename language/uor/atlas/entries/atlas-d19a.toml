@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d19a"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Roots"
+name = "UorAtlas.Roots.D19a"
+
+[[form]]
+id = "atlas-d19a"
+channel = "text"
+surface = "Atlas definition nineteen a"
+canonical_source = true
+features = ["sentence-case", "singular"]

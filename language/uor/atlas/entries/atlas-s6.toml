@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-s6"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Scales"
+name = "UorAtlas.Scales.S6"
+
+[[form]]
+id = "atlas-s6"
+channel = "text"
+surface = "Atlas scale six"
+canonical_source = true
+features = ["sentence-case", "singular"]

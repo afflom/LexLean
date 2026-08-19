@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d25"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Category"
+name = "UorAtlas.Category.D25"
+
+[[form]]
+id = "atlas-d25"
+channel = "text"
+surface = "Atlas definition twenty five"
+canonical_source = true
+features = ["sentence-case", "singular"]

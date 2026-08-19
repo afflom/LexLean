@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-fi1"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Prelude.NumInstances"
+name = "UorAtlas.Prelude.NumInstances.FI1"
+
+[[form]]
+id = "atlas-fi1"
+channel = "text"
+surface = "Atlas field injection one"
+canonical_source = true
+features = ["sentence-case", "singular"]

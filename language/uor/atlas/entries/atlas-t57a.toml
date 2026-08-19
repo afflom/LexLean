@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t57a"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Glue"
+name = "UorAtlas.Glue.T57a"
+
+[[form]]
+id = "atlas-t57a"
+channel = "text"
+surface = "Atlas theorem fifty seven a"
+canonical_source = true
+features = ["sentence-case", "singular"]

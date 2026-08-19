@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d4"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Parameters"
+name = "UorAtlas.Parameters.D4"
+
+[[form]]
+id = "atlas-d4"
+channel = "text"
+surface = "Atlas definition four"
+canonical_source = true
+features = ["sentence-case", "singular"]

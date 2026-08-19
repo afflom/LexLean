@@ -1,0 +1,5 @@
+spec = "lexlean/lexicon/1"
+package = "lexlean.uor.atlas"
+version = "1.0.0"
+language = "1.0"
+imports = ["lexlean.core@1.0.0", "lexlean.std.int@1.0.0", "lexlean.std.nat@1.0.0"]

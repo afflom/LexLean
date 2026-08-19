@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t35"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Category"
+name = "UorAtlas.Category.T35"
+
+[[form]]
+id = "atlas-t35"
+channel = "text"
+surface = "Atlas theorem thirty five"
+canonical_source = true
+features = ["sentence-case", "singular"]

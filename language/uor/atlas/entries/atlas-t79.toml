@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t79"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Functor"
+name = "UorAtlas.Functor.T79"
+
+[[form]]
+id = "atlas-t79"
+channel = "text"
+surface = "Atlas theorem seventy nine"
+canonical_source = true
+features = ["sentence-case", "singular"]

@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-li1"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Prelude.RingLemmas"
+name = "UorAtlas.Prelude.RingLemmas.LI1"
+
+[[form]]
+id = "atlas-li1"
+channel = "text"
+surface = "Atlas linear independence one"
+canonical_source = true
+features = ["sentence-case", "singular"]

@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d13"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Roots"
+name = "UorAtlas.Roots.D13"
+
+[[form]]
+id = "atlas-d13"
+channel = "text"
+surface = "Atlas definition thirteen"
+canonical_source = true
+features = ["sentence-case", "singular"]

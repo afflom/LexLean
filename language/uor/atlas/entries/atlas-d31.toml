@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d31"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Places"
+name = "UorAtlas.Places.D31"
+
+[[form]]
+id = "atlas-d31"
+channel = "text"
+surface = "Atlas definition thirty one"
+canonical_source = true
+features = ["sentence-case", "singular"]

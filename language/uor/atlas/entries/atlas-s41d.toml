@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-s41d"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Scales"
+name = "UorAtlas.Scales.S41d"
+
+[[form]]
+id = "atlas-s41d"
+channel = "text"
+surface = "Atlas scale forty one d"
+canonical_source = true
+features = ["sentence-case", "singular"]

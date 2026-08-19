@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d22"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Blocks"
+name = "UorAtlas.Blocks.D22"
+
+[[form]]
+id = "atlas-d22"
+channel = "text"
+surface = "Atlas definition twenty two"
+canonical_source = true
+features = ["sentence-case", "singular"]

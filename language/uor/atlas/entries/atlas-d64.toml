@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d64"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Functor"
+name = "UorAtlas.Functor.D64"
+
+[[form]]
+id = "atlas-d64"
+channel = "text"
+surface = "Atlas definition sixty four"
+canonical_source = true
+features = ["sentence-case", "singular"]

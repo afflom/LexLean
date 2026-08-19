@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d46a"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Blocks"
+name = "UorAtlas.Blocks.D46a"
+
+[[form]]
+id = "atlas-d46a"
+channel = "text"
+surface = "Atlas definition forty six a"
+canonical_source = true
+features = ["sentence-case", "singular"]

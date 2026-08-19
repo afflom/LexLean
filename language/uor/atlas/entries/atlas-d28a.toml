@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d28a"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Group"
+name = "UorAtlas.Group.D28a"
+
+[[form]]
+id = "atlas-d28a"
+channel = "text"
+surface = "Atlas definition twenty eight a"
+canonical_source = true
+features = ["sentence-case", "singular"]

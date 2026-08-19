@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t43"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Category"
+name = "UorAtlas.Category.T43"
+
+[[form]]
+id = "atlas-t43"
+channel = "text"
+surface = "Atlas theorem forty three"
+canonical_source = true
+features = ["sentence-case", "singular"]

@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t58x"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Roots"
+name = "UorAtlas.Roots.T58x"
+
+[[form]]
+id = "atlas-t58x"
+channel = "text"
+surface = "Atlas theorem fifty eight x"
+canonical_source = true
+features = ["sentence-case", "singular"]

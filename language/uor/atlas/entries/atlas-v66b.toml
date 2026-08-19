@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-v66b"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Group"
+name = "UorAtlas.Group.V66b"
+
+[[form]]
+id = "atlas-v66b"
+channel = "text"
+surface = "Atlas verification sixty six b"
+canonical_source = true
+features = ["sentence-case", "singular"]

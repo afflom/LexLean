@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-d7"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Parameters"
+name = "UorAtlas.Parameters.D7"
+
+[[form]]
+id = "atlas-d7"
+channel = "text"
+surface = "Atlas definition seven"
+canonical_source = true
+features = ["sentence-case", "singular"]

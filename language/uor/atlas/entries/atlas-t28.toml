@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t28"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Group"
+name = "UorAtlas.Group.T28"
+
+[[form]]
+id = "atlas-t28"
+channel = "text"
+surface = "Atlas theorem twenty eight"
+canonical_source = true
+features = ["sentence-case", "singular"]

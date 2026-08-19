@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-v73"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Places"
+name = "UorAtlas.Places.V73"
+
+[[form]]
+id = "atlas-v73"
+channel = "text"
+surface = "Atlas verification seventy three"
+canonical_source = true
+features = ["sentence-case", "singular"]

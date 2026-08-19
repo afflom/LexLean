@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn embedded_language_data_loads_and_closes() {
         let (bootstrap, packages) = builtins();
-        assert_eq!(bootstrap.builtin_packages.len(), 3);
+        assert_eq!(bootstrap.builtin_packages.len(), 4);
         assert!(bootstrap.structural.is_control("\\begin"));
         assert!(!bootstrap.structural.is_control("\\def"));
         assert!(bootstrap.structural.is_forbidden_control("\\def"));
@@ -422,10 +422,30 @@ mod tests {
             for entry in package.entries.values() {
                 if let Denotation::Lean { module, name } = &entry.denotation {
                     assert!(is_lean_name(module) && is_lean_name(name), "{name}");
-                    assert!(
-                        KNOWN.contains(&name.as_str()),
-                        "`{name}` is not in the probed Lean 4.32.1 name set"
-                    );
+                    // Core and standard packages denote Lean's own constants,
+                    // and the list above is the probe's accepted set. The
+                    // Atlas package denotes the vendored library instead,
+                    // which this crate does not carry: the shipped compiler is
+                    // the language data, not the Lean sources. Here the name
+                    // is required to live in the namespace of the module that
+                    // declares it; that the declaration exists at all is the
+                    // repository's `audit-atlas-denotations`, which can read
+                    // `lean/` and this test cannot.
+                    if let Some(rest) = module.strip_prefix("UorAtlas") {
+                        assert!(
+                            rest.is_empty() || rest.starts_with('.'),
+                            "`{module}` is not a vendored Atlas module"
+                        );
+                        assert!(
+                            name.starts_with("UorAtlas."),
+                            "`{name}` is not in the vendored Atlas namespace"
+                        );
+                    } else {
+                        assert!(
+                            KNOWN.contains(&name.as_str()),
+                            "`{name}` is not in the probed Lean 4.32.1 name set"
+                        );
+                    }
                     seen += 1;
                 }
                 if let Some(eliminator) = &entry.eliminator {

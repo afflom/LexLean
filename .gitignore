@@ -27,3 +27,6 @@ lean/**/.lake/
 
 # `Cargo.lock` is NOT ignored: the resolved version of every dependency is part
 # of the claim made against it (R6).
+
+# Claude Code worktrees and session state (never part of the release set).
+.claude/

@@ -28,6 +28,12 @@ id = "lexlean.std.int"
 version = "1.0.0"
 path = "std/int"
 
+[[builtin_package]]
+id = "lexlean.uor.atlas"
+version = "1.0.0"
+path = "uor/atlas"
+unconditional = true
+
 [structural]
 # §15.2: the complete structural control set for language 1.0.
 controls = [

@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t77a"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Places"
+name = "UorAtlas.Places.T77a"
+
+[[form]]
+id = "atlas-t77a"
+channel = "text"
+surface = "Atlas theorem seventy seven a"
+canonical_source = true
+features = ["sentence-case", "singular"]

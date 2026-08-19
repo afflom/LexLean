@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t17"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Blocks"
+name = "UorAtlas.Blocks.T17"
+
+[[form]]
+id = "atlas-t17"
+channel = "text"
+surface = "Atlas theorem seventeen"
+canonical_source = true
+features = ["sentence-case", "singular"]

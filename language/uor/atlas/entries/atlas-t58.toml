@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t58"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Places"
+name = "UorAtlas.Places.T58"
+
+[[form]]
+id = "atlas-t58"
+channel = "text"
+surface = "Atlas theorem fifty eight"
+canonical_source = true
+features = ["sentence-case", "singular"]

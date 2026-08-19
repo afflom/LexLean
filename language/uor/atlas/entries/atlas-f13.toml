@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-f13"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Functor"
+name = "UorAtlas.Functor.F13"
+
+[[form]]
+id = "atlas-f13"
+channel = "text"
+surface = "Atlas fact thirteen"
+canonical_source = true
+features = ["sentence-case", "singular"]

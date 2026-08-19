@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-m4"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Prelude.Linear"
+name = "UorAtlas.Prelude.Linear.M4"
+
+[[form]]
+id = "atlas-m4"
+channel = "text"
+surface = "Atlas morphism identity four"
+canonical_source = true
+features = ["sentence-case", "singular"]

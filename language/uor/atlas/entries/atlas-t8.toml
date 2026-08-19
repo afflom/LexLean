@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t8"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Roots"
+name = "UorAtlas.Roots.T8"
+
+[[form]]
+id = "atlas-t8"
+channel = "text"
+surface = "Atlas theorem eight"
+canonical_source = true
+features = ["sentence-case", "singular"]

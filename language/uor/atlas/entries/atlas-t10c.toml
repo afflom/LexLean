@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t10c"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Blocks"
+name = "UorAtlas.Blocks.T10c"
+
+[[form]]
+id = "atlas-t10c"
+channel = "text"
+surface = "Atlas theorem ten c"
+canonical_source = true
+features = ["sentence-case", "singular"]

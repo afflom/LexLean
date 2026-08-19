@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t62"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Places"
+name = "UorAtlas.Places.T62"
+
+[[form]]
+id = "atlas-t62"
+channel = "text"
+surface = "Atlas theorem sixty two"
+canonical_source = true
+features = ["sentence-case", "singular"]

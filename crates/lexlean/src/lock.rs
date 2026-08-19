@@ -530,17 +530,36 @@ pub fn resolve_packages(
             }
         }
     }
-    for id in &builtin_ids {
+    // A worklist, not a fixed list: locking a package locks what it imports.
+    // `visible_set` already closes over imports, so a builtin whose import were
+    // left out here would be visible in every module and absent from the lock,
+    // and the closure check would reject every project that never named it
+    // (`LLR3001`). The two halves close over the same edges (§14.3, §2.3).
+    let mut index = 0;
+    while index < builtin_ids.len() {
+        let id = builtin_ids[index].clone();
+        index += 1;
         let Some(row) = bootstrap
             .builtin_packages
             .iter()
-            .find(|candidate| candidate.id == *id)
+            .find(|candidate| candidate.id == id)
         else {
             diagnostics.push(resolution(format!("`{id}` is not a builtin package")));
             continue;
         };
         match crate::lexicon::load_builtin_package(row, &load_ctx) {
             Ok(package) => {
+                for import in &package.imports {
+                    let imported = import.package.clone();
+                    if bootstrap
+                        .builtin_packages
+                        .iter()
+                        .any(|candidate| candidate.id == imported)
+                        && !builtin_ids.contains(&imported)
+                    {
+                        builtin_ids.push(imported);
+                    }
+                }
                 rows.push(LockPackage {
                     id: package.id.clone(),
                     version: package.version.clone(),

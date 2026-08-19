@@ -1,6 +1,7 @@
 //! The repository audits (SPEC.md §27.10). Crude on purpose: each reads the
 //! source, finds the defect, and fails naming the rule it enforces.
 
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -507,6 +508,186 @@ fn declaration_names(text: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// Every Lean denotation of the Atlas package names a declaration that the
+/// vendored library actually makes, and every label the library declares has
+/// exactly one entry denoting it (R2, R4).
+///
+/// The crate's own `builtin_lean_names_are_conservative_and_known` checks the
+/// *shape* of these names and cannot check more: the shipped compiler carries
+/// the language data, not the Lean sources, so nothing inside the crate can
+/// see `lean/`. This gate is the other half. Without it an entry could denote
+/// `UorAtlas.Roots.T5` after `T5` was renamed or withdrawn, and the pack would
+/// go on advertising a result the library no longer proves.
+///
+/// It compares in both directions on purpose. A denotation with no
+/// declaration is a claim with nothing behind it; a declaration with no entry
+/// is a label the library proves and the pack silently withholds, which is the
+/// same coverage lie told the other way round.
+pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
+    let entries_dir = root.join("language/uor/atlas/entries");
+    let library = root.join("lean/uor-atlas/UorAtlas");
+    if !entries_dir.exists() || !library.exists() {
+        println!(
+            "audit-atlas-denotations: no Atlas package or no vendored library; the gate is armed by the first one"
+        );
+        return Ok(());
+    }
+
+    // Every declaration the vendored library makes, by bare name.
+    let mut modules: Vec<PathBuf> = Vec::new();
+    gather(root, &["lean/uor-atlas/UorAtlas"], &[".lean"], &mut modules);
+    modules.retain(|path| path.extension().is_some_and(|e| e == "lean"));
+    let mut declared: BTreeMap<String, String> = BTreeMap::new();
+    for path in &modules {
+        let module = path
+            .strip_prefix(root.join("lean/uor-atlas"))
+            .unwrap_or(path)
+            .with_extension("")
+            .to_string_lossy()
+            .replace(['/', '\\'], ".");
+        for name in declaration_names(&std::fs::read_to_string(path)?) {
+            declared.entry(name).or_insert_with(|| module.clone());
+        }
+    }
+
+    // The registers, read before the entries so every entry's identity can be
+    // checked against them. An entry's id carries its label -- `atlas-t57a` is
+    // `T57a` -- and the label must be one the document still stands behind.
+    // Checking the *denotation* instead would never reach a withdrawn label,
+    // because the library does not declare one: the guard would be unreachable
+    // and would sit there looking like protection it could not give.
+    let registers = root.join("language/uor/atlas-registers.toml");
+    let mut live_labels: Option<BTreeSet<String>> = None;
+    let mut withdrawn: BTreeMap<String, String> = BTreeMap::new();
+    if registers.exists() {
+        let data: toml::Value = std::fs::read_to_string(&registers)?.parse()?;
+        let mut live: BTreeSet<String> = BTreeSet::new();
+        for key in ["entry", "ambient"] {
+            if let Some(items) = data.get(key).and_then(toml::Value::as_array) {
+                live.extend(items.iter().filter_map(|i| i.as_str()).map(str::to_owned));
+            }
+        }
+        if let Some(items) = data.get("non_denotable").and_then(toml::Value::as_array) {
+            for label in items.iter().filter_map(|i| i.as_str()) {
+                withdrawn.insert(label.to_owned(), "non-denotable".to_owned());
+            }
+        }
+        for (key, why) in [("retracted", "retracted"), ("superseded", "superseded")] {
+            if let Some(items) = data.get(key).and_then(toml::Value::as_array) {
+                for row in items {
+                    if let Some(label) = row.get("label").and_then(toml::Value::as_str) {
+                        withdrawn.insert(label.to_owned(), why.to_owned());
+                    }
+                }
+            }
+        }
+        live_labels = Some(live);
+    }
+
+    // Every Lean denotation the package makes.
+    let mut files: Vec<PathBuf> = Vec::new();
+    gather(
+        root,
+        &["language/uor/atlas/entries"],
+        &[".toml"],
+        &mut files,
+    );
+    // `gather` also sweeps the root's own `.md` files, so the extension filter
+    // has to be reapplied here rather than trusted from the call.
+    files.retain(|path| path.extension().is_some_and(|e| e == "toml"));
+    files.sort();
+
+    // A gate that reports zero has not passed, it has failed to look. Both
+    // scans were silently empty in the first draft of this audit, because
+    // `gather` takes subdirectories *of* its root and was handed extensions
+    // instead, and the audit reported success over nothing at all.
+    if modules.is_empty() || files.is_empty() {
+        return Err(Fail::from(format!(
+            "R4: audit-atlas-denotations scanned {} module(s) and {} entry file(s); a gate that inspects nothing cannot pass",
+            modules.len(),
+            files.len()
+        )));
+    }
+    let mut denoted: BTreeSet<String> = BTreeSet::new();
+    for path in &files {
+        let data: toml::Value = std::fs::read_to_string(path)?.parse()?;
+        let Some(denotation) = data.get("denotation") else {
+            continue;
+        };
+        if denotation.get("kind").and_then(toml::Value::as_str) != Some("lean") {
+            continue;
+        }
+        let module = denotation
+            .get("module")
+            .and_then(toml::Value::as_str)
+            .unwrap_or_default();
+        let name = denotation
+            .get("name")
+            .and_then(toml::Value::as_str)
+            .unwrap_or_default();
+        let bare = name.rsplit('.').next().unwrap_or_default().to_owned();
+        let display = path.file_name().unwrap_or_default().to_string_lossy();
+        // `atlas-t57a` names `T57a`: the leading run of letters is the label's
+        // prefix and is upper case, the rest is as written.
+        if let Some(stem) = display
+            .strip_suffix(".toml")
+            .and_then(|s| s.strip_prefix("atlas-"))
+        {
+            let split = stem
+                .find(|c: char| !c.is_ascii_alphabetic())
+                .unwrap_or(stem.len());
+            let label = format!("{}{}", stem[..split].to_ascii_uppercase(), &stem[split..]);
+            if let Some(why) = withdrawn.get(&label) {
+                return Err(Fail::from(format!(
+                    "R2: `{display}` is an entry for `{label}`, which the register records as {why}; a document could cite it as though it stood"
+                )));
+            }
+            if let Some(live) = &live_labels {
+                if !live.contains(&label) {
+                    return Err(Fail::from(format!(
+                        "R2: `{display}` is an entry for `{label}`, which is not a live label of the document"
+                    )));
+                }
+            }
+        }
+        match declared.get(&bare) {
+            None => {
+                return Err(Fail::from(format!(
+                    "R2: `{display}` denotes `{name}`, which the vendored library does not declare"
+                )));
+            }
+            Some(actual) if actual != module => {
+                return Err(Fail::from(format!(
+                    "R2: `{display}` denotes `{name}` in `{module}`, but the library declares it in `{actual}`"
+                )));
+            }
+            Some(_) => {}
+        }
+        if !denoted.insert(bare.clone()) {
+            return Err(Fail::from(format!(
+                "R4: `{bare}` is denoted by more than one entry; one label, one entry"
+            )));
+        }
+    }
+
+    // The other direction: a label the library declares and the pack withholds.
+    if let Some(live) = &live_labels {
+        for label in live {
+            if declared.contains_key(label) && !denoted.contains(label) {
+                return Err(Fail::from(format!(
+                    "R4: the library declares `{label}` and no entry denotes it; a proved label the pack withholds is a coverage claim told backwards"
+                )));
+            }
+        }
+    }
+
+    println!(
+        "audit-atlas-denotations: {} Atlas entries, every Lean denotation declared by the vendored library, every declared label denoted once (R2, R4)",
+        denoted.len()
+    );
+    Ok(())
 }
 
 /// An authority cites something this repository does not establish, so no row

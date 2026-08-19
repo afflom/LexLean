@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-s13"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.Scales"
+name = "UorAtlas.Scales.S13"
+
+[[form]]
+id = "atlas-s13"
+channel = "text"
+surface = "Atlas scale thirteen"
+canonical_source = true
+features = ["sentence-case", "singular"]

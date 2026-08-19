@@ -194,6 +194,33 @@ gate failed: R4: `sumInt_congr` is stated identically in lean/uor-atlas/UorAtlas
 
 Removed: the duplicate was deleted; the audit reports every public statement across the vendored modules unrepeated. The comparison is a declaration's name together with the CONCLUSION of its statement: comparing whole statements missed this exact case, because one module binds `{n : Nat}` where the other takes it from a section variable. What it still does not catch is recorded in its docstring — conclusions are compared as text, so one lemma written once fully qualified and once through an `open` reads as two.
 
+### audit-atlas-denotations can fail
+
+Planted, in the first direction: `atlas-t5.toml`'s denotation renamed to `UorAtlas.Roots.T5x9`, a declaration the vendored library does not make. Command: `cargo xtask validate-model`. Expected: R2 names the entry file and the dangling name.
+
+```text
+gate failed: R2: `atlas-t5.toml` denotes `UorAtlas.Roots.T5x9`, which the vendored library does not declare
+```
+
+Planted, in the second direction: `atlas-a1.toml` deleted, so the library proves `A1` and no entry denotes it. Command: `cargo xtask validate-model`. Expected: R4 names the label and says which way round the claim fails.
+
+```text
+gate failed: R4: the library declares `A1` and no entry denotes it; a proved label the pack withholds is a coverage claim told backwards
+```
+
+Planted, on disposition: an entry `atlas-t48` for `T48`, which section 20.1 retracted, and an entry `atlas-l1` for `L1`, which the document declares non-denotable. Command: `cargo xtask validate-model`. Expected: R2 names the label and the disposition the register records.
+
+```text
+gate failed: R2: `atlas-t48.toml` is an entry for `T48`, which the register records as retracted; a document could cite it as though it stood
+gate failed: R2: `atlas-l1.toml` is an entry for `L1`, which the register records as non-denotable; a document could cite it as though it stood
+```
+
+Removed: all restored; the audit reports 257 entries with every Lean denotation declared by the library and every declared label denoted once. The gate is two-directional on purpose --- a denotation with no declaration advertises a result the library does not prove, and a declaration with no entry is the same coverage lie told backwards.
+
+The disposition arm reads the label out of the entry's own id rather than out of its denotation. Keyed on the denotation it was unreachable: the library declares no retracted or non-denotable label, so nothing could ever have reached the check, and it would have sat there looking like protection it could not give.
+
+The audit also refuses to pass on an empty scan. Its first draft handed `gather` a list of extensions where that helper takes subdirectories *of* its root, so both scans found nothing and the gate reported success over zero files; it now fails when either scan is empty, because a gate that inspects nothing has not passed, it has failed to look.
+
 ### honesty-vocabulary can fail
 
 Planted: the sentence "The authority `LEAN-REL-4-32-1` proves every generated theorem." appended to `README.md`. Command: `cargo xtask validate-model`. Expected: R2 rejects assertive vocabulary about a cited authority, naming the appended line (its number is the file's last line, so it moves as the README grows).
