@@ -47,7 +47,7 @@ Feature: examples
   @EX-07 @build
   Scenario: The negative fixture suite covers every required rejection class and prescribed diagnostic family.
     Given the negative fixture suite under tests/negative/<class>/, each with a project/, expected/{command.json,diagnostics.json,artifacts.json,hashes.toml} and case.toml
-    When the class set is compared with the 26 required rejection classes from unknown-word through pdf-hash-mismatch
+    When the class set is compared with the 28 prescribed rejection classes from unknown-word through pdf-hash-mismatch
     Then every required class has a fixture directory
     And each mutation fixture applies its overlay and edits to the example, relocks when asked, and its check, lock or lock-check run fails with exactly the one prescribed diagnostic code of its class
     And each delegated fixture names a test that exists in the workspace

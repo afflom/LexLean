@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Repository gates: validate-model, validate-spec-links, verify-examples, check-golden, check-reproducibility, check-fixtures, release-artifacts, release-check, validate."
+description = "Repository gates: validate-model, atlas-pack, validate-spec-links, verify-examples, check-golden, check-reproducibility, check-fixtures, release-artifacts, release-check, validate."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

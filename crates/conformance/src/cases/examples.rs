@@ -171,7 +171,7 @@ pub(crate) fn run(id: &str) {
         // exactly the one prescribed diagnostic code.
         "EX-07" => {
             let root = support::repo_root();
-            let prescribed: [(&str, &str); 27] = [
+            let prescribed: [(&str, &str); 28] = [
                 ("unknown-word", "LLL1004"),
                 ("unknown-symbol", "LLL1004"),
                 ("unknown-control", "LLL1004"),
@@ -190,6 +190,7 @@ pub(crate) fn run(id: &str) {
                 ("extra-proof-branch", "LLF5003"),
                 ("unrestricted-simplify", "LLF5005"),
                 ("native-decide", "LLF5005"),
+                ("atlas-level-conflation", "LLT4001"),
                 ("lean-elaboration-failure", "LLV7002"),
                 ("leanchecker-failure", "LLV7003"),
                 ("malformed-axiom-output", "LLV7004"),

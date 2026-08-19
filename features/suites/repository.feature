@@ -49,7 +49,7 @@ Feature: repository
   Scenario: The specification conformance table and model register are bijective and text-consistent.
     Given the section 31 table of SPEC.md parsed into id, suite, and statement rows
     When the table is zipped against the model ids register in order
-    Then both hold exactly 209 rows
+    Then both hold exactly 210 rows
     And each row's ID, suite, and statement text is equal in the table and the register
 
   @RP-08 @build
