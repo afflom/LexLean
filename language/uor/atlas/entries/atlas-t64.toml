@@ -12,6 +12,6 @@ name = "UorAtlas.Category.T64"
 [[form]]
 id = "atlas-t64"
 channel = "text"
-surface = "Atlas theorem sixty four"
+surface = "Atlas theorem sixty four label"
 canonical_source = true
 features = ["sentence-case", "singular"]

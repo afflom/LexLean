@@ -12,6 +12,6 @@ name = "UorAtlas.Prelude.NumInstances.FI1"
 [[form]]
 id = "atlas-fi1"
 channel = "text"
-surface = "Atlas field injection one"
+surface = "Atlas field injection one label"
 canonical_source = true
 features = ["sentence-case", "singular"]

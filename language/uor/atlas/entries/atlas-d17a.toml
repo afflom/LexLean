@@ -12,6 +12,6 @@ name = "UorAtlas.Blocks.D17a"
 [[form]]
 id = "atlas-d17a"
 channel = "text"
-surface = "Atlas definition seventeen a"
+surface = "Atlas definition seventeen a label"
 canonical_source = true
 features = ["sentence-case", "singular"]

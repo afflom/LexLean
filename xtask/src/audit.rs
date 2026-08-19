@@ -690,6 +690,114 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
+/// Every Atlas entry is referenced by a committed document, and no entry's
+/// surface is a prefix of another's (R4, R7).
+///
+/// *Exercise.* An entry nothing cites is a claim the repository never exercises:
+/// it parses, it audits, and no document has ever resolved it. The exhaustive
+/// module of `examples/uor-atlas` exists to reference every one, and this gate
+/// is what keeps it exhaustive as the pack grows.
+///
+/// *Prefix-freeness.* A surface that is a prefix of another can be extended by
+/// a word from any other visible package into a second complete parse, and the
+/// document then has two linked interpretations (`LLP2002`). It is not
+/// hypothetical: `T59p`'s surface followed by `std.nat`'s `zero` read as
+/// `T59p0`, and the exhaustive module was rejected until every Atlas surface
+/// was made prefix-free by a closing word. Surface disjointness is §2.4's
+/// compatibility condition, and mere pairwise distinctness does not give it.
+pub fn audit_atlas_exercise(root: &Path) -> Result<(), Fail> {
+    let entries_dir = root.join("language/uor/atlas/entries");
+    if !entries_dir.exists() {
+        println!("audit-atlas-exercise: no Atlas package; the gate is armed by the first one");
+        return Ok(());
+    }
+    let mut files: Vec<PathBuf> = Vec::new();
+    gather(
+        root,
+        &["language/uor/atlas/entries"],
+        &[".toml"],
+        &mut files,
+    );
+    files.retain(|path| path.extension().is_some_and(|e| e == "toml"));
+    files.sort();
+    if files.is_empty() {
+        return Err(Fail::from(
+            "R4: audit-atlas-exercise found no entry files; a gate that inspects nothing cannot pass"
+                .to_owned(),
+        ));
+    }
+
+    let mut surfaces: Vec<(String, String)> = Vec::new();
+    for path in &files {
+        let data: toml::Value = std::fs::read_to_string(path)?.parse()?;
+        let id = data
+            .get("id")
+            .and_then(toml::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let surface = data
+            .get("form")
+            .and_then(toml::Value::as_array)
+            .and_then(|forms| forms.first())
+            .and_then(|form| form.get("surface"))
+            .and_then(toml::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        if id.is_empty() || surface.is_empty() {
+            return Err(Fail::from(format!(
+                "R4: {} has no id or no canonical surface",
+                path.display()
+            )));
+        }
+        surfaces.push((id, surface));
+    }
+
+    for (id, surface) in &surfaces {
+        for (other_id, other) in &surfaces {
+            if id != other_id && other.starts_with(&format!("{surface} ")) {
+                return Err(Fail::from(format!(
+                    "R7: `{id}`'s surface is a prefix of `{other_id}`'s; a following word from another package would make a second complete parse"
+                )));
+            }
+        }
+    }
+
+    // Every entry is cited by some committed document.
+    let mut documents: Vec<PathBuf> = Vec::new();
+    gather(root, &["examples", "tests"], &[".lex.tex"], &mut documents);
+    documents.retain(|path| path.to_string_lossy().ends_with(".lex.tex"));
+    let mut corpus = String::new();
+    for path in &documents {
+        corpus.push_str(&std::fs::read_to_string(path)?);
+        corpus.push('\n');
+    }
+    if corpus.is_empty() {
+        return Err(Fail::from(
+            "R4: audit-atlas-exercise found no documents to read; a gate that inspects nothing cannot pass"
+                .to_owned(),
+        ));
+    }
+    let mut unexercised: Vec<&str> = Vec::new();
+    for (id, surface) in &surfaces {
+        if !corpus.contains(surface.as_str()) {
+            unexercised.push(id);
+        }
+    }
+    if let Some(first) = unexercised.first() {
+        return Err(Fail::from(format!(
+            "R4: {} Atlas entr{} referenced by no committed document, the first being `{first}`; an entry nothing cites is never exercised",
+            unexercised.len(),
+            if unexercised.len() == 1 { "y is" } else { "ies are" }
+        )));
+    }
+
+    println!(
+        "audit-atlas-exercise: {} Atlas entries, every surface prefix-free and cited by a committed document (R4, R7)",
+        surfaces.len()
+    );
+    Ok(())
+}
+
 /// An authority cites something this repository does not establish, so no row
 /// may name repository content (R2, SPEC.md §27.4).
 ///

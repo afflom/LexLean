@@ -12,6 +12,6 @@ name = "UorAtlas.Group.V76"
 [[form]]
 id = "atlas-v76"
 channel = "text"
-surface = "Atlas verification seventy six"
+surface = "Atlas verification seventy six label"
 canonical_source = true
 features = ["sentence-case", "singular"]

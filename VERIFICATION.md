@@ -221,6 +221,24 @@ The disposition arm reads the label out of the entry's own id rather than out of
 
 The audit also refuses to pass on an empty scan. Its first draft handed `gather` a list of extensions where that helper takes subdirectories *of* its root, so both scans found nothing and the gate reported success over zero files; it now fails when either scan is empty, because a gate that inspects nothing has not passed, it has failed to look.
 
+### audit-atlas-exercise can fail
+
+Planted, on prefix-freeness: `atlas-t59p`'s closing word removed, making its surface a prefix of `atlas-t59p0`'s. Command: `cargo xtask validate-model`. Expected: R7 names both entries and why a prefix is not merely untidy.
+
+```text
+gate failed: R7: `atlas-t59p`'s surface is a prefix of `atlas-t59p0`'s; a following word from another package would make a second complete parse
+```
+
+Planted, on exercise: the sole citation of `atlas-a1` in the exhaustive module replaced by a second citation of another label. Command: `cargo xtask validate-model`. Expected: R4 counts the unexercised entries and names one.
+
+```text
+gate failed: R4: 1 Atlas entry is referenced by no committed document, the first being `atlas-a1`; an entry nothing cites is never exercised
+```
+
+Removed: both restored; the audit reports 257 entries, every surface prefix-free and cited by a committed document.
+
+The prefix rule is not hygiene. `T59p`'s surface followed by `lexlean.std.nat`'s `zero` reads as `T59p0`, and the exhaustive module was rejected with `LLP2002`, two distinct linked interpretations, until every Atlas surface was given a closing word. Pairwise distinctness --- which `audit-surface-disjointness` already checks --- does not give the disjointness §2.4 makes the compatibility condition, because a surface can be extended into another by a word the closure supplies.
+
 ### honesty-vocabulary can fail
 
 Planted: the sentence "The authority `LEAN-REL-4-32-1` proves every generated theorem." appended to `README.md`. Command: `cargo xtask validate-model`. Expected: R2 rejects assertive vocabulary about a cited authority, naming the appended line (its number is the file's last line, so it moves as the README grows).

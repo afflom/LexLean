@@ -821,6 +821,18 @@ impl ProjectConfig {
         ));
         let mut sources = self.lexicon_sources.clone();
         sources.sort_by(|a, b| a.package().cmp(b.package()));
+        // §10.1 requires the field, so the empty case is written as the empty
+        // array rather than omitted. Writing nothing would emit canonical text
+        // that does not parse back --- the field would be missing, which
+        // `CF-01` requires be rejected rather than defaulted --- and
+        // `lock --check`, which compares a configuration against its own
+        // canonical serialization, would fail on its own output. A project
+        // with no declared source is reachable now that a package can be
+        // unconditional: `examples/uor-atlas` declares none and still resolves
+        // the Atlas closure.
+        if sources.is_empty() {
+            out.push_str("lexicon_source = []\n");
+        }
         for source in &sources {
             out.push_str("\n[[lexicon_source]]\n");
             match source {

@@ -12,6 +12,6 @@ name = "UorAtlas.Prelude.RingLemmas.FR1"
 [[form]]
 id = "atlas-fr1"
 channel = "text"
-surface = "Atlas free rank one"
+surface = "Atlas free rank one label"
 canonical_source = true
 features = ["sentence-case", "singular"]

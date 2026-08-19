@@ -12,6 +12,6 @@ name = "UorAtlas.Places.D35a"
 [[form]]
 id = "atlas-d35a"
 channel = "text"
-surface = "Atlas definition thirty five a"
+surface = "Atlas definition thirty five a label"
 canonical_source = true
 features = ["sentence-case", "singular"]

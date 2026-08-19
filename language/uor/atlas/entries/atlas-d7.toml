@@ -12,6 +12,6 @@ name = "UorAtlas.Parameters.D7"
 [[form]]
 id = "atlas-d7"
 channel = "text"
-surface = "Atlas definition seven"
+surface = "Atlas definition seven label"
 canonical_source = true
 features = ["sentence-case", "singular"]

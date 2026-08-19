@@ -12,6 +12,6 @@ name = "UorAtlas.Roots.T9a"
 [[form]]
 id = "atlas-t9a"
 channel = "text"
-surface = "Atlas theorem nine a"
+surface = "Atlas theorem nine a label"
 canonical_source = true
 features = ["sentence-case", "singular"]

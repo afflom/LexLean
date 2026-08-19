@@ -1,0 +1,3 @@
+'LexLeanExample.Main.add_successor' does not depend on any axioms
+'LexLeanExample.Main.dimension_is_fixed' does not depend on any axioms
+'LexLeanExample.Main.root_count_is_a_constant' does not depend on any axioms

@@ -12,6 +12,6 @@ name = "UorAtlas.Parameters.T2"
 [[form]]
 id = "atlas-t2"
 channel = "text"
-surface = "Atlas theorem two"
+surface = "Atlas theorem two label"
 canonical_source = true
 features = ["sentence-case", "singular"]

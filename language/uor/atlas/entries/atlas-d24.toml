@@ -12,6 +12,6 @@ name = "UorAtlas.Category.D24"
 [[form]]
 id = "atlas-d24"
 channel = "text"
-surface = "Atlas definition twenty four"
+surface = "Atlas definition twenty four label"
 canonical_source = true
 features = ["sentence-case", "singular"]

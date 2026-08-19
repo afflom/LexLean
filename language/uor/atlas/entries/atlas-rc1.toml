@@ -12,6 +12,6 @@ name = "UorAtlas.Scales.RC1"
 [[form]]
 id = "atlas-rc1"
 channel = "text"
-surface = "Atlas ring condition one"
+surface = "Atlas ring condition one label"
 canonical_source = true
 features = ["sentence-case", "singular"]

@@ -12,6 +12,6 @@ name = "UorAtlas.Prelude.Linear.M2"
 [[form]]
 id = "atlas-m2"
 channel = "text"
-surface = "Atlas morphism identity two"
+surface = "Atlas morphism identity two label"
 canonical_source = true
 features = ["sentence-case", "singular"]

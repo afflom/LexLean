@@ -12,6 +12,6 @@ name = "UorAtlas.Group.T59p0"
 [[form]]
 id = "atlas-t59p0"
 channel = "text"
-surface = "Atlas theorem fifty nine p zero"
+surface = "Atlas theorem fifty nine p zero label"
 canonical_source = true
 features = ["sentence-case", "singular"]

@@ -12,6 +12,6 @@ name = "UorAtlas.Functor.D66"
 [[form]]
 id = "atlas-d66"
 channel = "text"
-surface = "Atlas definition sixty six"
+surface = "Atlas definition sixty six label"
 canonical_source = true
 features = ["sentence-case", "singular"]

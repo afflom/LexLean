@@ -12,6 +12,6 @@ name = "UorAtlas.Glue.P1"
 [[form]]
 id = "atlas-p1"
 channel = "text"
-surface = "Atlas premise one"
+surface = "Atlas premise one label"
 canonical_source = true
 features = ["sentence-case", "singular"]

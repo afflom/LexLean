@@ -12,6 +12,6 @@ name = "UorAtlas.Glue.T85"
 [[form]]
 id = "atlas-t85"
 channel = "text"
-surface = "Atlas theorem eighty five"
+surface = "Atlas theorem eighty five label"
 canonical_source = true
 features = ["sentence-case", "singular"]

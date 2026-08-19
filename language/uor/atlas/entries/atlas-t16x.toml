@@ -12,6 +12,6 @@ name = "UorAtlas.Blocks.T16x"
 [[form]]
 id = "atlas-t16x"
 channel = "text"
-surface = "Atlas theorem sixteen x"
+surface = "Atlas theorem sixteen x label"
 canonical_source = true
 features = ["sentence-case", "singular"]

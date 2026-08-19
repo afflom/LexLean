@@ -1,0 +1,49 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\begin{document}
+\begin{center}
+{\LARGE Atlas definition two label}
+\end{center}
+\section{Atlas theorem one label}
+\label{ll:main:header}
+\begin{theorem}
+\label{ll:main:dimension-is-fixed}
+For every natural number \(n\), \(n + 0 = n\).
+\end{theorem}
+\begin{proof}
+The goal follows by reflexivity.
+\end{proof}
+\section{Atlas theorem five label}
+\label{ll:main:roots}
+\begin{theorem}
+\label{ll:main:add-successor}
+For every natural number \(x\) and natural number \(y\), \(x + (y + 1) = x + y + 1\).
+\end{theorem}
+\begin{proof}
+The goal follows by reflexivity.
+\end{proof}
+\begin{theorem}
+\label{ll:main:root-count-is-a-constant}
+For every natural number \(n\), \(0 + n = n\).
+\end{theorem}
+\begin{proof}
+Proceed by induction on \(n\).
+Case zero:
+\begin{quote}
+The goal follows by reflexivity.
+\end{quote}
+Case \(\operatorname{succ}\) with \(m\), \(ih\):
+\begin{quote}
+Rewrite the goal using \(\rightarrow \texttt{Main::add-successor}(0, m)\), \(\rightarrow ih\).
+\end{quote}
+\end{proof}
+\end{document}

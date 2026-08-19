@@ -12,6 +12,6 @@ name = "UorAtlas.Prelude.NumInstances.A1"
 [[form]]
 id = "atlas-a1"
 channel = "text"
-surface = "Atlas base one"
+surface = "Atlas base one label"
 canonical_source = true
 features = ["sentence-case", "singular"]

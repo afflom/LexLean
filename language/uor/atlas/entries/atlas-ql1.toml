@@ -12,6 +12,6 @@ name = "UorAtlas.Prelude.RingLemmas.QL1"
 [[form]]
 id = "atlas-ql1"
 channel = "text"
-surface = "Atlas quotient one"
+surface = "Atlas quotient one label"
 canonical_source = true
 features = ["sentence-case", "singular"]

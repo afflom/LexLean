@@ -12,6 +12,6 @@ name = "UorAtlas.Scales.S11"
 [[form]]
 id = "atlas-s11"
 channel = "text"
-surface = "Atlas scale eleven"
+surface = "Atlas scale eleven label"
 canonical_source = true
 features = ["sentence-case", "singular"]

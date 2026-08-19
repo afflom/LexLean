@@ -12,6 +12,6 @@ name = "UorAtlas.Prelude.RingLemmas.SD1"
 [[form]]
 id = "atlas-sd1"
 channel = "text"
-surface = "Atlas self duality one"
+surface = "Atlas self duality one label"
 canonical_source = true
 features = ["sentence-case", "singular"]

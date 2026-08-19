@@ -12,6 +12,6 @@ name = "UorAtlas.Places.T82"
 [[form]]
 id = "atlas-t82"
 channel = "text"
-surface = "Atlas theorem eighty two"
+surface = "Atlas theorem eighty two label"
 canonical_source = true
 features = ["sentence-case", "singular"]

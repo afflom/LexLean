@@ -109,8 +109,24 @@ fn verify_examples(root: &Path, write: bool) -> Result<(), Fail> {
         let scratch = tempfile::Builder::new()
             .prefix("lexlean-example-")
             .tempdir()?;
-        copy_example(&dir, scratch.path())?;
-        let engine = engine_for(scratch.path())?;
+        // The example is staged where its own path dependencies still resolve.
+        // `examples/uor-atlas` requires the vendored Atlas library at
+        // `../../lean/uor-atlas`, and a clean copy that flattened the example
+        // to the scratch root would leave that requirement dangling --- Lake
+        // would report the dependency as not locally available and
+        // verification never fetches. Mirroring the two path components the
+        // requirement crosses keeps the clean-copy rule of §28.6 intact while
+        // letting the dependency be exactly the vendored library the
+        // repository ships.
+        let staged = scratch.path().join("examples").join(&name);
+        std::fs::create_dir_all(&staged)?;
+        copy_example(&dir, &staged)?;
+        for required in example_path_requirements(&dir, root)? {
+            let destination = scratch.path().join(&required);
+            std::fs::create_dir_all(&destination)?;
+            copy_example(&root.join(&required), &destination)?;
+        }
+        let engine = engine_for(&staged)?;
         engine
             .format(lexlean::FormatRequest {
                 selection: lexlean::Selection::Entrypoints,
@@ -369,6 +385,42 @@ fn check_golden(root: &Path, write: bool) -> Result<(), Fail> {
         );
     }
     Ok(())
+}
+
+/// The repository-relative directories an example's Lake configuration
+/// requires by path, resolved against the example's own location.
+///
+/// Only requirements that stay inside the repository are returned: one that
+/// escaped it could not be staged, and one that pointed inside the example is
+/// copied already.
+fn example_path_requirements(dir: &Path, root: &Path) -> Result<Vec<PathBuf>, Fail> {
+    let lakefile = dir.join("lakefile.toml");
+    if !lakefile.exists() {
+        return Ok(Vec::new());
+    }
+    let data: toml::Value = std::fs::read_to_string(&lakefile)?.parse()?;
+    let mut out = Vec::new();
+    let Some(requirements) = data.get("require").and_then(toml::Value::as_array) else {
+        return Ok(out);
+    };
+    for requirement in requirements {
+        let Some(relative) = requirement.get("path").and_then(toml::Value::as_str) else {
+            continue;
+        };
+        let resolved = dir.join(relative);
+        let Ok(canonical) = resolved.canonicalize() else {
+            continue;
+        };
+        let Ok(root_canonical) = root.canonicalize() else {
+            continue;
+        };
+        if let Ok(inside) = canonical.strip_prefix(&root_canonical) {
+            if !inside.as_os_str().is_empty() && !canonical.starts_with(dir) {
+                out.push(inside.to_path_buf());
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn copy_example(from: &Path, to: &Path) -> Result<(), Fail> {

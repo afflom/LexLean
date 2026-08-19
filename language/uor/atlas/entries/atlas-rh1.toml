@@ -12,6 +12,6 @@ name = "UorAtlas.Prelude.RingLemmas.RH1"
 [[form]]
 id = "atlas-rh1"
 channel = "text"
-surface = "Atlas ring homomorphism one"
+surface = "Atlas ring homomorphism one label"
 canonical_source = true
 features = ["sentence-case", "singular"]
