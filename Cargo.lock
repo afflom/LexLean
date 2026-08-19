@@ -282,7 +282,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "lexlean"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "camino",
  "clap",
@@ -448,7 +448,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "repo-conformance"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "camino",
  "lexlean",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "repo-model"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "toml",
@@ -849,7 +849,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "camino",
  "lexlean",

@@ -1987,30 +1987,21 @@ pub fn packaged_crate_version(root: &Utf8Path) -> Result<String, String> {
         &[],
     )?;
     let package_dir = target_dir.join("package");
-    let crate_file = std::fs::read_dir(package_dir.as_std_path())
-        .map_err(|error| format!("{package_dir}: {error}"))?
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "crate")
-                && path
-                    .file_name()
-                    .is_some_and(|name| name.to_string_lossy().starts_with("lexlean-"))
-        })
-        .ok_or_else(|| format!("{package_dir}: no lexlean-*.crate was produced"))?;
+    // Name the exact archive rather than scanning for one: a previous
+    // version's `.crate` survives in `target/package-verify`, and the first
+    // match would package-verify the release that used to be.
+    let crate_name = format!("lexlean-{}.crate", env!("CARGO_PKG_VERSION"));
+    let crate_file = package_dir.join(&crate_name);
+    if !crate_file.exists() {
+        return Err(format!("{package_dir}: no {crate_name} was produced"));
+    }
     let extract = tempfile::Builder::new()
         .prefix("lexlean-package-")
         .tempdir()
         .map_err(|error| error.to_string())?;
     let extract_dir = Utf8PathBuf::from_path_buf(extract.path().to_path_buf())
         .map_err(|_| "non-UTF-8 temporary directory".to_owned())?;
-    run(
-        "tar",
-        &["xzf", &crate_file.to_string_lossy()],
-        &extract_dir,
-        &[],
-    )?;
+    run("tar", &["xzf", crate_file.as_str()], &extract_dir, &[])?;
     let unpacked = std::fs::read_dir(extract_dir.as_std_path())
         .map_err(|error| error.to_string())?
         .flatten()

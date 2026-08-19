@@ -64,7 +64,7 @@ The root workspace metadata MUST be:
 
 ```toml
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.97"
 license = "MIT OR Apache-2.0"
@@ -3809,7 +3809,7 @@ The project is complete for LexLean 1.0 only when:
 - every §31 ID is implemented at level `build`;
 - no ID is represented by a stub or ignored test;
 - all schemas are committed and exercised;
-- built-in core and Nat lexicons validate;
+- built-in core, Nat, Int, and UOR Atlas lexicons validate;
 - the literal example verifies;
 - every negative fixture fails for the prescribed reason;
 - every gate has falsifiability evidence;

@@ -6,9 +6,9 @@ Feature: repository
   Scenario: The repository, crate, executable, metadata, and licenses have the exact LexLean identity specified.
     Given the workspace Cargo.toml, the lexlean crate manifest, and the two license files
     When the section 2.3 metadata rows and the exact one-line crate description are looked up and `lexlean --version` runs
-    Then Cargo.toml contains version 0.1.0, edition 2021, rust-version 1.97, and license MIT OR Apache-2.0
+    Then Cargo.toml contains version 0.1.1, edition 2021, rust-version 1.97, and license MIT OR Apache-2.0
     And LICENSE-APACHE and LICENSE-MIT exist as files
-    And the binary prints `lexlean 0.1.0` on its first stdout line with exit 0
+    And the binary prints `lexlean 0.1.1` on its first stdout line with exit 0
 
   @RP-02 @build
   Scenario: The repository is derived from the pinned UOR template commit and contains no inherited domain-specific claim logic.
@@ -81,7 +81,7 @@ Feature: repository
 
   @RP-12 @build
   Scenario: A release is refused unless the complete release criterion and all required artifacts are satisfied.
-    Given the repository tree at version 0.1.0 and the repo_model::release CRITERIA list
+    Given the repository tree at version 0.1.1 and the repo_model::release CRITERIA list
     When repo_model::release::check runs against the tree
     Then release is refused and one refusal reason names source-tag
     And the criteria include source-tag, checksums, host-binaries, crate-package, semantics-id, conformance-doc, errors-doc, spec, licenses, sbom, and ci-evidence
