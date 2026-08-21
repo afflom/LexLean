@@ -974,16 +974,17 @@ pub(crate) fn run(id: &str) {
             );
         }
         "VR-19" => {
-            // The library is repository content, so its presence is asserted on
-            // every host; only the elaboration and the axiom walk need Lean.
-            let library = support::repo_root().join("lean/uor-atlas");
+            let root = support::repo_root();
+            let library = root.join("lean/uor-atlas");
+            let exporter = root.join("xtask/lean/AtlasOracleExport.lean");
+            let source = root.join("examples/uor-atlas/src/Atlas.lex.tex");
             assert!(
                 library.join("lakefile.toml").is_file(),
-                "the vendored Atlas library is committed as a Lake package"
+                "the completed migration oracle is committed as a Lake package"
             );
             assert!(
-                library.join("audit/AxiomAudit.lean").is_file(),
-                "the standing axiom gate is committed beside the library"
+                exporter.is_file() && source.is_file(),
+                "the semantic exporter and native Atlas source are committed"
             );
             if !support::lean_backed("VR-19") {
                 return;
@@ -999,27 +1000,33 @@ pub(crate) fn run(id: &str) {
                 .expect("the pinned lake runs");
             assert!(
                 built.status.success(),
-                "every module of the vendored library elaborates: {}",
+                "the migration oracle elaborates: {}",
                 String::from_utf8_lossy(&built.stderr)
             );
-            // The gate enumerates the environment rather than reading a list of
-            // names, so a declaration added tomorrow is covered without anyone
-            // remembering to extend it.
-            let audited = std::process::Command::new(bin.join("lean"))
-                .arg("audit/AxiomAudit.lean")
+            let scratch = tempfile::tempdir().expect("temporary export directory");
+            let exported = scratch.path().join("Atlas.lex.tex");
+            let migrated = std::process::Command::new(bin.join("lake"))
+                .args(["env", "lean"])
+                .arg(&exporter)
                 .current_dir(&library)
-                .env("LEAN_PATH", library.join(".lake/build/lib/lean"))
+                .env("LEXLEAN_ATLAS_EXPORT", &exported)
                 .output()
-                .expect("the pinned lean runs");
-            let report = String::from_utf8_lossy(&audited.stdout);
+                .expect("the pinned semantic exporter runs");
             assert!(
-                audited.status.success(),
-                "no declaration depends on an unpermitted axiom: {report}{}",
-                String::from_utf8_lossy(&audited.stderr)
+                migrated.status.success(),
+                "the semantic export succeeds: {}{}",
+                String::from_utf8_lossy(&migrated.stdout),
+                String::from_utf8_lossy(&migrated.stderr)
             );
             assert!(
-                report.contains("none depends on an axiom outside Lean\'s three"),
-                "the gate reports the whole library it walked: {report}"
+                std::fs::read(&exported).expect("exported source")
+                    == std::fs::read(&source).expect("committed source"),
+                "every committed native type, value, proof and declaration row equals the completed migration oracle"
+            );
+            let native = std::fs::read_to_string(source).expect("native source");
+            assert!(
+                native.contains("\"imports\":[\"Init\"]"),
+                "the native core imports only Init and not the migration oracle"
             );
         }
         other => panic!("no verification case is wired for {other}"),

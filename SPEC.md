@@ -2151,6 +2151,44 @@ The semantic ID uses a canonical JSON serialization of linked IR:
 
 Opaque Rust debug output is never hashed or exposed as a stable format.
 
+### 17.10 Native closed core modules
+
+A source module may use the ordinary declaration environments above or one
+native `coremodule`, never both. The native form occurs after the module
+header and title and contains exactly one `\coredata{...}` argument whose
+contents are canonical JSON with schema `lexlean/core-module/1`.
+
+The schema is generic. It contains a child-before-parent DAG of closed kernel
+expressions (universe levels, de Bruijn variables, sorts, constants,
+applications, lambdas, dependent function types, lets, literals, and
+structure projections), plus declarations for definitions, theorems,
+inductives, structures, classes, instances, constructors, and recursors.
+Every declaration carries its universe parameters, exact type, applicable
+value or proof, exact kernel reducibility and construction metadata where
+applicable, and an explicit none, allow-subset, or exact axiom policy. There
+is no Atlas-specific node and no backend-source field.
+
+Linking rejects a noncanonical schema discriminator, a forward or out-of-range
+DAG edge, a malformed or repeated global name, inconsistent declaration
+metadata, an absent constructor, a missing explicit axiom policy, and any
+resource-limit overrun. A native module contributes all expression and
+declaration nodes to `max_ir_nodes` and contributes its normalized source,
+decoded semantic value, and policy data to the project identities.
+
+Both backends traverse this same linked value. The LaTeX backend renders the
+declaration names, exact types, and definition or proof terms as a canonical
+human-readable core document. The Lean backend reconstructs `Lean.Expr` and
+`Lean.Declaration` values and submits every declaration through Lean's checked
+declaration API; generated inductive auxiliaries may be submitted only once
+but remain named rows in the IR and in the verification audit. Generated Lean
+may import only the foundational modules listed in the core data and may not
+import a migration oracle that defines the declarations being generated.
+
+This form exists for lossless migration of already elaborated formal
+libraries. A migration oracle is evidence for byte-exact conversion, not an
+additional input to either backend. Once committed, the native `.lex.tex`
+module is the source of coverage and both generated artifacts.
+
 
 
 ## 18. Lean backend
@@ -3929,6 +3967,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `SM-12` | `semantic-ir` | No semantic IR node can contain opaque prose, raw backend text, or an unknown extension. | §6 I4, §17 |
 | `SM-13` | `semantic-ir` | Inherited section parameters are represented explicitly and emitted only on declarations that use them. | §17.5, §18.3 |
 | `SM-14` | `semantic-ir` | A numeral without a unique expected type is rejected rather than defaulted. | §15.5 |
+| `SM-15` | `semantic-ir` | A native core module is closed typed DAG data shared by both backends, carries explicit declaration policies, and accepts no backend source text. | §17.10 |
 | `DF-01` | `declarations` | A valid type-definition sentence emits one nonrecursive sort-valued Lean def linked to its document entry. | §15.7, §18.6 |
 | `DF-02` | `declarations` | A valid term-definition sentence emits one nonrecursive explicitly typed Lean def. | §15.7, §18.6 |
 | `DF-03` | `declarations` | A valid predicate-definition sentence emits one nonrecursive Prop-valued Lean def. | §15.7, §18.6 |
@@ -4013,7 +4052,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `VR-16` | `verification` | Axioms flowing from imported theorems remain subject to the generated declaration's policy. | §22.6 |
 | `VR-17` | `verification` | Lean workspace configuration and manifest hashes must match the lock and all dependencies must be locally available. | §10.4, §22.2 |
 | `VR-18` | `verification` | Check and build results never claim verified or kernel-checked status. | §5.3 |
-| `VR-19` | `verification` | The vendored Atlas library elaborates under the pinned toolchain and no declaration in it depends on an axiom outside Lean's own. | §10.4, §22.2, §22.6 |
+| `VR-19` | `verification` | The native Atlas source is the byte-exact semantic and proof export of the completed migration oracle and does not import that oracle. | §10.4, §17.10, §22.2 |
 | `CL-01` | `cli-api` | Global options and upward project discovery obey the exact CLI contract. | §23.1, §23.2 |
 | `CL-02` | `cli-api` | Init creates the complete canonical skeleton only in an absent or empty destination and never overwrites. | §23.4 |
 | `CL-03` | `cli-api` | Lock check, local update, and explicit network acquisition obey their exact mutually exclusive behavior. | §23.4 |
@@ -4053,7 +4092,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `EX-07` | `examples` | The negative fixture suite covers every required rejection class and prescribed diagnostic family. | §28.5 |
 | `EX-08` | `examples` | Every example directory is discovered automatically and must satisfy the full example gate. | §28.6 |
 
-**Total required capability IDs:** 210.
+**Total required capability IDs:** 211.
 
 No row may be downgraded to `some-true` or `open`. Upstream Lean facts are ledger/authority rows, not substitutions for these build behaviors.
 

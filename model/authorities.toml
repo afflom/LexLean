@@ -46,12 +46,3 @@ checksum = "none"
 checksum_reason = "The behavior belongs to the pinned toolchain; the committed axiom-parser fixtures record the observed output forms and participate in the compiler-semantics digest."
 statement = "Lean 4.32.1 reports the transitive axiom dependencies of a declaration through #print axioms in exactly the output forms recorded by the committed axiom-parser fixtures."
 realized_by = ["VR-09", "VR-10"]
-
-[[authority]]
-id = "ATLAS-FORMAL-001"
-name = "UOR-ATLAS-FORMAL-001"
-citation = "UOR Foundation, UOR-ATLAS-FORMAL-001, the Atlas specification over the E8 root system; section 20 carries its label registry"
-checksum = "none"
-checksum_reason = "The document is the specification the vendored Lean library formalizes, not an input this repository compiles, so nothing from it is vendored. language/uor/atlas-registers.toml transcribes its label registers and separately records LexLean's S43 reclassification after a second real solution falsified the source's uniqueness statement; audit-atlas-registers checks the resulting explicit dispositions, and a third party can compare the transcription against section 20."
-statement = "UOR-ATLAS-FORMAL-001 states the Atlas over the E8 root system and fixes the label register of its section 20, recording six labels retracted in 20.1, one superseded in 20.2, two carrying the non-normative SMT-VALIDATED marker, and twelve ambient lemmas in 19.6 that it uses and establishes nowhere."
-realized_by = ["VR-19"]

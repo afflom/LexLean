@@ -1,13 +1,6 @@
 {"version": "1.2.0",
  "packagesDir": ".lake/packages",
- "packages":
- [{"type": "path",
-   "scope": "",
-   "name": "UorAtlas",
-   "manifestFile": "lake-manifest.json",
-   "inherited": false,
-   "dir": "../../lean/uor-atlas",
-   "configFile": "lakefile.toml"}],
+ "packages": [],
  "name": "uor_atlas_host",
  "lakeDir": ".lake",
  "fixedToolchain": false}

@@ -1,0 +1,539 @@
+{
+  "$defs": {
+    "binder": {
+      "enum": [
+        "e",
+        "i",
+        "s",
+        "c"
+      ]
+    },
+    "declaration": {
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "type": "boolean"
+        },
+        "generated": {
+          "type": "boolean"
+        },
+        "inductive": {
+          "$ref": "#/$defs/inductive"
+        },
+        "instance": {
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "abbrev",
+            "definition",
+            "theorem",
+            "inductive",
+            "constructor",
+            "recursor"
+          ]
+        },
+        "levels": {
+          "items": {
+            "$ref": "#/$defs/nameSegment"
+          },
+          "type": "array"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "priority": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reducibility": {
+          "$ref": "#/$defs/reducibility"
+        },
+        "type": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "value": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "class",
+        "generated",
+        "instance",
+        "kind",
+        "levels",
+        "name",
+        "policy",
+        "type"
+      ],
+      "type": "object"
+    },
+    "inductive": {
+      "additionalProperties": false,
+      "properties": {
+        "constructors": {
+          "items": {
+            "$ref": "#/$defs/name"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "num_indices": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "num_params": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "projections": {
+          "items": {
+            "$ref": "#/$defs/name"
+          },
+          "type": "array"
+        },
+        "structure": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "constructors",
+        "num_indices",
+        "num_params",
+        "projections",
+        "structure"
+      ],
+      "type": "object"
+    },
+    "level": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "k": {
+              "const": "z"
+            }
+          },
+          "required": [
+            "k"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "a": {
+              "$ref": "#/$defs/level"
+            },
+            "k": {
+              "const": "s"
+            }
+          },
+          "required": [
+            "a",
+            "k"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "a": {
+              "items": {
+                "$ref": "#/$defs/level"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "k": {
+              "enum": [
+                "m",
+                "i"
+              ]
+            }
+          },
+          "required": [
+            "a",
+            "k"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "a": {
+              "$ref": "#/$defs/nameSegment"
+            },
+            "k": {
+              "const": "p"
+            }
+          },
+          "required": [
+            "a",
+            "k"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "name": {
+      "pattern": "^[A-Za-z_][A-Za-z0-9_?']*(\\.[A-Za-z_][A-Za-z0-9_?']*)*$",
+      "type": "string"
+    },
+    "nameSegment": {
+      "pattern": "^[A-Za-z_][A-Za-z0-9_?']*$",
+      "type": "string"
+    },
+    "node": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "i": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k": {
+              "const": "b"
+            }
+          },
+          "required": [
+            "i",
+            "k"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "k": {
+              "const": "s"
+            },
+            "l": {
+              "$ref": "#/$defs/level"
+            }
+          },
+          "required": [
+            "k",
+            "l"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "k": {
+              "const": "c"
+            },
+            "n": {
+              "$ref": "#/$defs/name"
+            },
+            "u": {
+              "items": {
+                "$ref": "#/$defs/level"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "k",
+            "n",
+            "u"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "f": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k": {
+              "const": "a"
+            },
+            "x": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "f",
+            "k",
+            "x"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "b": {
+              "$ref": "#/$defs/binder"
+            },
+            "k": {
+              "enum": [
+                "l",
+                "p"
+              ]
+            },
+            "n": {
+              "type": "string"
+            },
+            "t": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "v": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "b",
+            "k",
+            "n",
+            "t",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "d": {
+              "type": "boolean"
+            },
+            "k": {
+              "const": "e"
+            },
+            "n": {
+              "type": "string"
+            },
+            "t": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "v": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "body",
+            "d",
+            "k",
+            "n",
+            "t",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "k": {
+              "const": "n"
+            },
+            "v": {
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "k",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "k": {
+              "const": "t"
+            },
+            "v": {
+              "items": {
+                "maximum": 1114111,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "k",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "i": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k": {
+              "const": "j"
+            },
+            "n": {
+              "$ref": "#/$defs/name"
+            },
+            "s": {
+              "$ref": "#/$defs/name"
+            },
+            "x": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "i",
+            "k",
+            "n",
+            "s",
+            "x"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "policy": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "none"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "axioms": {
+              "items": {
+                "$ref": "#/$defs/name"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "enum": [
+                "allow",
+                "exact"
+              ]
+            }
+          },
+          "required": [
+            "axioms",
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "reducibility": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "abbrev"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "opaque"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "regular"
+            }
+          },
+          "required": [
+            "height",
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://github.com/afflom/lexlean/schemas/core-module.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "declarations": {
+      "items": {
+        "$ref": "#/$defs/declaration"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "imports": {
+      "items": {
+        "$ref": "#/$defs/name"
+      },
+      "type": "array"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/node"
+      },
+      "type": "array"
+    },
+    "proof_nodes": {
+      "items": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "type": "array"
+    },
+    "spec": {
+      "const": "lexlean/core-module/1"
+    }
+  },
+  "required": [
+    "declarations",
+    "imports",
+    "nodes",
+    "proof_nodes",
+    "spec"
+  ],
+  "title": "LexLean native closed core module (SPEC.md §17.10)",
+  "type": "object"
+}

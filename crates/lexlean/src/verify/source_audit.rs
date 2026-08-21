@@ -322,8 +322,8 @@ pub fn audit(text: &str, allow_print_axioms: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Audit one hand-written module of the vendored Atlas library (release
-/// plan §4.4, which forbids `sorry`, `admit`, an author-declared `axiom`,
+/// Audit one hand-written module of the Atlas migration oracle, which forbids
+/// `sorry`, `admit`, an author-declared `axiom`,
 /// `opaque`, `unsafe`, and `native_decide` anywhere in the library).
 ///
 /// It shares [`forbidden_words`] with [`audit`] so the two spellings cannot
@@ -337,7 +337,7 @@ pub fn audit(text: &str, allow_print_axioms: bool) -> Result<(), String> {
 pub fn audit_library(text: &str) -> Result<(), String> {
     let tokens = lex(text).map_err(|error| {
         format!(
-            "unterminated {} at byte {} in the vendored library",
+            "unterminated {} at byte {} in the Atlas migration oracle",
             error.what, error.at
         )
     })?;

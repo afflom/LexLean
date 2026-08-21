@@ -21,6 +21,7 @@ use crate::grammar::proposition::{
     phrase_covers, ArticleRule, CoverFlow, PhraseItemAst, TextParser,
 };
 use crate::grammar::structural::{self, AtomRange, BlockAst, DeclAst, ModuleAst, PolicyKind};
+use crate::ir::core::CoreModule;
 use crate::ir::declaration::{AxiomPolicy, DeclBody, Declaration};
 use crate::ir::document::{Block, DocumentModule, LinkedProject, Phrase, PhraseItem, Section};
 use crate::ir::proof::{CaseProof, Proof};
@@ -533,6 +534,21 @@ fn check_project_inline(
         }
         scopes.pop_frame();
 
+        let core = if let Some(ast) = &load.ast.core {
+            Some(CoreModule::parse(&ast.data.text).map_err(|reason| {
+                err(vec![Diagnostic::new(
+                    code!("LLI9001"),
+                    format!("phase link: {reason}"),
+                )
+                .with_span(span_of_range(
+                    &load.path,
+                    &load.atoms,
+                    ast.data.range,
+                ))])
+            })?)
+        } else {
+            None
+        };
         let document = DocumentModule {
             name: module_name.clone(),
             lean_module,
@@ -542,6 +558,7 @@ fn check_project_inline(
             imports,
             title,
             blocks,
+            core,
         };
         ir_node_count = ir_node_count.saturating_add(count_ir_nodes(&document));
         if ir_node_count > limits.max_ir_nodes {
@@ -1499,7 +1516,11 @@ fn count_ir_nodes(document: &DocumentModule) -> u64 {
             }
         }
     }
-    document.blocks.iter().map(block_nodes).sum()
+    let prose = document.blocks.iter().map(block_nodes).sum::<u64>();
+    let core = document.core.as_ref().map_or(0, |module| {
+        module.nodes.len() as u64 + module.declarations.len() as u64
+    });
+    prose.saturating_add(core)
 }
 
 /// Collect every external Lean entry a document references, keyed by

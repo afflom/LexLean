@@ -279,6 +279,7 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `SM-12` | `build` | No semantic IR node can contain opaque prose, raw backend text, or an unknown extension. |
 | `SM-13` | `build` | Inherited section parameters are represented explicitly and emitted only on declarations that use them. |
 | `SM-14` | `build` | A numeral without a unique expected type is rejected rather than defaulted. |
+| `SM-15` | `build` | A native core module is closed typed DAG data shared by both backends, carries explicit declaration policies, and accepts no backend source text. |
 
 ## verification
 
@@ -302,7 +303,7 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `VR-16` | `build` | Axioms flowing from imported theorems remain subject to the generated declaration's policy. |
 | `VR-17` | `build` | Lean workspace configuration and manifest hashes must match the lock and all dependencies must be locally available. |
 | `VR-18` | `build` | Check and build results never claim verified or kernel-checked status. |
-| `VR-19` | `build` | The vendored Atlas library elaborates under the pinned toolchain and no declaration in it depends on an axiom outside Lean's own. |
+| `VR-19` | `build` | The native Atlas source is the byte-exact semantic and proof export of the completed migration oracle and does not import that oracle. |
 
 ## Cited authorities
 
@@ -314,7 +315,6 @@ Never re-derived, vendored, or gated on.
 | `LAKE-4-32-1` | https://github.com/leanprover/lean4/tree/v4.32.1/src/lake | `VR-03`, `VR-17` |
 | `LEANCHECKER-4-32-1` | https://github.com/leanprover/lean4/tree/v4.32.1 | `VR-08` |
 | `PRINT-AXIOMS-4-32-1` | https://github.com/leanprover/lean4/tree/v4.32.1 (the #print axioms command); observed output fixtures under tests/golden/axiom-parser/ | `VR-09`, `VR-10` |
-| `ATLAS-FORMAL-001` | UOR Foundation, UOR-ATLAS-FORMAL-001, the Atlas specification over the E8 root system; section 20 carries its label registry | `VR-19` |
 
 ## Claims that are not conformance IDs
 

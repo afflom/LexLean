@@ -4873,18 +4873,17 @@ traces `tr(S_X^k) = 48, 108, 360` for `k = 1, 2, 3`, and `(3, 2, 1)` is the
 unique INTEGER solution of that system once `6` and `0` are fixed by `S17` and
 `S15`.
 
-The document's `S43` says "a system whose **unique real solution** is
-`(3, 2, 1)`". That is false as literally written: the same three equations are
-also satisfied by approximately
-`(3.190960144833, 0.732382694450, 1.612590858904)`. The source register therefore
-retracts `S43`; this differently named theorem retains the true integer result
-without making the false source statement denotable.
+An earlier prose rendering called this a unique real solution. That is false:
+the same three equations are also satisfied by approximately
+`(3.190960144833, 0.732382694450, 1.612590858904)`.  The completed formal
+semantics is integer uniqueness, and the canonical statement generated from
+the migrated declaration is authoritative for `S43`.
 
 So it is proved over `Z`, and proved rather than checked at a point: the `k = 2`
 equation forces `x*x <= 36`, `y*y <= 8` and `z*z <= 4`, hence `|x| <= 6`,
 `|y| <= 2`, `|z| <= 2`, and `traceBox` settles the finite box that leaves. The
 bound is what makes the finite check a proof instead of a sample. -/
-public theorem traceSystem_integer_unique :
+public theorem S43 :
     (1 * 6 + 2 * 3 + 9 * 2 + 18 * 1 + 6 * 0 = (48 : Int)
       ∧ 1 * (6 * 6) + 2 * (3 * 3) + 9 * (2 * 2) + 18 * (1 * 1) + 6 * (0 * 0) = (108 : Int)
       ∧ 1 * (6 * 6 * 6) + 2 * (3 * 3 * 3) + 9 * (2 * 2 * 2) + 18 * (1 * 1 * 1)

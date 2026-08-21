@@ -1,16 +1,16 @@
 spec = "lexlean/lock/1"
 language = "1.0"
-compiler_semantics = "13e9df9093d2301bd59bf1e5d2a63d25f8f7787614bf74952972386c877e827e"
-project_config_sha256 = "923e480475cee739e22cd0803d3840a5fabd71481eeeaf5dc9140da3eec94e8d"
+compiler_semantics = "bb72c4fde456630303c0c90a1a689b7c222e12884f8d5dd50c9afd493c05a28f"
+project_config_sha256 = "07c769db15cd71c001a9155addf574c718cc7d61927f23933296491b9ae9a1ba"
 lean_toolchain = "leanprover/lean4:v4.32.1"
 
 [[workspace_file]]
 path = "lake-manifest.json"
-sha256 = "6d19355d639916387f0b4d3956c3c6c05c21942f3b7cb8a95f277e5f39612bdb"
+sha256 = "a478591edfb91eb5f9218750082d6960aaa68df8c34996f60fdddf84452ba003"
 
 [[workspace_file]]
 path = "lakefile.toml"
-sha256 = "add1af12a011c7a661e5a91bdd456c97dcf1a287672a4b53b64a1197dfd65a2c"
+sha256 = "296141842e15f6a604c6c2cb6d3fc25ef5d0348e5a6d5447b4103172309e6d2e"
 
 [[workspace_file]]
 path = "lean-toolchain"
@@ -52,6 +52,6 @@ version = "1.0.0"
 kind = "builtin"
 source = "embedded"
 revision = "compiler-semantics"
-tree_sha256 = "e8c33d4344c2081360d357f5755ba271b54648caeaef1b0b8cadb7d6d32f126c"
+tree_sha256 = "5f05625de89392ea958b987ff601d264628f1f6ecfce1ebd298a8bddbf657b06"
 manifest_sha256 = "49d0f41e154d0754384f2e766dc3a0bef72b4ee960f73fe4acfec247bcab73a2"
 imports = ["lexlean.core@1.0.0", "lexlean.std.int@1.0.0", "lexlean.std.nat@1.0.0"]

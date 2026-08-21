@@ -35,26 +35,27 @@ the repository.
   visible in every document, so the header is carried whether or not a
   document names an Atlas entry; its visibility closes transitively over
   `lexlean.core`, `lexlean.std.nat`, and `lexlean.std.int`.
-- The Atlas pack is complete against the document's section 20 label
-  register: every label carries exactly one disposition (entry, retracted,
-  superseded, or non-denotable), the registers key on exact identifiers,
-  every object named in a live definition has an entry, and every entry
-  appears in a generated probe module. Coverage, exercise, denotation,
+- The frozen Atlas pack is complete against the native source register: every
+  label carries exactly one disposition, the registers key on exact
+  identifiers, and every denotation names a declaration owned by the native
+  source. Coverage begins at `Atlas.lex.tex`; exercise, denotation,
   duplication, surface-disjointness, and authority-scope audits run as gates,
   each with a planted-defect record in VERIFICATION.md.
 - `examples/uor-atlas/` verifies under the pinned toolchain with its
   committed verification records, and the negative fixture suite grows to 28
   classes with `atlas-level-conflation`, rejected by `LLT4001`.
-- `ATLAS-FORMAL-001` cites the Atlas document at level `some-true`; the
-  vendored library and the pack are repository content at level `build`. No
-  statement about E8 appears in the register, and `VR-19` brings the register
-  to 210 IDs, all implemented at level `build`.
+- `examples/uor-atlas/src/Atlas.lex.tex` is the single native semantic and
+  proof source for 5,577 Atlas and supporting declarations. Both backends
+  traverse that closed DAG, generated Lean imports only `Init`, and the old
+  Lean implementation remains solely as the byte-exact `VR-19` migration
+  oracle. `S43` is authoritatively the proved integer-uniqueness statement.
+  `SM-15` brings the register to 211 IDs, all implemented at level `build`.
 
 ### Changed
 
 - The compiler-semantics ID moves from
   `fa171c7a2d78cf17e6cb49bbec5c1eed8bee20033472b1953211104068589ba7` to
-  `4976bbe8c98076241f76aa3ca6ae771db2a64708efaa4b5e386b30456f4edf6f`: the
+  `a572b3f2f482ff78077b77ab448011d423107493bc8c659d1981542c04e09f30`: the
   accepted language changed, so §30.1 requires a new ID. Every committed lock
   and verification record was regenerated against it.
 - The four 0.1.0 examples still format byte-identically and generate

@@ -1,3 +1,2 @@
 module
-import Init
-public import UorAtlas
+public import Init

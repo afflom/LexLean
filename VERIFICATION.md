@@ -143,7 +143,7 @@ Removed: the surface was restored; the audit reports 58 spellable surfaces with 
 Planted: a module `lean/uor-atlas/UorAtlas/Planted.lean` whose theorem is closed `by sorry`. Command: `cargo xtask validate-model`. Expected: R4 names the file and the token.
 
 ```text
-gate failed: R4: /workspaces/LexLean/lean/uor-atlas/UorAtlas/Planted.lean: forbidden token `sorry` in the vendored library; the vendored Atlas library admits none of them (§4.4)
+gate failed: R4: /workspaces/LexLean/lean/uor-atlas/UorAtlas/Planted.lean: forbidden token `sorry` in the migration oracle; the Atlas migration oracle admits none of them
 ```
 
 Planting an author `axiom` or `native_decide` instead fails the same way, naming that token. The word list is `lexlean::verify::source_audit`'s, shared with the generated-Lean audit so the two spellings cannot drift.
@@ -151,28 +151,28 @@ Planting an author `axiom` or `native_decide` instead fails the same way, naming
 The same gate refuses a module the library root does not reach, which is the hole a word scan alone leaves: the axiom gate walks the environment the root pulls in, so an unimported module is scanned for words and never checked for axioms. Planted: the same file with a harmless theorem, left out of `UorAtlas.lean`.
 
 ```text
-gate failed: R4: the vendored Atlas library has 1 module(s) no import reaches from `UorAtlas`, so the axiom gate never sees them: UorAtlas.Planted
+gate failed: R4: the Atlas migration oracle has 1 module(s) no import reaches from `UorAtlas`, so the equivalence export never sees them: UorAtlas.Planted
 ```
 
-Removed: the file was deleted; the audit reports every vendored module free of forbidden constructs and reachable from the root. This check has caught agent scratch files twice.
+Removed: the file was deleted; the audit reports every migration-oracle module free of forbidden constructs and reachable from the root. This check has caught agent scratch files twice.
 
 ### audit-atlas-registers can fail
 
-Planted: a module declaring `T48`, which section 20.1 records as retracted. Command: `cargo xtask validate-model`. Expected: R4 names the label and its disposition.
+Planted: the native Atlas source declaration `UorAtlas.Scales.S37` renamed to `UorAtlas.Scales.MissingS37`. Command: `cargo xtask validate-model`. Expected: R4 names the live source obligation.
 
 ```text
-gate failed: R4: /workspaces/LexLean/lean/uor-atlas/UorAtlas/Planted.lean declares `T48`, which the registers withhold (retracted, superseded, or non-denotable); citing it is a failure, not a definition
+gate failed: R4: the Atlas register has 1 live label(s) absent from the native Atlas source: S37; a live source row is an obligation, not an optional description of what was migrated
 ```
 
-Planting `T10` (superseded) or `L1` (non-denotable) fails the same way. The register keys on exact identifiers, so the negative case matters as much: planting `T57a`, `T10a` and `F12` — live labels whose prefixes are withheld — is ACCEPTED and raises the declared count, which is the property a prefix-matching register would destroy.
+Renaming a source support declaration to `T48` (retracted), `T10` (superseded), or `L1` (non-denotable) fails on that exact disposition. The register keys on exact identifiers, so `T57a`, `T10a`, and `F12` remain live even though their prefixes are withheld.
 
-The same gate refuses a label declared twice, because a pack entry naming it would then have two constants to denote. Planted: a second `T5` beside the one in `Roots.lean`.
+The same gate refuses two native declarations whose final segment is the same live label. Planted: a second fully qualified declaration ending in `T5`.
 
 ```text
-gate failed: R4: `T5` is declared in both Planted.lean and Roots.lean; a label has one denotation, so a pack entry naming it must have one declaration to name
+gate failed: R4: `T5` is declared as both `UorAtlas.Roots.T5` and `UorAtlas.Planted.T5` in the native Atlas source; one label has one declaration
 ```
 
-Removed: the file was deleted; the audit reports 300 registered labels with disjoint dispositions.
+Removed: the source bytes were restored from the oracle export; the audit reports every live label rooted in the native Atlas source, including `S37`, `S38`, and the corrected integer statement `S43`.
 
 ### audit-authority-scope can fail
 
@@ -182,7 +182,7 @@ Planted: an authority row for the vendored library, which is repository content.
 gate failed: R2: authority `ATLAS-LIBRARY` cites repository content; what this repository builds is a `build` claim with a conformance ID, never a `some-true` citation (§27.4)
 ```
 
-A citation naming an existing repository path fails the same way, naming the path. The check reads each citation up to its first semicolon, because a legitimate row may go on to name repository fixtures as the evidence a third party compares against — `PRINT-AXIOMS-4-32-1` does exactly that with `tests/golden/axiom-parser/`, and must not be refused for it. Removed: the row was deleted; the audit reports five rows, none citing repository content.
+A citation naming an existing repository path fails the same way, naming the path. The check reads each citation up to its first semicolon, because a legitimate row may go on to name repository fixtures as the evidence a third party compares against — `PRINT-AXIOMS-4-32-1` does exactly that with `tests/golden/axiom-parser/`, and must not be refused for it. Removed: the row was deleted; the audit reports four rows, none citing repository content.
 
 ### audit-atlas-duplication can fail
 
@@ -196,16 +196,16 @@ Removed: the duplicate was deleted; the audit reports every public statement acr
 
 ### audit-atlas-denotations can fail
 
-Planted, in the first direction: `atlas-t5.toml`'s denotation renamed to `UorAtlas.Roots.T5x9`, a declaration the vendored library does not make. Command: `cargo xtask validate-model`. Expected: R2 names the entry file and the dangling name.
+Planted, in the first direction: `atlas-t5.toml`'s denotation renamed to `UorAtlas.Roots.T5x9`, a declaration the native source does not make. Command: `cargo xtask validate-model`. Expected: R2 names the entry file and the dangling name.
 
 ```text
-gate failed: R2: `atlas-t5.toml` denotes `UorAtlas.Roots.T5x9`, which the vendored library does not declare
+gate failed: R2: `atlas-t5.toml` denotes `UorAtlas.Roots.T5x9` in `UorAtlas.Roots`, which the native Atlas source does not declare
 ```
 
-Planted, in the second direction: `atlas-a1.toml` deleted, so the library proves `A1` and no entry denotes it. Command: `cargo xtask validate-model`. Expected: R4 names the label and says which way round the claim fails.
+Planted, in the second direction: `atlas-a1.toml` deleted, so the native source owns `A1` and no frozen entry denotes it. Command: `cargo xtask validate-model`. Expected: R4 names the label.
 
 ```text
-gate failed: R4: the library declares `A1` and no entry denotes it; a proved label the pack withholds is a coverage claim told backwards
+gate failed: R4: the native Atlas source declares live label `A1` and no frozen entry denotes it
 ```
 
 Planted, on disposition: an entry `atlas-t48` for `T48`, which section 20.1 retracted, and an entry `atlas-l1` for `L1`, which the document declares non-denotable. Command: `cargo xtask validate-model`. Expected: R2 names the label and the disposition the register records.
@@ -215,9 +215,9 @@ gate failed: R2: `atlas-t48.toml` is an entry for `T48`, which the register reco
 gate failed: R2: `atlas-l1.toml` is an entry for `L1`, which the register records as non-denotable; a document could cite it as though it stood
 ```
 
-Removed: all restored; the audit reports 257 entries with every Lean denotation declared by the library and every declared label denoted once. The gate is two-directional on purpose --- a denotation with no declaration advertises a result the library does not prove, and a declaration with no entry is the same coverage lie told backwards.
+Removed: all restored; the audit reports every frozen Lean denotation rooted in the native source and every live label denoted once. The gate is two-directional on purpose: a denotation with no source declaration advertises a result the corpus does not own, while a live declaration with no entry withholds it.
 
-The disposition arm reads the label out of the entry's own id rather than out of its denotation. Keyed on the denotation it was unreachable: the library declares no retracted or non-denotable label, so nothing could ever have reached the check, and it would have sat there looking like protection it could not give.
+The disposition arm reads the label out of the entry's own id rather than out of its denotation, so an entry for a withdrawn label is rejected even though no native declaration carries that name.
 
 The audit also refuses to pass on an empty scan. Its first draft handed `gather` a list of extensions where that helper takes subdirectories *of* its root, so both scans found nothing and the gate reported success over zero files; it now fails when either scan is empty, because a gate that inspects nothing has not passed, it has failed to look.
 
@@ -229,27 +229,15 @@ Planted, on prefix-freeness: `atlas-t59p`'s closing word removed, making its sur
 gate failed: R7: `atlas-t59p`'s surface is a prefix of `atlas-t59p0`'s; a following word from another package would make a second complete parse
 ```
 
-Planted, on exercise: the sole citation of `atlas-a1` in the exhaustive module replaced by a second citation of another label. Command: `cargo xtask validate-model`. Expected: R4 counts the unexercised entries and names one.
+Planted, on source ownership: a second entrypoint added beside `src/Atlas.lex.tex`. Command: `cargo xtask validate-model`. Expected: R4 reports that the native source is not the sole coverage root.
 
 ```text
-gate failed: R4: 1 Atlas entry is referenced by no committed document, the first being `atlas-a1`; an entry nothing cites is never exercised
+gate failed: R4: the Atlas example entrypoints are ["src/Atlas.lex.tex", "src/Labels.lex.tex"]; the native Atlas source must be the sole coverage root
 ```
 
-Removed: both restored; the audit reports 257 entries, every surface prefix-free and cited by a committed document.
+Removing a theorem's value root from `proof_nodes` fails the same audit and names the theorem. Removed: both defects were restored; the audit reports the source declaration count and confirms every theorem proof root.
 
 The prefix rule is not hygiene. `T59p`'s surface followed by `lexlean.std.nat`'s `zero` reads as `T59p0`, and the exhaustive module was rejected with `LLP2002`, two distinct linked interpretations, until every Atlas surface was given a closing word. Pairwise distinctness --- which `audit-surface-disjointness` already checks --- does not give the disjointness §2.4 makes the compatibility condition, because a surface can be extended into another by a word the closure supplies.
-
-### atlas-pack can fail
-
-Planted: `atlas-t5.toml`'s `features` list edited by hand, a change the surface-level gates cannot see. Command: `cargo xtask validate-model`. Expected: the check reports the pack is not the one the library implies and names the repair.
-
-```text
-gate failed: the Atlas pack is not the one the library implies: 1 stale, 0 missing; run `cargo xtask atlas-pack --write`
-```
-
-Removed: restored; the check reports 261 entries derived from the library are current.
-
-The pack is generated data and is checked against its generator, the discipline `check-golden` applies to build oracles. `audit-atlas-denotations` already catches an entry that denotes nothing or a proved label the pack withholds; this catches the rest --- a hand edit to a field no other gate reads. The generator also writes the exhaustive module, so the pack and the document that exercises it cannot drift apart: growing one without the other fails `audit-atlas-exercise` immediately.
 
 ### honesty-vocabulary can fail
 

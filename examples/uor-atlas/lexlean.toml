@@ -3,7 +3,7 @@ name = "uor-atlas"
 language = "1.0"
 module_prefix = "LexLeanExample"
 source_roots = ["src"]
-entrypoints = ["src/Labels.lex.tex", "src/Main.lex.tex"]
+entrypoints = ["src/Atlas.lex.tex"]
 build_root = ".lexlean"
 lockfile = "lexlean.lock"
 lean_workspace = "."
@@ -11,12 +11,12 @@ lean_toolchain = "leanprover/lean4:v4.32.1"
 lexicon_source = []
 
 [limits]
-max_file_bytes = 4194304
+max_file_bytes = 33554432
 max_total_source_bytes = 67108864
-max_primitive_atoms = 2000000
+max_primitive_atoms = 20000000
 max_token_lattice_edges = 4000000
 max_parse_states = 4000000
-max_ir_nodes = 2000000
+max_ir_nodes = 4000000
 max_scope_depth = 1024
 max_import_depth = 128
 max_diagnostics = 256

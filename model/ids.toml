@@ -531,6 +531,12 @@ suite = "semantic-ir"
 statement = "A numeral without a unique expected type is rejected rather than defaulted."
 
 [[id]]
+id = "SM-15"
+level = "build"
+suite = "semantic-ir"
+statement = "A native core module is closed typed DAG data shared by both backends, carries explicit declaration policies, and accepts no backend source text."
+
+[[id]]
 id = "DF-01"
 level = "build"
 suite = "declarations"
@@ -1038,7 +1044,7 @@ statement = "Check and build results never claim verified or kernel-checked stat
 id = "VR-19"
 level = "build"
 suite = "verification"
-statement = "The vendored Atlas library elaborates under the pinned toolchain and no declaration in it depends on an axiom outside Lean's own."
+statement = "The native Atlas source is the byte-exact semantic and proof export of the completed migration oracle and does not import that oracle."
 
 [[id]]
 id = "CL-01"

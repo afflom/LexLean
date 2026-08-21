@@ -133,8 +133,8 @@ Feature: verification
     And neither JSON status is `verified` and neither stdout contains `kernel-checked`
 
   @VR-19 @build
-  Scenario: The vendored Atlas library elaborates under the pinned toolchain and no declaration in it depends on an axiom outside Lean's own.
-    Given the vendored Atlas library in the repository's lean workspace
-    When the library is built with the pinned toolchain and its declarations are audited
-    Then every module elaborates
-    And no declaration depends on an axiom outside propext, Quot.sound and Classical.choice
+  Scenario: The native Atlas source is the byte-exact semantic and proof export of the completed migration oracle and does not import that oracle.
+    Given the completed Atlas migration oracle and the committed native Atlas source
+    When the oracle is semantically exported with the pinned toolchain
+    Then the exported source equals the committed source byte for byte
+    And the native core module does not import the migration oracle

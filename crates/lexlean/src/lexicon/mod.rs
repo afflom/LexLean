@@ -424,21 +424,18 @@ mod tests {
                     assert!(is_lean_name(module) && is_lean_name(name), "{name}");
                     // Core and standard packages denote Lean's own constants,
                     // and the list above is the probe's accepted set. The
-                    // Atlas package denotes the vendored library instead,
-                    // which this crate does not carry: the shipped compiler is
-                    // the language data, not the Lean sources. Here the name
-                    // is required to live in the namespace of the module that
-                    // declares it; that the declaration exists at all is the
-                    // repository's `audit-atlas-denotations`, which can read
-                    // `lean/` and this test cannot.
+                    // Atlas package names project into the native Atlas
+                    // declaration graph. This crate embeds the frozen package,
+                    // while the repository audit reads the native source and
+                    // checks that every projected declaration exists.
                     if let Some(rest) = module.strip_prefix("UorAtlas") {
                         assert!(
                             rest.is_empty() || rest.starts_with('.'),
-                            "`{module}` is not a vendored Atlas module"
+                            "`{module}` is not an Atlas module"
                         );
                         assert!(
                             name.starts_with("UorAtlas."),
-                            "`{name}` is not in the vendored Atlas namespace"
+                            "`{name}` is not in the native Atlas namespace"
                         );
                     } else {
                         assert!(

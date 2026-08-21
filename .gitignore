@@ -7,7 +7,7 @@
 examples/**/.lexlean/
 tests/**/.lexlean/
 
-# Lake build output for the vendored Atlas library. Its source, lakefile,
+# Lake build output for the Atlas migration oracle. Its source, lakefile,
 # lake-manifest.json and lean-toolchain are committed; .lake/ is derived, and
 # committing it would put a second copy of every .olean in the tree.
 lean/**/.lake/

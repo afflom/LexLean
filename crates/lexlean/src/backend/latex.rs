@@ -1816,6 +1816,9 @@ fn label(sink: &mut Sink<'_, '_>, module: &str, component: &str) -> Result<(), D
 #[allow(clippy::too_many_lines)]
 pub fn render_module(checked: &CheckedModule, closure: &Closure) -> Result<Emitter, Diagnostic> {
     let document = &checked.document;
+    if let Some(core) = &document.core {
+        return crate::backend::core::render_latex(checked, core);
+    }
     let mut spellings = BTreeMap::new();
     collect_spellings_document(document, &mut spellings);
     for (id, spelling) in &checked.proof_spellings {

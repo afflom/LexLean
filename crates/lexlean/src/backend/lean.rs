@@ -2087,6 +2087,9 @@ pub fn render_module(
     aliases: &DocumentAliases<'_>,
 ) -> Result<Emitter, Diagnostic> {
     let document = &checked.document;
+    if let Some(core) = &document.core {
+        return crate::backend::core::render_lean(checked, core);
+    }
     let mut emitter = Emitter::new();
     let preamble_node = emitter.node("lean-preamble");
     {

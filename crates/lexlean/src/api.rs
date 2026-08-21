@@ -760,7 +760,12 @@ impl Engine {
                             module: name.clone(),
                             summary: CheckedUnitSummary {
                                 lean_module: module.document.lean_module.clone(),
-                                declarations: module.document.declarations().len(),
+                                declarations: module.document.declarations().len()
+                                    + module
+                                        .document
+                                        .core
+                                        .as_ref()
+                                        .map_or(0, |core| core.declarations.len()),
                             },
                         },
                     )

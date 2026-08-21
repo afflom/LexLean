@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use crate::artifact::canonical_json::Json;
 use crate::artifact::content_id::Sha256Digest;
+use crate::ir::core::CoreModule;
 use crate::ir::declaration::Declaration;
 use crate::ir::term::{Binder, Renumber, Term};
 use crate::lexicon::lse::QualifiedId;
@@ -101,6 +102,8 @@ pub struct DocumentModule {
     pub title: Phrase,
     /// Top-level blocks in source order.
     pub blocks: Vec<Block>,
+    /// A closed kernel module, exclusively present when `blocks` is empty.
+    pub core: Option<CoreModule>,
 }
 
 impl DocumentModule {
@@ -166,7 +169,7 @@ impl DocumentModule {
             }
         }
         let mut renumber = Renumber::default();
-        Json::object(vec![
+        let mut fields = vec![
             ("name", Json::Str(self.name.clone())),
             ("lean_module", Json::Str(self.lean_module.clone())),
             (
@@ -187,7 +190,14 @@ impl DocumentModule {
                         .collect(),
                 ),
             ),
-        ])
+        ];
+        if let Some(core) = &self.core {
+            fields.push((
+                "core",
+                Json::Str(serde_json::to_string(core).unwrap_or_default()),
+            ));
+        }
+        Json::object(fields)
     }
 }
 

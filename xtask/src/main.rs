@@ -9,7 +9,6 @@ use std::process::ExitCode;
 
 use camino::Utf8PathBuf;
 
-mod atlas_pack;
 mod audit;
 mod codegen;
 mod spec_links;
@@ -27,7 +26,6 @@ fn main() -> ExitCode {
 
     let result = match task.as_str() {
         "validate-model" => codegen::check_model(&root, write),
-        "atlas-pack" => atlas_pack::generate(&root, write),
         "validate-spec-links" => spec_links::validate(&root),
         "verify-examples" => verify_examples(&root, write),
         "check-golden" => check_golden(&root, write),
@@ -111,15 +109,9 @@ fn verify_examples(root: &Path, write: bool) -> Result<(), Fail> {
         let scratch = tempfile::Builder::new()
             .prefix("lexlean-example-")
             .tempdir()?;
-        // The example is staged where its own path dependencies still resolve.
-        // `examples/uor-atlas` requires the vendored Atlas library at
-        // `../../lean/uor-atlas`, and a clean copy that flattened the example
-        // to the scratch root would leave that requirement dangling --- Lake
-        // would report the dependency as not locally available and
-        // verification never fetches. Mirroring the two path components the
-        // requirement crosses keeps the clean-copy rule of §28.6 intact while
-        // letting the dependency be exactly the vendored library the
-        // repository ships.
+        // Preserve the example's two-component repository-relative position,
+        // so any declared local path requirement resolves exactly as it does
+        // in the checkout while the example itself remains a clean copy.
         let staged = scratch.path().join("examples").join(&name);
         std::fs::create_dir_all(&staged)?;
         copy_example(&dir, &staged)?;

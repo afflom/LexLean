@@ -239,6 +239,18 @@ pub struct ModuleAst {
     pub title: AtomRange,
     /// Top-level blocks in source order.
     pub blocks: Vec<BlockAst>,
+    /// A lossless closed core module.  This alternative to prose blocks is
+    /// exclusive: one source module never mixes the two declaration forms.
+    pub core: Option<CoreModuleAst>,
+}
+
+/// The structurally parsed `coremodule` environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoreModuleAst {
+    /// The canonical JSON payload.
+    pub data: BraceArg,
+    /// The `\begin{coremodule}` atom.
+    pub begin: usize,
 }
 
 struct Parser<'a> {
@@ -270,6 +282,7 @@ fn control_entry(name: &str) -> &'static str {
         "\\start" => "start",
         "\\step" => "step",
         "\\bind" => "bind",
+        "\\coredata" => "coredata",
         "\\(" => "math-open",
         "\\)" => "math-close",
         "\\[" => "display-open",
@@ -316,6 +329,26 @@ impl<'a> Parser<'a> {
                 },
             );
         }
+    }
+
+    /// Cover a closed semantic payload as one contiguous source region.  Its
+    /// internal JSON is decoded node-by-node during linking; allocating one
+    /// path and one identical origin per punctuation atom would make coverage
+    /// memory proportional to JSON punctuation rather than semantic nodes.
+    fn cover_payload(&mut self, range: AtomRange, owner: &str) {
+        let Some(first) = self.atoms.get(range.0) else {
+            return;
+        };
+        let last = self.atoms.get(range.1.saturating_sub(1)).unwrap_or(first);
+        self.rows.push(crate::source::coverage::SourceRow {
+            path: self.path.to_owned(),
+            byte_start: first.byte_start,
+            byte_end: last.byte_end,
+            class: first.class,
+            binding: crate::source::coverage::Origin::Metadata {
+                owner: format!("lexlean.core::{owner}"),
+            },
+        });
     }
 
     /// Cover an environment-name argument.
@@ -1030,7 +1063,18 @@ pub fn parse_module(
         ));
     }
 
-    let blocks = parser.blocks("lexlean", 0)?;
+    let (blocks, core) = if parser.at_begin_of("coremodule") {
+        let (begin, name) = parser.begin_env()?;
+        debug_assert_eq!(name, "coremodule");
+        parser.expect_control("\\coredata")?;
+        let data = parser.brace_arg()?;
+        parser.cover_payload(data.range, "coredata");
+        parser.expect_end("coremodule")?;
+        parser.expect_end("lexlean")?;
+        (Vec::new(), Some(CoreModuleAst { data, begin }))
+    } else {
+        (parser.blocks("lexlean", 0)?, None)
+    };
     parser.skip_ws();
     if let Some(atom) = parser.peek() {
         return Err(parser.fail(
@@ -1046,5 +1090,6 @@ pub fn parse_module(
         imports,
         title: title.range,
         blocks,
+        core,
     })
 }

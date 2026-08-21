@@ -96,3 +96,10 @@ Feature: semantic-ir
     When lexlean check runs
     Then it fails with LLT4001 or LLP2002 because the numeral has no unique expected type
     And no default type is chosen for `1`
+
+  @SM-15 @build
+  Scenario: A native core module is closed typed DAG data shared by both backends, carries explicit declaration policies, and accepts no backend source text.
+    Given a native core module containing a checked theorem declaration
+    When lexlean check and build run
+    Then the linked IR carries its typed DAG and explicit axiom policy into generated Lean and LaTeX
+    And adding a raw Lean field fails closed-schema validation

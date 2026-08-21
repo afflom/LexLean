@@ -727,6 +727,13 @@ pub fn run(
         for declaration in document.declarations() {
             declaration_names.push(format!("{}.{}", module.lean_module, declaration.lean_name));
         }
+        if let Some(core) = &document.core {
+            declaration_names.extend(
+                core.declarations
+                    .iter()
+                    .map(|declaration| declaration.name.clone()),
+            );
+        }
     }
     declaration_names.sort();
     let generated_module_names: Vec<String> = build
@@ -1147,6 +1154,48 @@ pub fn run(
                 ),
                 ("result", Json::Str("ok".to_owned())),
             ]));
+        }
+        if let Some(core) = &document.core {
+            for declaration in &core.declarations {
+                let observed_set = observed.get(&declaration.name).cloned().unwrap_or_default();
+                if !declaration.policy.permits(&observed_set) {
+                    return Err(fail(Diagnostic::new(
+                        code!("LLV7005"),
+                        format!(
+                            "`{}` violates its {} axiom policy: observed [{}]",
+                            declaration.name,
+                            declaration.policy.kind(),
+                            observed_set.join(", ")
+                        ),
+                    )));
+                }
+                declaration_rows.push(Json::object(vec![
+                    ("name", Json::Str(declaration.name.clone())),
+                    (
+                        "policy",
+                        Json::object(vec![
+                            ("kind", Json::Str(declaration.policy.kind().to_owned())),
+                            (
+                                "axioms",
+                                Json::Arr(
+                                    declaration
+                                        .policy
+                                        .axioms()
+                                        .iter()
+                                        .cloned()
+                                        .map(Json::Str)
+                                        .collect(),
+                                ),
+                            ),
+                        ]),
+                    ),
+                    (
+                        "observed",
+                        Json::Arr(observed_set.into_iter().map(Json::Str).collect()),
+                    ),
+                    ("result", Json::Str("ok".to_owned())),
+                ]));
+            }
         }
     }
 

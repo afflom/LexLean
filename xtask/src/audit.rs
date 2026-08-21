@@ -45,6 +45,31 @@ fn gather(root: &Path, dirs: &[&str], extensions: &[&str], out: &mut Vec<PathBuf
     out.dedup();
 }
 
+/// Decode the committed Atlas source itself.  Coverage gates deliberately
+/// enter through this function: the migration oracle can prove equivalence,
+/// but it cannot define which declarations the released LexLean corpus owns.
+fn atlas_source_core(root: &Path) -> Result<lexlean::ir::core::CoreModule, Fail> {
+    let path = root.join("examples/uor-atlas/src/Atlas.lex.tex");
+    let source =
+        std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let marker = "\\coredata{";
+    let start = source.find(marker).ok_or_else(|| {
+        Fail::from(format!(
+            "R4: {} has no native core payload; the Atlas source must arm its own coverage audit",
+            path.display()
+        ))
+    })? + marker.len();
+    let tail = &source[start..];
+    let end = tail.find("}\n\\end{coremodule}").ok_or_else(|| {
+        Fail::from(format!(
+            "R4: {} has no closed native core module",
+            path.display()
+        ))
+    })?;
+    lexlean::ir::core::CoreModule::parse(&tail[..end])
+        .map_err(|reason| format!("R4: {}: {reason}", path.display()).into())
+}
+
 /// The repository root files and dot-directories with a defined role
 /// (SPEC.md §7): the audits read them too, so a deferral cannot park in
 /// a manifest, a lint configuration, the Justfile, the container, or a
@@ -101,7 +126,7 @@ fn outside_code_spans(line: &str, marker: &str) -> bool {
     false
 }
 
-/// The vendored Atlas library carries no `sorry`, `admit`, author-declared
+/// The completed Atlas migration oracle carries no `sorry`, `admit`, author-declared
 /// `axiom`, `opaque`, `unsafe`, or `native_decide` (release plan §4.4; §8
 /// names each of them an explicit non-deferral).
 ///
@@ -127,7 +152,7 @@ pub fn audit_atlas_library(root: &Path) -> Result<(), Fail> {
     files.sort();
     if files.is_empty() {
         println!(
-            "audit-atlas-library: no vendored library module; the gate is armed by the first one"
+            "audit-atlas-library: no migration-oracle module; the gate is armed by the first one"
         );
         return Ok(());
     }
@@ -136,7 +161,7 @@ pub fn audit_atlas_library(root: &Path) -> Result<(), Fail> {
             .map_err(|error| Fail::from(format!("{}: {error}", path.display())))?;
         if let Err(reason) = lexlean::verify::source_audit::audit_library(&text) {
             return Err(Fail::from(format!(
-                "R4: {}: {reason}; the vendored Atlas library admits none of them (§4.4)",
+                "R4: {}: {reason}; the Atlas migration oracle admits none of them",
                 path.display()
             )));
         }
@@ -149,7 +174,7 @@ pub fn audit_atlas_library(root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
-/// Every module of the vendored library is reachable from its root module.
+/// Every module of the migration oracle is reachable from its root module.
 ///
 /// The axiom gate walks the environment the root pulls in, so a module sitting
 /// in the tree that nothing imports would be scanned for forbidden words and
@@ -199,7 +224,7 @@ fn unreachable_library_modules(root: &Path, files: &[PathBuf]) -> Result<(), Fai
         return Ok(());
     }
     Err(Fail::from(format!(
-        "R4: the vendored Atlas library has {} module(s) no import reaches from `UorAtlas`, so the axiom gate never sees them: {}",
+        "R4: the Atlas migration oracle has {} module(s) no import reaches from `UorAtlas`, so the equivalence export never sees them: {}",
         orphans.len(),
         orphans
             .iter()
@@ -298,9 +323,9 @@ pub fn audit_surface_disjointness(_root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
-/// The Atlas label registers partition the document's labels, every live row
-/// has a declaration in the vendored library, and no declaration claims a
-/// label the registers withhold (release plan §2.8 Criterion 1).
+/// The Atlas label registers partition the labels owned by the committed
+/// native Atlas source, every live row has a source declaration, and no source
+/// declaration claims a label the registers withhold.
 ///
 /// The registers key on EXACT identifiers. That is the whole point of §2.8's
 /// "exact-match semantics": `T57` is retracted while `T57a`..`T57c` are live,
@@ -376,96 +401,68 @@ pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
         }
     }
 
-    // A declaration may not claim a label the registers withhold. Only
-    // label-shaped names are considered, so the library's own helpers are not
-    // forced into the register.
-    let withheld: BTreeSet<&String> = retracted
+    // A declaration may not claim a label the registers withhold. Only the
+    // final name segment is considered, so supporting declarations are not
+    // forced into the document-label register.
+    let withheld: BTreeSet<String> = retracted
         .iter()
         .chain(superseded.iter())
         .chain(non_denotable.iter())
+        .cloned()
         .collect();
-    let live: BTreeSet<&String> = entry.iter().chain(ambient.iter()).collect();
-    let mut files = Vec::new();
-    gather(root, &["lean"], &[".lean"], &mut files);
-    files.retain(|path| {
-        path.extension()
-            .is_some_and(|extension| extension == "lean")
-    });
-    files.sort();
-    let mut declared: std::collections::BTreeMap<String, String> =
-        std::collections::BTreeMap::new();
+    let live: BTreeSet<String> = entry.iter().chain(ambient.iter()).cloned().collect();
+    let core = atlas_source_core(root)?;
+    let mut declared: BTreeMap<String, String> = BTreeMap::new();
     let mut lookalike: Vec<String> = Vec::new();
-    for path in &files {
-        let module = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        for name in declaration_names(&std::fs::read_to_string(path)?) {
-            if !is_label_shaped(&name) {
-                continue;
-            }
-            if withheld.contains(&name) {
+    for declaration in &core.declarations {
+        let name = declaration
+            .name
+            .rsplit('.')
+            .next()
+            .unwrap_or(&declaration.name);
+        if !is_label_shaped(name) {
+            continue;
+        }
+        if withheld.contains(name) {
+            return Err(Fail::from(format!(
+                "R4: the native Atlas source declares `{}`, which the registers withhold (retracted, superseded, or non-denotable)",
+                declaration.name
+            )));
+        }
+        if live.contains(name) {
+            if let Some(first) = declared.insert(name.to_owned(), declaration.name.clone()) {
                 return Err(Fail::from(format!(
-                    "R4: {} declares `{name}`, which the registers withhold (retracted, superseded, or non-denotable); citing it is a failure, not a definition",
-                    path.display()
+                    "R4: `{name}` is declared as both `{first}` and `{}` in the native Atlas source; one label has one declaration",
+                    declaration.name
                 )));
             }
-            if live.contains(&name) {
-                if let Some(first) = declared.insert(name.clone(), module.clone()) {
-                    let where_ = if first == module {
-                        format!("twice in {module}")
-                    } else {
-                        format!("in both {first} and {module}")
-                    };
-                    return Err(Fail::from(format!(
-                        "R4: `{name}` is declared {where_}; a label has one denotation, so a pack entry naming it must have one declaration to name"
-                    )));
-                }
-            } else {
-                // Label-shaped but not a label: the library names its own
-                // witnesses and helpers, and `A0` beside the document's `A1` is
-                // a collision of shape, not of meaning. Counted and reported so
-                // a reviewer sees it, not failed --- §2.8's "no entry denotes an
-                // unregistered label" governs the pack's entries, not the
-                // library's internal names.
-                lookalike.push(format!("{name} in {}", path.display()));
-            }
+        } else {
+            lookalike.push(declaration.name.clone());
         }
     }
     let missing: Vec<&str> = live
         .iter()
         .filter(|label| !declared.contains_key(label.as_str()))
-        .map(|label| label.as_str())
+        .map(String::as_str)
         .collect();
     if !missing.is_empty() {
         return Err(Fail::from(format!(
-            "R4: the Atlas source register has {} live label(s) with no declaration in the vendored library: {}; a live source row is an obligation, not an optional description of what is already proved",
+            "R4: the Atlas register has {} live label(s) absent from the native Atlas source: {}; a live source row is an obligation, not an optional description of what was migrated",
             missing.len(),
             missing.join(", ")
         )));
     }
-    // The count is of names, and the message says so. This gate matches a
-    // declaration's *name* against the register; nothing here reads the
-    // statement, so it cannot tell a label carrying the document's theorem from
-    // a label carrying something weaker under the same name. That distinction
-    // is made by review against the document, and it has already moved this
-    // number in both directions: six labels were stripped when their statements
-    // turned out not to be theirs, `S38` was withdrawn until its second clause
-    // was proved, and `S43` was reclassified when its real-uniqueness statement
-    // proved false. A reader who takes this figure for "proved as stated" is
-    // reading more than the gate checked.
     println!(
-        "audit-atlas-registers: {} labels registered ({} entry, {} ambient, {} withheld), dispositions disjoint, {} of {} declared under a matching name (names, not statements)",
+        "audit-atlas-registers: {} labels registered ({} entry, {} ambient, {} withheld), dispositions disjoint, all {} live labels rooted in the native Atlas source",
         entry.len() + ambient.len() + non_denotable.len() + retracted.len() + superseded.len(),
         entry.len(),
         ambient.len(),
         non_denotable.len() + retracted.len() + superseded.len(),
-        declared.len(),
         entry.len() + ambient.len(),
     );
     if !lookalike.is_empty() {
         println!(
-            "audit-atlas-registers: {} label-shaped name(s) that are not document labels: {}",
+            "audit-atlas-registers: {} source name(s) are label-shaped support names rather than registered labels: {}",
             lookalike.len(),
             lookalike.join(", ")
         );
@@ -485,63 +482,16 @@ fn is_label_shaped(name: &str) -> bool {
         && rest.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
-/// The names a Lean module declares publicly.
-pub fn declaration_names(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for line in text.lines() {
-        let mut line = line.trim_start();
-        // Attributes precede the visibility modifier, and the parameters carry
-        // `@[expose]` so downstream modules get definitional access; reading
-        // only bare `public` would miss every one of them and quietly report a
-        // lower coverage than the library actually has.
-        while let Some(rest) = line.strip_prefix("@[") {
-            match rest.find(']') {
-                Some(end) => line = rest[end + 1..].trim_start(),
-                None => break,
-            }
-        }
-        let Some(rest) = line.strip_prefix("public ") else {
-            continue;
-        };
-        for keyword in [
-            "theorem ",
-            "def ",
-            "abbrev ",
-            "instance ",
-            "structure ",
-            "class ",
-        ] {
-            if let Some(tail) = rest.strip_prefix(keyword) {
-                // `.` is part of the name: `D13.instDecidable` is a `Decidable`
-                // instance in `D13`'s namespace, not a declaration of the label
-                // `D13`. Stopping at the dot credited the label to its own
-                // helpers and inflated the coverage this gate reports.
-                let name: String = tail
-                    .chars()
-                    .take_while(|c| {
-                        c.is_ascii_alphanumeric() || *c == '_' || *c == '\'' || *c == '.'
-                    })
-                    .collect();
-                if !name.is_empty() {
-                    out.push(name);
-                }
-                break;
-            }
-        }
-    }
-    out
-}
-
-/// Every Lean denotation of the Atlas package names a declaration that the
-/// vendored library actually makes, and every label the library declares has
-/// exactly one entry denoting it (R2, R4).
+/// Every Lean denotation of the frozen Atlas package names a declaration in
+/// the native Atlas source, and every live source label has exactly one entry
+/// denoting it (R2, R4).
 ///
 /// The crate's own `builtin_lean_names_are_conservative_and_known` checks the
 /// *shape* of these names and cannot check more: the shipped compiler carries
 /// the language data, not the Lean sources, so nothing inside the crate can
-/// see `lean/`. This gate is the other half. Without it an entry could denote
+/// see a project's source. This gate is the other half. Without it an entry could denote
 /// `UorAtlas.Roots.T5` after `T5` was renamed or withdrawn, and the pack would
-/// go on advertising a result the library no longer proves.
+/// go on advertising a result the native corpus no longer owns.
 ///
 /// It compares in both directions on purpose. A denotation with no
 /// declaration is a claim with nothing behind it; a declaration with no entry
@@ -549,30 +499,17 @@ pub fn declaration_names(text: &str) -> Vec<String> {
 /// same coverage lie told the other way round.
 pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
     let entries_dir = root.join("language/uor/atlas/entries");
-    let library = root.join("lean/uor-atlas/UorAtlas");
-    if !entries_dir.exists() || !library.exists() {
-        println!(
-            "audit-atlas-denotations: no Atlas package or no vendored library; the gate is armed by the first one"
-        );
-        return Ok(());
+    if !entries_dir.exists() {
+        return Err(Fail::from(
+            "R4: the frozen Atlas package is absent while the Atlas source is registered",
+        ));
     }
-
-    // Every declaration the vendored library makes, by bare name.
-    let mut modules: Vec<PathBuf> = Vec::new();
-    gather(root, &["lean/uor-atlas/UorAtlas"], &[".lean"], &mut modules);
-    modules.retain(|path| path.extension().is_some_and(|e| e == "lean"));
-    let mut declared: BTreeMap<String, String> = BTreeMap::new();
-    for path in &modules {
-        let module = path
-            .strip_prefix(root.join("lean/uor-atlas"))
-            .unwrap_or(path)
-            .with_extension("")
-            .to_string_lossy()
-            .replace(['/', '\\'], ".");
-        for name in declaration_names(&std::fs::read_to_string(path)?) {
-            declared.entry(name).or_insert_with(|| module.clone());
-        }
-    }
+    let core = atlas_source_core(root)?;
+    let declared: BTreeSet<&str> = core
+        .declarations
+        .iter()
+        .map(|declaration| declaration.name.as_str())
+        .collect();
 
     // The registers, read before the entries so every entry's identity can be
     // checked against them. An entry's id carries its label -- `atlas-t57a` is
@@ -621,14 +558,10 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
     files.retain(|path| path.extension().is_some_and(|e| e == "toml"));
     files.sort();
 
-    // A gate that reports zero has not passed, it has failed to look. Both
-    // scans were silently empty in the first draft of this audit, because
-    // `gather` takes subdirectories *of* its root and was handed extensions
-    // instead, and the audit reported success over nothing at all.
-    if modules.is_empty() || files.is_empty() {
+    if declared.is_empty() || files.is_empty() {
         return Err(Fail::from(format!(
-            "R4: audit-atlas-denotations scanned {} module(s) and {} entry file(s); a gate that inspects nothing cannot pass",
-            modules.len(),
+            "R4: audit-atlas-denotations scanned {} native declaration(s) and {} entry file(s); a gate that inspects nothing cannot pass",
+            declared.len(),
             files.len()
         )));
     }
@@ -679,18 +612,10 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
                 }
             }
         }
-        match declared.get(&bare) {
-            None => {
-                return Err(Fail::from(format!(
-                    "R2: `{display}` denotes `{name}`, which the vendored library does not declare"
-                )));
-            }
-            Some(actual) if actual != module => {
-                return Err(Fail::from(format!(
-                    "R2: `{display}` denotes `{name}` in `{module}`, but the library declares it in `{actual}`"
-                )));
-            }
-            Some(_) => {}
+        if !name.starts_with(&format!("{module}.")) || !declared.contains(name) {
+            return Err(Fail::from(format!(
+                "R2: `{display}` denotes `{name}` in `{module}`, which the native Atlas source does not declare"
+            )));
         }
         // One entry per label, counted among the label entries only. An object
         // entry denotes the same Lean declaration as the label that introduces
@@ -709,31 +634,27 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
         }
     }
 
-    // The other direction: a label the library declares and the pack withholds.
+    // The other direction: a live source label the frozen pack withholds.
     if let Some(live) = &live_labels {
         for label in live {
-            if declared.contains_key(label) && !denoted.contains(label) {
+            if !denoted.contains(label) {
                 return Err(Fail::from(format!(
-                    "R4: the library declares `{label}` and no entry denotes it; a proved label the pack withholds is a coverage claim told backwards"
+                    "R4: the native Atlas source declares live label `{label}` and no frozen entry denotes it"
                 )));
             }
         }
     }
 
     println!(
-        "audit-atlas-denotations: {} Atlas entries, every Lean denotation declared by the vendored library, every declared label denoted once (R2, R4)",
+        "audit-atlas-denotations: {} live Atlas labels, every frozen Lean denotation rooted in the native Atlas source (R2, R4)",
         denoted.len()
     );
     Ok(())
 }
 
-/// Every Atlas entry is referenced by a committed document, and no entry's
-/// surface is a prefix of another's (R4, R7).
-///
-/// *Exercise.* An entry nothing cites is a claim the repository never exercises:
-/// it parses, it audits, and no document has ever resolved it. The exhaustive
-/// module of `examples/uor-atlas` exists to reference every one, and this gate
-/// is what keeps it exhaustive as the pack grows.
+/// The native Atlas module is the sole example entrypoint, every theorem root
+/// is classified as proof data, and no frozen entry surface prefixes another
+/// (R4, R7).
 ///
 /// *Prefix-freeness.* A surface that is a prefix of another can be extended by
 /// a word from any other visible package into a second complete parse, and the
@@ -745,8 +666,9 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
 pub fn audit_atlas_exercise(root: &Path) -> Result<(), Fail> {
     let entries_dir = root.join("language/uor/atlas/entries");
     if !entries_dir.exists() {
-        println!("audit-atlas-exercise: no Atlas package; the gate is armed by the first one");
-        return Ok(());
+        return Err(Fail::from(
+            "R4: the frozen Atlas package is absent while the Atlas source is registered",
+        ));
     }
     let mut files: Vec<PathBuf> = Vec::new();
     gather(
@@ -799,38 +721,49 @@ pub fn audit_atlas_exercise(root: &Path) -> Result<(), Fail> {
         }
     }
 
-    // Every entry is cited by some committed document.
-    let mut documents: Vec<PathBuf> = Vec::new();
-    gather(root, &["examples", "tests"], &[".lex.tex"], &mut documents);
-    documents.retain(|path| path.to_string_lossy().ends_with(".lex.tex"));
-    let mut corpus = String::new();
-    for path in &documents {
-        corpus.push_str(&std::fs::read_to_string(path)?);
-        corpus.push('\n');
-    }
-    if corpus.is_empty() {
-        return Err(Fail::from(
-            "R4: audit-atlas-exercise found no documents to read; a gate that inspects nothing cannot pass"
-                .to_owned(),
-        ));
-    }
-    let mut unexercised: Vec<&str> = Vec::new();
-    for (id, surface) in &surfaces {
-        if !corpus.contains(surface.as_str()) {
-            unexercised.push(id);
-        }
-    }
-    if let Some(first) = unexercised.first() {
+    let config: toml::Value =
+        std::fs::read_to_string(root.join("examples/uor-atlas/lexlean.toml"))?.parse()?;
+    let entrypoints: Vec<&str> = config
+        .get("entrypoints")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(toml::Value::as_str)
+        .collect();
+    if entrypoints != ["src/Atlas.lex.tex"] {
         return Err(Fail::from(format!(
-            "R4: {} Atlas entr{} referenced by no committed document, the first being `{first}`; an entry nothing cites is never exercised",
-            unexercised.len(),
-            if unexercised.len() == 1 { "y is" } else { "ies are" }
+            "R4: the Atlas example entrypoints are {entrypoints:?}; the native Atlas source must be the sole coverage root"
         )));
     }
 
+    let core = atlas_source_core(root)?;
+    if core
+        .imports
+        .iter()
+        .any(|module| module == "UorAtlas" || module.starts_with("UorAtlas."))
+    {
+        return Err(Fail::from(
+            "R8: the native Atlas source imports the handwritten migration oracle",
+        ));
+    }
+    let proof_nodes: BTreeSet<usize> = core.proof_nodes.iter().copied().collect();
+    for declaration in &core.declarations {
+        if matches!(declaration.kind, lexlean::ir::core::CoreDeclKind::Theorem)
+            && !declaration
+                .value
+                .is_some_and(|value| proof_nodes.contains(&value))
+        {
+            return Err(Fail::from(format!(
+                "R4: native Atlas theorem `{}` has no classified proof root",
+                declaration.name
+            )));
+        }
+    }
+
     println!(
-        "audit-atlas-exercise: {} Atlas entries, every surface prefix-free and cited by a committed document (R4, R7)",
-        surfaces.len()
+        "audit-atlas-exercise: {} frozen entries are prefix-free; the sole Atlas entrypoint owns {} declarations and all theorem proofs (R4, R7, R8)",
+        surfaces.len(),
+        core.declarations.len()
     );
     Ok(())
 }
@@ -896,7 +829,7 @@ pub fn audit_authority_scope(root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
-/// No two modules of the vendored library state the same theorem.
+/// No two modules of the migration oracle state the same theorem.
 ///
 /// Lean rejects a repeated fully-qualified name, so what survives compilation
 /// is the same statement proved twice under two namespaces --- which is what

@@ -1,4 +1,4 @@
-//! The `semantic-ir` suite: SM-01..SM-14.
+//! The `semantic-ir` suite: SM-01..SM-15.
 
 use std::collections::BTreeSet;
 
@@ -618,6 +618,63 @@ pub(crate) fn run(id: &str) {
                 support::corpus_declaration_lean("zero_even"),
                 "public theorem zero_even : LexLeanExample.Main.even 0 := by\n  refine ⟨(0 : Nat), ?_⟩\n  rfl"
             );
+        }
+        // §17.10: a native core module is semantic data, not backend text.
+        "SM-15" => {
+            const CORE_SOURCE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\\begin{coremodule}\n\\coredata{{\"declarations\":[{\"class\":false,\"generated\":false,\"instance\":false,\"kind\":\"theorem\",\"levels\":[],\"name\":\"CoreFixture.truth\",\"policy\":{\"kind\":\"none\"},\"type\":0,\"value\":1}],\"imports\":[\"Init\"],\"nodes\":[{\"k\":\"c\",\"n\":\"True\",\"u\":[]},{\"k\":\"c\",\"n\":\"True.intro\",\"u\":[]}],\"proof_nodes\":[1],\"spec\":\"lexlean/core-module/1\"}}\n\\end{coremodule}\n\\end{lexlean}\n";
+            let project = P::example();
+            project.write("src/Main.lex.tex", CORE_SOURCE);
+            let checked = support::checked_project(&project);
+            let document = &checked.modules["Main"].document;
+            let core = document.core.as_ref().expect("native core module");
+            assert!(
+                document.blocks.is_empty(),
+                "native and prose forms are exclusive"
+            );
+            assert_eq!(core.nodes.len(), 2);
+            assert_eq!(core.declarations.len(), 1);
+            assert_eq!(core.declarations[0].policy.kind(), "none");
+            support::assert_schema(
+                "core-module",
+                "native core fixture",
+                &serde_json::to_value(core).expect("core JSON"),
+            );
+
+            let built = project.build_ok();
+            let build_root = project.build_dir(&built.build_id.expect("build id"));
+            let unit = &built.units["Main"];
+            let mut lean = None;
+            let mut tex = None;
+            for relative in &unit.artifacts.paths {
+                let text = std::fs::read_to_string(build_root.join(relative).as_std_path())
+                    .expect("generated artifact");
+                if relative.ends_with(".lean") {
+                    lean = Some(text);
+                } else if relative.ends_with(".tex") {
+                    tex = Some(text);
+                }
+            }
+            let lean = lean.expect("generated Lean");
+            let tex = tex.expect("generated LaTeX");
+            assert!(
+                lean.contains("LexLeanCore.Runtime.decodeAndAdd")
+                    && lean.contains("CoreFixture.truth"),
+                "Lean reconstructs the same native declaration"
+            );
+            assert!(
+                tex.contains("CoreFixture.truth") && tex.contains("True.intro"),
+                "LaTeX traverses the same type and proof DAG"
+            );
+
+            let invalid = P::example();
+            invalid.write(
+                "src/Main.lex.tex",
+                &CORE_SOURCE.replace(
+                    "\"imports\":[\"Init\"]",
+                    "\"imports\":[\"Init\"],\"lean\":\"theorem truth := True.intro\"",
+                ),
+            );
+            invalid.check_fails_with("LLI9001");
         }
         other => panic!("no semantic-ir case is wired for {other}"),
     }

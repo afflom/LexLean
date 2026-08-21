@@ -67,11 +67,6 @@ pub fn check_model(root: &Path, write: bool) -> Result<(), Fail> {
     crate::audit::audit_atlas_duplication(root)?;
     crate::audit::audit_atlas_denotations(root)?;
     crate::audit::audit_atlas_exercise(root)?;
-    // The pack is generated data: checking it against its generator is what
-    // keeps a hand edit from surviving, the same discipline `check-golden`
-    // applies to build oracles.
-    crate::atlas_pack::generate(root, write)?;
-
     println!(
         "validate-model: documents current, {} ids, {} codes, meta-gate and audits clean (R1)",
         model.ids.id.len(),

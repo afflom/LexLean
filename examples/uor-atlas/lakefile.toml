@@ -2,9 +2,5 @@ name = "uor_atlas_host"
 version = "0.1.0"
 defaultTargets = ["UorAtlasHost"]
 
-[[require]]
-name = "UorAtlas"
-path = "../../lean/uor-atlas"
-
 [[lean_lib]]
 name = "UorAtlasHost"
