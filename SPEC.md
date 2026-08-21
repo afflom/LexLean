@@ -389,6 +389,7 @@ The completed repository MUST have this layout. Additional files are allowed onl
 ├── schemas/
 │   ├── attestation.schema.json
 │   ├── build-manifest.schema.json
+│   ├── core-module.schema.json
 │   ├── coverage.schema.json
 │   ├── diagnostic.schema.json
 │   ├── entry.schema.json

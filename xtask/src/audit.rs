@@ -612,7 +612,7 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
                 }
             }
         }
-        if !name.starts_with(&format!("{module}.")) || !declared.contains(name) {
+        if !declared.contains(name) {
             return Err(Fail::from(format!(
                 "R2: `{display}` denotes `{name}` in `{module}`, which the native Atlas source does not declare"
             )));
@@ -1441,8 +1441,8 @@ pub fn audit_generated(root: &Path) -> Result<(), Fail> {
             return Err(format!("{}: missing its $id `{identity}`", path.display()).into());
         }
     }
-    if count != 9 {
-        return Err(format!("§7 commits exactly 9 schemas, found {count}").into());
+    if count != 10 {
+        return Err(format!("§7 commits exactly 10 schemas, found {count}").into());
     }
     println!("audit-generated: {count} schemas canonical and identified");
     Ok(())

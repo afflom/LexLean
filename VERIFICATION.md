@@ -106,7 +106,7 @@ Planted: `schemas/coverage.schema.json` re-serialized with indentation (no longe
 gate failed: R10: <root>/schemas/coverage.schema.json is not canonical JSON; regenerate the schema
 ```
 
-Removed: the schema bytes were restored; `audit-generated` reports 9 schemas canonical.
+Removed: the schema bytes were restored; `audit-generated` reports 10 schemas canonical.
 
 ### audit-language-closure can fail
 
