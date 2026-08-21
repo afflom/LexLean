@@ -5,9 +5,9 @@ surface_arity = 0
 frame = "atom"
 
 [denotation]
-kind = "lean"
-module = "UorAtlas.ClosureOrbitTransport"
-name = "UorAtlas.Closure.T27"
+kind = "document"
+module = "Atlas"
+component = "UorAtlas.Closure.T27"
 
 [[form]]
 id = "atlas-t27"

@@ -519,8 +519,10 @@ fn generated_owners(core: &CoreModule) -> BTreeMap<String, String> {
             format!("{}.rec", declaration.name),
             declaration.name.clone(),
         );
-        for projection in &inductive.projections {
-            owners.insert(projection.clone(), declaration.name.clone());
+        if let Some(structure) = &inductive.structure {
+            for field in &structure.fields {
+                owners.insert(field.projection.clone(), declaration.name.clone());
+            }
         }
     }
     let suffixes = [
@@ -667,6 +669,11 @@ private def boolField (json : Json) (name : String) : Except String Bool := do
 private def arrayField (json : Json) (name : String) : Except String (Array Json) := do
   (← field json name).getArr?
 
+private def optionalField (json : Json) (name : String) : Option Json :=
+  match json.getObjVal? name with
+  | .ok value => some value
+  | .error _ => none
+
 private def nameOf (value : String) : Name :=
   value.splitOn "." |>.foldl (fun name part => name.str part) .anonymous
 
@@ -768,7 +775,7 @@ private def addOneUnchecked (nodes : Array Expr) (declarations : Array Json)
       let reducibilityKind ← liftString (stringField metadata "kind")
       let hints ← match reducibilityKind with
         | "abbrev" => pure ReducibilityHints.abbrev
-        | "opaque" => pure ReducibilityHints.opaque
+        | "opaque" => pure (default : ReducibilityHints)
         | "regular" => pure (ReducibilityHints.regular
             (UInt32.ofNat (← liftString (natField metadata "height"))))
         | other => throwError s!"unknown core reducibility kind '{other}'"
@@ -802,6 +809,61 @@ def decodeAndAdd (data : String) : CoreM Unit := do
       throwError s!"core declaration order index {index} is out of range"
     addOne nodes declarations declaration
   for declaration in declarations do
+    if (← liftString (stringField declaration "kind")) == "inductive" then
+      let metadata ← liftString (field declaration "inductive")
+      if let some structureData := optionalField metadata "structure" then
+        let name := nameOf (← liftString (stringField declaration "name"))
+        let fieldRows ← liftString (arrayField structureData "fields")
+        let mut fields : Array StructureFieldInfo := #[]
+        for row in fieldRows do
+          let subobject? : Option Name ← match optionalField row "subobject" with
+            | some value => pure (some (nameOf (← liftString value.getStr?)))
+            | none => pure none
+          let autoParam? : Option Expr ← match optionalField row "auto_param" with
+            | some value => pure (some (← liftString (nodeAt nodes (← liftString value.getNat?))))
+            | none => pure none
+          let fieldName := nameOf (← liftString (stringField row "name"))
+          let projFn := nameOf (← liftString (stringField row "projection"))
+          let binderInfo ← liftString (binderOf (← liftString (stringField row "binder")))
+          fields := fields.push {
+            fieldName
+            projFn
+            subobject?
+            binderInfo
+            autoParam? }
+        setEnv <| Lean.registerStructure (← getEnv) { structName := name, fields }
+  for declaration in declarations do
+    if (← liftString (stringField declaration "kind")) == "inductive" then
+      let metadata ← liftString (field declaration "inductive")
+      if let some structureData := optionalField metadata "structure" then
+        let name := nameOf (← liftString (stringField declaration "name"))
+        let parentRows ← liftString (arrayField structureData "parents")
+        let mut parents : Array StructureParentInfo := #[]
+        for row in parentRows do
+          let structName := nameOf (← liftString (stringField row "name"))
+          let subobject ← liftString (boolField row "subobject")
+          let projFn := nameOf (← liftString (stringField row "projection"))
+          parents := parents.push {
+            structName
+            subobject
+            projFn }
+        Lean.setStructureParents name parents
+  for declaration in declarations do
+    if (← liftString (stringField declaration "kind")) == "inductive" then
+      let metadata ← liftString (field declaration "inductive")
+      if (optionalField metadata "structure").isSome then
+        discard <| Lean.computeStructureResolutionOrder
+          (nameOf (← liftString (stringField declaration "name"))) true
+  for declaration in declarations do
+    let name := nameOf (← liftString (stringField declaration "name"))
+    let status ← match ← liftString (stringField declaration "transparency") with
+      | "reducible" => pure ReducibilityStatus.reducible
+      | "semireducible" => pure ReducibilityStatus.semireducible
+      | "irreducible" => pure ReducibilityStatus.irreducible
+      | "implicit-reducible" => pure ReducibilityStatus.implicitReducible
+      | other => throwError s!"unknown core transparency '{other}'"
+    Lean.setReducibilityStatus name status
+  for declaration in declarations do
     let generated ← liftString (boolField declaration "generated")
     if !generated && (← liftString (boolField declaration "class")) then
       let name := nameOf (← liftString (stringField declaration "name"))
@@ -809,11 +871,23 @@ def decodeAndAdd (data : String) : CoreM Unit := do
       | .ok env => setEnv env
       | .error message => throwError message
   for declaration in declarations do
-    let generated ← liftString (boolField declaration "generated")
-    if !generated && (← liftString (boolField declaration "instance")) then
+    if let some metadata := optionalField declaration "instance" then
       let name := nameOf (← liftString (stringField declaration "name"))
-      let priority ← liftString (natField declaration "priority")
-      Lean.Meta.MetaM.run' <| Lean.Meta.addInstance name .global priority
+      let priority ← liftString (natField metadata "priority")
+      let attributeKind ← match ← liftString (stringField metadata "attribute") with
+        | "global" => pure AttributeKind.global
+        | "local" => pure AttributeKind.local
+        | "scoped" => pure AttributeKind.scoped
+        | other => throwError s!"unknown core instance attribute kind '{other}'"
+      Lean.Meta.MetaM.run' <| Lean.Meta.addInstance name attributeKind priority
+      let expectedRows ← liftString (arrayField metadata "synthesis_order")
+      let mut expected : Array Nat := #[]
+      for row in expectedRows do expected := expected.push (← liftString row.getNat?)
+      let some actual := (Lean.Meta.instanceExtension.getState (← getEnv)
+          |>.instanceNames.find? name) |
+        throwError s!"core instance '{name}' was not registered"
+      unless actual.synthOrder == expected do
+        throwError s!"core instance '{name}' reconstructed synthesis order {actual.synthOrder.toList} instead of {expected.toList}"
 
 end LexLeanCore.Runtime
 "#;

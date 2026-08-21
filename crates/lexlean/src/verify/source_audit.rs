@@ -269,6 +269,21 @@ fn forbidden_commands() -> [String; 5] {
 /// Audit one generated Lean file. `allow_print_axioms` admits exactly the
 /// audit module's `#print axioms <name>` commands.
 pub fn audit(text: &str, allow_print_axioms: bool) -> Result<(), String> {
+    audit_with_options(text, allow_print_axioms, false)
+}
+
+/// Audit a generated native-core module.  Its fixed decoder and canonical
+/// semantic payload use strings as data; the closed core schema excludes
+/// backend source text before this narrowly selected audit runs.
+pub fn audit_core(text: &str) -> Result<(), String> {
+    audit_with_options(text, false, true)
+}
+
+fn audit_with_options(
+    text: &str,
+    allow_print_axioms: bool,
+    allow_core_strings: bool,
+) -> Result<(), String> {
     let tokens = lex(text).map_err(|error| {
         format!(
             "unterminated {} at byte {} in generated Lean",
@@ -281,9 +296,10 @@ pub fn audit(text: &str, allow_print_axioms: bool) -> Result<(), String> {
     while index < tokens.len() {
         match &tokens[index] {
             LeanToken::Comment(_) => return Err("a comment in generated Lean".to_owned()),
-            LeanToken::StringLit(_) => {
+            LeanToken::StringLit(_) if !allow_core_strings => {
                 return Err("a string literal in generated Lean".to_owned());
             }
+            LeanToken::StringLit(_) => {}
             LeanToken::CharLit(_) => {
                 return Err("a character literal in generated Lean".to_owned());
             }

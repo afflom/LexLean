@@ -5,9 +5,9 @@ surface_arity = 0
 frame = "atom"
 
 [denotation]
-kind = "lean"
-module = "UorAtlas.Prelude.RingLemmas"
-name = "UorAtlas.Prelude.RingLemmas.FR1"
+kind = "document"
+module = "Atlas"
+component = "UorAtlas.Prelude.RingLemmas.FR1"
 
 [[form]]
 id = "atlas-fr1"

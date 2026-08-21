@@ -5,9 +5,9 @@ surface_arity = 0
 frame = "atom"
 
 [denotation]
-kind = "lean"
-module = "UorAtlas.Blocks"
-name = "UorAtlas.Blocks.D22a"
+kind = "document"
+module = "Atlas"
+component = "UorAtlas.Blocks.D22a"
 
 [[form]]
 id = "atlas-d22a"

@@ -153,7 +153,7 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | --- | --- | --- |
 | `LN-01` | `build` | Each generated Lean file has the exact module, import, option, namespace, declaration, and end structure. |
 | `LN-02` | `build` | Imports are explicit, deduplicated, sorted, and every external global is fully qualified. |
-| `LN-03` | `build` | Generated Lean contains no comments, documentation, strings, or copied source prose. |
+| `LN-03` | `build` | Generated Lean contains no comments, documentation, prose-bearing strings, or copied source prose. |
 | `LN-04` | `build` | Generated Lean contains no sorry, admit, axiom, opaque, unsafe, native_decide, or placeholder declaration. |
 | `LN-05` | `build` | Every linked term and proof variant has one defined Lean lowering and missing lowering is a hard error. |
 | `LN-06` | `build` | Leading universal binders become deterministic declaration parameters with complete source mapping. |

@@ -621,7 +621,7 @@ pub(crate) fn run(id: &str) {
         }
         // §17.10: a native core module is semantic data, not backend text.
         "SM-15" => {
-            const CORE_SOURCE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\\begin{coremodule}\n\\coredata{{\"declarations\":[{\"class\":false,\"generated\":false,\"instance\":false,\"kind\":\"theorem\",\"levels\":[],\"name\":\"CoreFixture.truth\",\"policy\":{\"kind\":\"none\"},\"type\":0,\"value\":1}],\"imports\":[\"Init\"],\"nodes\":[{\"k\":\"c\",\"n\":\"True\",\"u\":[]},{\"k\":\"c\",\"n\":\"True.intro\",\"u\":[]}],\"proof_nodes\":[1],\"spec\":\"lexlean/core-module/1\"}}\n\\end{coremodule}\n\\end{lexlean}\n";
+            const CORE_SOURCE: &str = "\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{Natural number addition}\n\\begin{coremodule}\n\\coredata{{\"declarations\":[{\"class\":false,\"generated\":false,\"kind\":\"theorem\",\"levels\":[],\"name\":\"CoreFixture.truth\",\"policy\":{\"kind\":\"none\"},\"transparency\":\"semireducible\",\"type\":0,\"value\":1}],\"imports\":[\"Init\"],\"nodes\":[{\"k\":\"c\",\"n\":\"True\",\"u\":[]},{\"k\":\"c\",\"n\":\"True.intro\",\"u\":[]}],\"proof_nodes\":[1],\"spec\":\"lexlean/core-module/1\"}}\n\\end{coremodule}\n\\end{lexlean}\n";
             let project = P::example();
             project.write("src/Main.lex.tex", CORE_SOURCE);
             let checked = support::checked_project(&project);
@@ -665,6 +665,7 @@ pub(crate) fn run(id: &str) {
                 tex.contains("CoreFixture.truth") && tex.contains("True.intro"),
                 "LaTeX traverses the same type and proof DAG"
             );
+            let _ = support::verify_ok_backed("SM-15", &project);
 
             let invalid = P::example();
             invalid.write(

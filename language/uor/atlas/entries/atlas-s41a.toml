@@ -5,9 +5,9 @@ surface_arity = 0
 frame = "atom"
 
 [denotation]
-kind = "lean"
-module = "UorAtlas.Scales"
-name = "UorAtlas.Scales.S41a"
+kind = "document"
+module = "Atlas"
+component = "UorAtlas.Scales.S41a"
 
 [[form]]
 id = "atlas-s41a"

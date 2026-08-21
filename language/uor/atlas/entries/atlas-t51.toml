@@ -5,9 +5,9 @@ surface_arity = 0
 frame = "atom"
 
 [denotation]
-kind = "lean"
-module = "UorAtlas.ClosureGauge"
-name = "UorAtlas.Closure.T51"
+kind = "document"
+module = "Atlas"
+component = "UorAtlas.Closure.T51"
 
 [[form]]
 id = "atlas-t51"

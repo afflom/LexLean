@@ -1,4 +1,4 @@
--- The standing axiom gate for the vendored Atlas library (release plan section 4.4).
+-- The standing axiom gate for the Atlas migration oracle (release plan section 4.4).
 --
 -- This is a gate, not a measurement: it enumerates *every* declaration the library
 -- exports and fails on any axiom outside Lean's own three. Enumerating rather than

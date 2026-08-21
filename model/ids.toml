@@ -720,7 +720,7 @@ statement = "Imports are explicit, deduplicated, sorted, and every external glob
 id = "LN-03"
 level = "build"
 suite = "lean-backend"
-statement = "Generated Lean contains no comments, documentation, strings, or copied source prose."
+statement = "Generated Lean contains no comments, documentation, prose-bearing strings, or copied source prose."
 
 [[id]]
 id = "LN-04"

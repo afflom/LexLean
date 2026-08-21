@@ -2165,9 +2165,12 @@ applications, lambdas, dependent function types, lets, literals, and
 structure projections), plus declarations for definitions, theorems,
 inductives, structures, classes, instances, constructors, and recursors.
 Every declaration carries its universe parameters, exact type, applicable
-value or proof, exact kernel reducibility and construction metadata where
-applicable, and an explicit none, allow-subset, or exact axiom policy. There
-is no Atlas-specific node and no backend-source field.
+value or proof, kernel reducibility hints, effective elaborator transparency,
+complete structure field and parent registration, class status, exact
+instance priority, attribute kind and synthesis order, and an explicit none,
+allow-subset, or exact axiom policy. There is no Atlas-specific node and no
+backend-source field. A declaration's global name is also its component
+identity for a document denotation owned by that native module.
 
 Linking rejects a noncanonical schema discriminator, a forward or out-of-range
 DAG edge, a malformed or repeated global name, inconsistent declaration
@@ -2220,7 +2223,8 @@ Generated Lean MUST contain no:
 - line comment;
 - block comment;
 - documentation comment;
-- string literal;
+- string literal, except canonical native-core data and the fixed generic
+  decoder's keys and diagnostics in a module that linked a `coremodule`;
 - character literal used as documentation;
 - command whose purpose is textual output, except the separate axiom-audit module;
 - source-text copy;
@@ -2233,7 +2237,11 @@ Generated Lean MUST contain no:
 - `native_decide`;
 - placeholder declaration.
 
-A generated-source audit lexes every `.lean` file before verification. It checks tokens, not substring guesses, so legal identifier fragments are not misclassified.
+A generated-source audit lexes every `.lean` file before verification. It
+checks tokens, not substring guesses, so legal identifier fragments are not
+misclassified. The native-core string exception is selected from the linked
+module kind, never from source text, and the core schema forbids a backend
+source field.
 
 ### 18.3 Names and imports
 
@@ -3999,7 +4007,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `PF-18` | `proofs` | Lean proof failures remap to the smallest originating LexLean proof or statement span. | §20.4 |
 | `LN-01` | `lean-backend` | Each generated Lean file has the exact module, import, option, namespace, declaration, and end structure. | §18.1 |
 | `LN-02` | `lean-backend` | Imports are explicit, deduplicated, sorted, and every external global is fully qualified. | §18.3 |
-| `LN-03` | `lean-backend` | Generated Lean contains no comments, documentation, strings, or copied source prose. | §18.2 |
+| `LN-03` | `lean-backend` | Generated Lean contains no comments, documentation, prose-bearing strings, or copied source prose. | §18.2 |
 | `LN-04` | `lean-backend` | Generated Lean contains no sorry, admit, axiom, opaque, unsafe, native_decide, or placeholder declaration. | §18.2 |
 | `LN-05` | `lean-backend` | Every linked term and proof variant has one defined Lean lowering and missing lowering is a hard error. | §18.4, §18.7 |
 | `LN-06` | `lean-backend` | Leading universal binders become deterministic declaration parameters with complete source mapping. | §18.5 |

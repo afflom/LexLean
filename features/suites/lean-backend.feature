@@ -18,7 +18,7 @@ Feature: lean-backend
     And no `open` statement occurs anywhere in the file
 
   @LN-03 @build
-  Scenario: Generated Lean contains no comments, documentation, strings, or copied source prose.
+  Scenario: Generated Lean contains no comments, documentation, prose-bearing strings, or copied source prose.
     Given the generated Lean for the nat-add-zero example and for the test.defs definitions fixture
     When each Lean text is searched for comment and string markers
     Then neither text contains `--`, `/-`, or a double quote

@@ -21,7 +21,7 @@ the repository.
 
 ### Implemented
 
-- The Atlas Lean library is repository content, vendored in-tree at
+- The Atlas migration oracle is repository content retained in-tree at
   `lean/uor-atlas/` and required by path from `examples/uor-atlas/`.
   `just vv` builds it under the pinned `leanprover/lean4:v4.32.1` toolchain,
   replays every module through `leanchecker` — a same-kernel replay, not an
@@ -37,8 +37,9 @@ the repository.
   `lexlean.core`, `lexlean.std.nat`, and `lexlean.std.int`.
 - The frozen Atlas pack is complete against the native source register: every
   label carries exactly one disposition, the registers key on exact
-  identifiers, and every denotation names a declaration owned by the native
-  source. Coverage begins at `Atlas.lex.tex`; exercise, denotation,
+  identifiers, and every frozen entry refers to a declaration owned by the
+  native source rather than importing the oracle. Coverage begins at
+  `Atlas.lex.tex`; exercise, denotation,
   duplication, surface-disjointness, and authority-scope audits run as gates,
   each with a planted-defect record in VERIFICATION.md.
 - `examples/uor-atlas/` verifies under the pinned toolchain with its
@@ -55,7 +56,7 @@ the repository.
 
 - The compiler-semantics ID moves from
   `fa171c7a2d78cf17e6cb49bbec5c1eed8bee20033472b1953211104068589ba7` to
-  `a572b3f2f482ff78077b77ab448011d423107493bc8c659d1981542c04e09f30`: the
+  `8c1b7d358793b1e476173bb8b8b826e05f4072ac2b742d242a8cae6e05550e65`: the
   accepted language changed, so §30.1 requires a new ID. Every committed lock
   and verification record was regenerated against it.
 - The four 0.1.0 examples still format byte-identically and generate

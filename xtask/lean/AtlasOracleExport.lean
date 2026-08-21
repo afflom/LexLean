@@ -54,6 +54,13 @@ private def binderInfo : BinderInfo → String
   | .strictImplicit => "s"
   | .instImplicit => "c"
 
+private def transparency (env : Environment) (name : Name) : String :=
+  match getReducibilityStatusCore env name with
+  | .reducible => "reducible"
+  | .semireducible => "semireducible"
+  | .irreducible => "irreducible"
+  | .implicitReducible => "implicit-reducible"
+
 private partial def levelJson : Level → Json
   | .zero => Json.mkObj [("k", "z")]
   | .succ inner => Json.mkObj [("k", "s"), ("a", levelJson inner)]
@@ -179,17 +186,36 @@ private def declarationJson (env : Environment) (names : Std.HashMap Name Name)
   let structureInfo := getStructureInfo? env name
   let inductiveJson ← match info with
     | .inductInfo metadata =>
-        let projections := structureInfo.map (fun structureData =>
-          structureData.fieldNames.filterMap fun field =>
-            structureData.fieldInfo.find? (fun row => row.fieldName == field) |>.map fun row =>
-              (exportedName names row.projFn).toString) |>.getD #[]
-        pure <| some <| Json.mkObj [
+        let structureJson ← structureInfo.mapM fun structureData => do
+          let mut fieldRows : Array Json := #[]
+          for fieldName in structureData.fieldNames do
+            let some field := structureData.fieldInfo.find? fun row => row.fieldName == fieldName
+              | panic! s!"structure field {fieldName} has no metadata"
+            let autoParam ← field.autoParam?.mapM (intern env names)
+            let mut fields : List (String × Json) := [
+              ("name", field.fieldName.toString),
+              ("projection", (exportedName names field.projFn).toString),
+              ("binder", binderInfo field.binderInfo)]
+            if let some subobject := field.subobject? then
+              fields := ("subobject", (exportedName names subobject).toString) :: fields
+            if let some autoParam := autoParam then
+              fields := ("auto_param", autoParam) :: fields
+            fieldRows := fieldRows.push (Json.mkObj fields)
+          let parents := structureData.parentInfo.map fun parent => Json.mkObj [
+            ("name", (exportedName names parent.structName).toString),
+            ("subobject", parent.subobject),
+            ("projection", (exportedName names parent.projFn).toString)]
+          return Json.mkObj [
+            ("fields", Json.arr fieldRows),
+            ("parents", Json.arr parents)]
+        let mut fields : List (String × Json) := [
           ("num_params", metadata.numParams),
           ("num_indices", metadata.numIndices),
           ("constructors", Json.arr <| metadata.ctors.toArray.map fun ctor =>
-            toJson (exportedName names ctor).toString),
-          ("structure", structureInfo.isSome),
-          ("projections", Json.arr <| projections.map toJson)]
+            toJson (exportedName names ctor).toString)]
+        if let some structureJson := structureJson then
+          fields := ("structure", structureJson) :: fields
+        pure <| some <| Json.mkObj fields
     | _ => pure none
   let generated := match info with
     | .ctorInfo metadata => some metadata.induct
@@ -198,12 +224,7 @@ private def declarationJson (env : Environment) (names : Std.HashMap Name Name)
         if name.toString.endsWith "._unsafe_rec" then
           some name
         else none
-  let isInstance := Meta.isInstanceCore env name
-  let priority :=
-    if isInstance then
-      Meta.instanceExtension.getState env |>.instanceNames.find? name |>.map (·.priority)
-    else
-      none
+  let instanceData := Meta.instanceExtension.getState env |>.instanceNames.find? name
   let mut fields : List (String × Json) := [
     ("name", (exportedName names name).toString),
     ("levels", Json.arr <| info.levelParams.toArray.map fun level => toJson level.toString),
@@ -213,13 +234,17 @@ private def declarationJson (env : Environment) (names : Std.HashMap Name Name)
       ("axioms", Json.arr #["Classical.choice", "Quot.sound", "propext"])]),
     ("type", type),
     ("class", isClass env name),
-    ("instance", isInstance),
+    ("transparency", transparency env name),
     ("generated", generated.isSome)]
   if let some value := value then fields := ("value", value) :: fields
   if let some reducibility := reducibilityJson? info then
     fields := ("reducibility", reducibility) :: fields
   if let some inductiveData := inductiveJson then fields := ("inductive", inductiveData) :: fields
-  if let some priority := priority then fields := ("priority", priority) :: fields
+  if let some instanceData := instanceData then
+    fields := ("instance", Json.mkObj [
+      ("priority", instanceData.priority),
+      ("attribute", toString instanceData.attrKind),
+      ("synthesis_order", Json.arr <| instanceData.synthOrder.map toJson)]) :: fields
   return Json.mkObj fields
 
 def writeSource (path : System.FilePath) : CoreM Unit := do

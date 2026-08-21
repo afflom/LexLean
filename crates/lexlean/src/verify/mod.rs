@@ -68,6 +68,10 @@ pub fn generated_source_audit(text: &str, allow_print_axioms: bool) -> Result<()
     source_audit::audit(text, allow_print_axioms)
 }
 
+fn generated_core_source_audit(text: &str) -> Result<(), String> {
+    source_audit::audit_core(text)
+}
+
 fn write_staged(root: &std::path::Path, relative: &str, bytes: &[u8]) -> Result<(), LexLeanError> {
     let destination = root.join(relative);
     if let Some(parent) = destination.parent() {
@@ -751,7 +755,16 @@ pub fn run(
     // Generated-source audit before any Lean invocation (§18.2): the build
     // modules, the probe, and the audit module itself.
     for module in &build.modules {
-        if let Err(reason) = generated_source_audit(&module.lean_text, false) {
+        let is_core = checked
+            .modules
+            .get(&module.module)
+            .is_some_and(|checked| checked.document.core.is_some());
+        let audited = if is_core {
+            generated_core_source_audit(&module.lean_text)
+        } else {
+            generated_source_audit(&module.lean_text, false)
+        };
+        if let Err(reason) = audited {
             return Err(fail(internal(format!(
                 "`{}`: {reason}",
                 module.lean_module

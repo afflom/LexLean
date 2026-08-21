@@ -127,6 +127,48 @@ impl CoreNode {
 /// Inductive metadata needed to reproduce the kernel declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct CoreStructureField {
+    /// Source field name, normally a single name segment.
+    pub name: String,
+    /// Generated projection declaration.
+    pub projection: String,
+    /// Embedded parent structure for a subobject field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subobject: Option<String>,
+    /// Original field binder visibility.
+    pub binder: CoreBinderInfo,
+    /// Deprecated Lean auto-parameter expression, retained losslessly when
+    /// present in an imported environment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_param: Option<usize>,
+}
+
+/// One direct structure parent and its generated projection.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoreStructureParent {
+    /// Parent structure name.
+    pub name: String,
+    /// Whether the parent is represented by a stored subobject field.
+    pub subobject: bool,
+    /// Parent projection declaration.
+    pub projection: String,
+}
+
+/// Elaborator metadata that distinguishes a structure from an ordinary
+/// one-constructor inductive.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoreStructure {
+    /// Direct fields in constructor-field order.
+    pub fields: Vec<CoreStructureField>,
+    /// Direct parents in source order.
+    pub parents: Vec<CoreStructureParent>,
+}
+
+/// Inductive metadata needed to reproduce the kernel declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CoreInductive {
     /// Fixed parameters.
     pub num_params: usize,
@@ -134,11 +176,10 @@ pub struct CoreInductive {
     pub num_indices: usize,
     /// Constructor declaration names, in kernel order.
     pub constructors: Vec<String>,
-    /// Whether the old elaborator registered this inductive as a structure.
-    pub structure: bool,
-    /// Direct projection names in constructor-field order for a structure.
-    #[serde(default)]
-    pub projections: Vec<String>,
+    /// Exact structure registration metadata, absent for ordinary
+    /// inductives.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structure: Option<CoreStructure>,
 }
 
 /// How a declaration participates in generated Lean.
@@ -178,6 +219,45 @@ pub enum CoreReducibility {
     /// An ordinary definition with its exact dependency height.
     #[serde(rename = "regular")]
     Regular(u32),
+}
+
+/// Effective elaborator transparency attached to a declaration.  This is
+/// distinct from the kernel definition hints above and is required for exact
+/// downstream type-class and elaboration behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub enum CoreTransparency {
+    #[serde(rename = "reducible")]
+    Reducible,
+    #[serde(rename = "semireducible")]
+    Semireducible,
+    #[serde(rename = "irreducible")]
+    Irreducible,
+    #[serde(rename = "implicit-reducible")]
+    ImplicitReducible,
+}
+
+/// Scope behavior of a registered Lean attribute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub enum CoreAttributeKind {
+    #[serde(rename = "global")]
+    Global,
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "scoped")]
+    Scoped,
+}
+
+/// Exact instance-extension metadata that is not part of the declaration's
+/// kernel type or value.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoreInstance {
+    /// Type-class search priority.
+    pub priority: u64,
+    /// Attribute scope behavior.
+    pub attribute: CoreAttributeKind,
+    /// Argument synthesis order computed by the original elaborator.
+    pub synthesis_order: Vec<usize>,
 }
 
 /// An explicit axiom policy for a native core declaration.  Core modules do
@@ -247,6 +327,8 @@ pub struct CoreDeclaration {
     /// Exact kernel reducibility metadata for definitions and abbreviations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reducibility: Option<CoreReducibility>,
+    /// Effective elaborator transparency.
+    pub transparency: CoreTransparency,
     /// Explicit per-declaration axiom policy.
     pub policy: CoreAxiomPolicy,
     /// Type root.
@@ -260,12 +342,9 @@ pub struct CoreDeclaration {
     /// Whether this type is a type class.
     #[serde(default)]
     pub class: bool,
-    /// Whether this declaration is an instance.
-    #[serde(default)]
-    pub instance: bool,
-    /// Instance priority when `instance` is true.
+    /// Instance-extension metadata, when registered as an instance.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<u64>,
+    pub instance: Option<CoreInstance>,
     /// Whether the matching inductive/structure command creates this
     /// declaration.  Such rows remain in the IR and audit, but are not emitted
     /// twice.
@@ -413,12 +492,6 @@ impl CoreModule {
                     declaration.name
                 ));
             }
-            if declaration.instance != declaration.priority.is_some() {
-                return Err(format!(
-                    "core declaration `{}` has an inconsistent instance priority",
-                    declaration.name
-                ));
-            }
             let mut policy_names = BTreeSet::new();
             for axiom in declaration.policy.axioms() {
                 validate_name(axiom)?;
@@ -450,14 +523,27 @@ impl CoreModule {
                         ));
                     }
                 }
-                for projection in &inductive.projections {
-                    validate_name(projection)?;
-                }
-                if !inductive.structure && !inductive.projections.is_empty() {
-                    return Err(format!(
-                        "non-structure `{}` carries projection metadata",
-                        declaration.name
-                    ));
+                if let Some(structure) = &inductive.structure {
+                    for field in &structure.fields {
+                        validate_name(&field.name)?;
+                        validate_name(&field.projection)?;
+                        if let Some(subobject) = &field.subobject {
+                            validate_name(subobject)?;
+                        }
+                        if field
+                            .auto_param
+                            .is_some_and(|node| node >= self.nodes.len())
+                        {
+                            return Err(format!(
+                                "core structure `{}` has an out-of-range auto-parameter root",
+                                declaration.name
+                            ));
+                        }
+                    }
+                    for parent in &structure.parents {
+                        validate_name(&parent.name)?;
+                        validate_name(&parent.projection)?;
+                    }
                 }
             }
         }

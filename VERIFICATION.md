@@ -176,7 +176,7 @@ Removed: the source bytes were restored from the oracle export; the audit report
 
 ### audit-authority-scope can fail
 
-Planted: an authority row for the vendored library, which is repository content. Command: `cargo xtask validate-model`. Expected: R2 refuses the row.
+Planted: an authority row for the migration oracle, which is repository content. Command: `cargo xtask validate-model`. Expected: R2 refuses the row.
 
 ```text
 gate failed: R2: authority `ATLAS-LIBRARY` cites repository content; what this repository builds is a `build` claim with a conformance ID, never a `some-true` citation (§27.4)
@@ -192,20 +192,20 @@ Planted: `sumInt_congr` re-proved in `Roots.lean`, where `Glue.lean` already pro
 gate failed: R4: `sumInt_congr` is stated identically in lean/uor-atlas/UorAtlas/Glue.lean and lean/uor-atlas/UorAtlas/Roots.lean; one proof of a settled fact, not two that can drift
 ```
 
-Removed: the duplicate was deleted; the audit reports every public statement across the vendored modules unrepeated. The comparison is a declaration's name together with the CONCLUSION of its statement: comparing whole statements missed this exact case, because one module binds `{n : Nat}` where the other takes it from a section variable. What it still does not catch is recorded in its docstring — conclusions are compared as text, so one lemma written once fully qualified and once through an `open` reads as two.
+Removed: the duplicate was deleted; the audit reports every public statement across the migration-oracle modules unrepeated. The comparison is a declaration's name together with the CONCLUSION of its statement: comparing whole statements missed this exact case, because one module binds `{n : Nat}` where the other takes it from a section variable. What it still does not catch is recorded in its docstring — conclusions are compared as text, so one lemma written once fully qualified and once through an `open` reads as two.
 
 ### audit-atlas-denotations can fail
 
-Planted, in the first direction: `atlas-t5.toml`'s denotation renamed to `UorAtlas.Roots.T5x9`, a declaration the native source does not make. Command: `cargo xtask validate-model`. Expected: R2 names the entry file and the dangling name.
+Planted, in the first direction: `atlas-t5.toml`'s component renamed to `UorAtlas.Roots.T5x9`, a declaration the native source does not make. Command: `cargo xtask validate-model`. Expected: R2 names the entry file and the dangling name.
 
 ```text
-gate failed: R2: `atlas-t5.toml` denotes `UorAtlas.Roots.T5x9` in `UorAtlas.Roots`, which the native Atlas source does not declare
+gate failed: R2: `atlas-t5.toml` refers to `UorAtlas.Roots.T5x9` in `Atlas`, which the native Atlas source does not declare
 ```
 
 Planted, in the second direction: `atlas-a1.toml` deleted, so the native source owns `A1` and no frozen entry denotes it. Command: `cargo xtask validate-model`. Expected: R4 names the label.
 
 ```text
-gate failed: R4: the native Atlas source declares live label `A1` and no frozen entry denotes it
+gate failed: R4: the native Atlas source declares live label `A1` and no frozen entry refers to it
 ```
 
 Planted, on disposition: an entry `atlas-t48` for `T48`, which section 20.1 retracted, and an entry `atlas-l1` for `L1`, which the document declares non-denotable. Command: `cargo xtask validate-model`. Expected: R2 names the label and the disposition the register records.
@@ -215,7 +215,7 @@ gate failed: R2: `atlas-t48.toml` is an entry for `T48`, which the register reco
 gate failed: R2: `atlas-l1.toml` is an entry for `L1`, which the register records as non-denotable; a document could cite it as though it stood
 ```
 
-Removed: all restored; the audit reports every frozen Lean denotation rooted in the native source and every live label denoted once. The gate is two-directional on purpose: a denotation with no source declaration advertises a result the corpus does not own, while a live declaration with no entry withholds it.
+Removed: all restored; the audit reports every frozen declaration reference owned by the native source and every live label referred to once. The gate is two-directional on purpose: a reference with no source declaration advertises a result the corpus does not own, while a live declaration with no entry withholds it. Replacing a document reference with a `lean` denotation also fails, so the package cannot reverse the authority direction by importing the migration oracle.
 
 The disposition arm reads the label out of the entry's own id rather than out of its denotation, so an entry for a withdrawn label is rejected even though no native declaration carries that name.
 

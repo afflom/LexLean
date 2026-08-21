@@ -168,7 +168,7 @@ pub fn audit_atlas_library(root: &Path) -> Result<(), Fail> {
     }
     unreachable_library_modules(root, &files)?;
     println!(
-        "audit-atlas-library: {} vendored Lean modules, none names a forbidden construct, every one reachable from the library root (R4)",
+        "audit-atlas-library: {} migration-oracle modules, none names a forbidden construct, every one reachable from the library root (R4)",
         files.len()
     );
     Ok(())
@@ -482,16 +482,19 @@ fn is_label_shaped(name: &str) -> bool {
         && rest.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
-/// Every Lean denotation of the frozen Atlas package names a declaration in
-/// the native Atlas source, and every live source label has exactly one entry
-/// denoting it (R2, R4).
+/// Every declaration reference in the frozen Atlas package names a declaration
+/// owned by the native Atlas source, and every live source label has exactly
+/// one entry referring to it (R2, R4).
 ///
 /// The crate's own `builtin_lean_names_are_conservative_and_known` checks the
 /// *shape* of these names and cannot check more: the shipped compiler carries
 /// the language data, not the Lean sources, so nothing inside the crate can
 /// see a project's source. This gate is the other half. Without it an entry could denote
 /// `UorAtlas.Roots.T5` after `T5` was renamed or withdrawn, and the pack would
-/// go on advertising a result the native corpus no longer owns.
+/// go on advertising a result the native corpus no longer owns.  A `lean`
+/// denotation is also rejected: it would reverse the authority direction by
+/// importing the handwritten migration oracle instead of naming a declaration
+/// in the document that replaced it.
 ///
 /// It compares in both directions on purpose. A denotation with no
 /// declaration is a claim with nothing behind it; a declaration with no entry
@@ -545,7 +548,7 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
         live_labels = Some(live);
     }
 
-    // Every Lean denotation the package makes.
+    // Every declaration reference the package makes.
     let mut files: Vec<PathBuf> = Vec::new();
     gather(
         root,
@@ -565,24 +568,25 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
             files.len()
         )));
     }
-    let mut denoted: BTreeSet<String> = BTreeSet::new();
+    let mut referenced: BTreeSet<String> = BTreeSet::new();
     for path in &files {
         let data: toml::Value = std::fs::read_to_string(path)?.parse()?;
         let Some(denotation) = data.get("denotation") else {
             continue;
         };
-        if denotation.get("kind").and_then(toml::Value::as_str) != Some("lean") {
-            continue;
-        }
+        let kind = denotation
+            .get("kind")
+            .and_then(toml::Value::as_str)
+            .unwrap_or_default();
         let module = denotation
             .get("module")
             .and_then(toml::Value::as_str)
             .unwrap_or_default();
-        let name = denotation
-            .get("name")
+        let component = denotation
+            .get("component")
             .and_then(toml::Value::as_str)
             .unwrap_or_default();
-        let bare = name.rsplit('.').next().unwrap_or_default().to_owned();
+        let bare = component.rsplit('.').next().unwrap_or_default().to_owned();
         let display = path.file_name().unwrap_or_default().to_string_lossy();
         // `atlas-t57a` names the label `T57a`: the leading run of letters is
         // the label's prefix and is upper case, the rest is as written. An id
@@ -612,9 +616,14 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
                 }
             }
         }
-        if !declared.contains(name) {
+        if kind != "document" || module != "Atlas" {
             return Err(Fail::from(format!(
-                "R2: `{display}` denotes `{name}` in `{module}`, which the native Atlas source does not declare"
+                "R2: `{display}` has `{kind}` denotation in `{module}`; frozen Atlas entries refer to declarations owned by the native `Atlas` document"
+            )));
+        }
+        if !declared.contains(component) {
+            return Err(Fail::from(format!(
+                "R2: `{display}` refers to `{component}` in `{module}`, which the native Atlas source does not declare"
             )));
         }
         // One entry per label, counted among the label entries only. An object
@@ -627,7 +636,7 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
             .strip_suffix(".toml")
             .and_then(|s| s.strip_prefix("atlas-"))
             .is_some_and(|stem| stem.chars().any(|c| c.is_ascii_digit()));
-        if label_entry && !denoted.insert(bare.clone()) {
+        if label_entry && !referenced.insert(bare.clone()) {
             return Err(Fail::from(format!(
                 "R4: `{bare}` is denoted by more than one label entry; one label, one entry"
             )));
@@ -637,17 +646,17 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
     // The other direction: a live source label the frozen pack withholds.
     if let Some(live) = &live_labels {
         for label in live {
-            if !denoted.contains(label) {
+            if !referenced.contains(label) {
                 return Err(Fail::from(format!(
-                    "R4: the native Atlas source declares live label `{label}` and no frozen entry denotes it"
+                    "R4: the native Atlas source declares live label `{label}` and no frozen entry refers to it"
                 )));
             }
         }
     }
 
     println!(
-        "audit-atlas-denotations: {} live Atlas labels, every frozen Lean denotation rooted in the native Atlas source (R2, R4)",
-        denoted.len()
+        "audit-atlas-denotations: {} live Atlas labels, every frozen declaration reference owned by the native Atlas source (R2, R4)",
+        referenced.len()
     );
     Ok(())
 }
@@ -862,7 +871,7 @@ pub fn audit_atlas_duplication(root: &Path) -> Result<(), Fail> {
     });
     files.sort();
     if files.is_empty() {
-        println!("audit-atlas-duplication: no vendored module; the gate is armed by the first one");
+        println!("audit-atlas-duplication: no migration-oracle module; the gate is armed by the first one");
         return Ok(());
     }
     let mut seen: std::collections::BTreeMap<String, (String, String)> =
@@ -987,7 +996,7 @@ pub fn audit_atlas_duplication(root: &Path) -> Result<(), Fail> {
         }
     }
     println!(
-        "audit-atlas-duplication: {counted} public statements across {} vendored modules, no proof written twice (R4)",
+        "audit-atlas-duplication: {counted} public statements across {} migration-oracle modules, no proof written twice (R4)",
         files.len()
     );
     Ok(())
