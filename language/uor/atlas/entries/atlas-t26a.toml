@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t26a"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.ClosurePresentation"
+name = "UorAtlas.Closure.T26a"
+
+[[form]]
+id = "atlas-t26a"
+channel = "text"
+surface = "Atlas theorem twenty six a label"
+canonical_source = true
+features = ["sentence-case", "singular"]

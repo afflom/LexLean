@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t53"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.ClosurePresentation"
+name = "UorAtlas.Closure.T53"
+
+[[form]]
+id = "atlas-t53"
+channel = "text"
+surface = "Atlas theorem fifty three label"
+canonical_source = true
+features = ["sentence-case", "singular"]

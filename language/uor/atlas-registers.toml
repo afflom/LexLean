@@ -1,8 +1,10 @@
 # language/uor/atlas-registers.toml --- the UOR-ATLAS-FORMAL-001 label registers.
 #
-# Derived mechanically from the document, which this repository cites and does
-# not vendor (see model/authorities.toml). Section 20 partitions the labels and
-# the registers below are that partition. Every register keys on EXACT
+# Transcribed from the document, which this repository cites and does not
+# vendor (see model/authorities.toml), then amended by the explicit `S43`
+# retraction below. Section 20 supplies the original partition; `S43` is a
+# repository reclassification because its source statement is false and the
+# true integer result therefore cannot denote it. Every register keys on EXACT
 # identifiers, never prefixes: `T57` is retracted while `T57a` to `T57c` are
 # live, `T10` is superseded while `T10a` to `T10c` are live, and `F8` to `F11`
 # are retracted while `F1` to `F7` and `F12` are live. A prefix-matching
@@ -40,7 +42,7 @@ entry = [
     "S20", "S28", "S29", "S30", "S31", "S32", "D56", "D57",
     "D58", "D59", "D60", "D61", "S33", "S34", "S35", "S36",
     "S37", "S38", "S39", "S40", "S41", "S41a", "S41c", "S41d",
-    "S42", "S43", "S23", "S24", "S25", "P1", "P2", "S21",
+    "S42", "S23", "S24", "S25", "P1", "P2", "S21",
     "S22", "D62", "D63", "F1", "F2", "F3", "F4", "F5",
     "F6p", "F6", "F7", "D64", "D65", "F12", "T76a", "F22",
     "F17", "F19a", "F15a", "F13", "F14", "F15", "F15p", "F16",
@@ -84,6 +86,10 @@ reason = "false: an initial object has one endomorphism; `4608` is isotropy in `
 [[retracted]]
 label = "T57"
 reason = "false: `L_n` is closed iff `2|n`, integral iff `4|n`, even iff `8|n`; replaced by `T57a`, `T57b`, `T57c`"
+
+[[retracted]]
+label = "S43"
+reason = "false as stated over the reals: besides `(3,2,1)`, the three trace equations have the solution `(3.190960144833..., 0.732382694450..., 1.612590858904...)`; the retained `traceSystem_integer_unique` theorem proves only the true integer statement and therefore does not denote `S43`"
 
 [[superseded]]
 label = "T10"

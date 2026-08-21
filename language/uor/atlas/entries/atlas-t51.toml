@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t51"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.ClosureGauge"
+name = "UorAtlas.Closure.T51"
+
+[[form]]
+id = "atlas-t51"
+channel = "text"
+surface = "Atlas theorem fifty one label"
+canonical_source = true
+features = ["sentence-case", "singular"]

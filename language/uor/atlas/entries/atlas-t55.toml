@@ -1,17 +1,17 @@
 spec = "lexlean/entry/1"
-id = "atlas-s43"
+id = "atlas-t55"
 category = "label-word"
 surface_arity = 0
 frame = "atom"
 
 [denotation]
 kind = "lean"
-module = "UorAtlas.Scales"
-name = "UorAtlas.Scales.S43"
+module = "UorAtlas.GroupSeries"
+name = "UorAtlas.Closure.T55"
 
 [[form]]
-id = "atlas-s43"
+id = "atlas-t55"
 channel = "text"
-surface = "Atlas scale forty three label"
+surface = "Atlas theorem fifty five label"
 canonical_source = true
 features = ["sentence-case", "singular"]

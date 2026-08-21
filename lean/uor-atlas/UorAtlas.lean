@@ -15,3 +15,4 @@ public import UorAtlas.Functor
 public import UorAtlas.Scales
 public import UorAtlas.Group
 public import UorAtlas.Census
+public import UorAtlas.ClosurePresentation

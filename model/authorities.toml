@@ -52,6 +52,6 @@ id = "ATLAS-FORMAL-001"
 name = "UOR-ATLAS-FORMAL-001"
 citation = "UOR Foundation, UOR-ATLAS-FORMAL-001, the Atlas specification over the E8 root system; section 20 carries its label registry"
 checksum = "none"
-checksum_reason = "The document is the specification the vendored Lean library formalizes, not an input this repository compiles, so nothing from it is vendored. It is identified by its label registers, which language/uor/atlas-registers.toml reproduces row for row and audit-atlas-registers checks; a third party compares those registers against section 20."
+checksum_reason = "The document is the specification the vendored Lean library formalizes, not an input this repository compiles, so nothing from it is vendored. language/uor/atlas-registers.toml transcribes its label registers and separately records LexLean's S43 reclassification after a second real solution falsified the source's uniqueness statement; audit-atlas-registers checks the resulting explicit dispositions, and a third party can compare the transcription against section 20."
 statement = "UOR-ATLAS-FORMAL-001 states the Atlas over the E8 root system and fixes the label register of its section 20, recording six labels retracted in 20.1, one superseded in 20.2, two carrying the non-normative SMT-VALIDATED marker, and twelve ambient lemmas in 19.6 that it uses and establishes nowhere."
 realized_by = ["VR-19"]

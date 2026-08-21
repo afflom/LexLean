@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t31"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.GroupSeries"
+name = "UorAtlas.Closure.T31"
+
+[[form]]
+id = "atlas-t31"
+channel = "text"
+surface = "Atlas theorem thirty one label"
+canonical_source = true
+features = ["sentence-case", "singular"]

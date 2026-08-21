@@ -1,0 +1,17 @@
+spec = "lexlean/entry/1"
+id = "atlas-t27"
+category = "label-word"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "UorAtlas.ClosureOrbitTransport"
+name = "UorAtlas.Closure.T27"
+
+[[form]]
+id = "atlas-t27"
+channel = "text"
+surface = "Atlas theorem twenty seven label"
+canonical_source = true
+features = ["sentence-case", "singular"]

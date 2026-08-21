@@ -298,9 +298,9 @@ pub fn audit_surface_disjointness(_root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
-/// The Atlas label registers partition the document's labels, and no
-/// declaration in the vendored library claims a label the registers withhold
-/// (release plan §2.8 Criterion 1).
+/// The Atlas label registers partition the document's labels, every live row
+/// has a declaration in the vendored library, and no declaration claims a
+/// label the registers withhold (release plan §2.8 Criterion 1).
 ///
 /// The registers key on EXACT identifiers. That is the whole point of §2.8's
 /// "exact-match semantics": `T57` is retracted while `T57a`..`T57c` are live,
@@ -432,15 +432,28 @@ pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
             }
         }
     }
+    let missing: Vec<&str> = live
+        .iter()
+        .filter(|label| !declared.contains_key(label.as_str()))
+        .map(|label| label.as_str())
+        .collect();
+    if !missing.is_empty() {
+        return Err(Fail::from(format!(
+            "R4: the Atlas source register has {} live label(s) with no declaration in the vendored library: {}; a live source row is an obligation, not an optional description of what is already proved",
+            missing.len(),
+            missing.join(", ")
+        )));
+    }
     // The count is of names, and the message says so. This gate matches a
     // declaration's *name* against the register; nothing here reads the
     // statement, so it cannot tell a label carrying the document's theorem from
     // a label carrying something weaker under the same name. That distinction
     // is made by review against the document, and it has already moved this
     // number in both directions: six labels were stripped when their statements
-    // turned out not to be theirs, and `S38` was withdrawn when the document
-    // proved to carry a second clause. A reader who takes this figure for
-    // "proved as stated" is reading more than the gate checked.
+    // turned out not to be theirs, `S38` was withdrawn until its second clause
+    // was proved, and `S43` was reclassified when its real-uniqueness statement
+    // proved false. A reader who takes this figure for "proved as stated" is
+    // reading more than the gate checked.
     println!(
         "audit-atlas-registers: {} labels registered ({} entry, {} ambient, {} withheld), dispositions disjoint, {} of {} declared under a matching name (names, not statements)",
         entry.len() + ambient.len() + non_denotable.len() + retracted.len() + superseded.len(),

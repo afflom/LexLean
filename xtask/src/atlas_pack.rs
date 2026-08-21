@@ -1,6 +1,6 @@
 //! Derive the `lexlean.uor.atlas` entry set from the vendored library.
 //!
-//! The pack has one entry per Atlas label the library actually proves, and
+//! The pack has one entry per live Atlas source-register row, and
 //! `audit-atlas-denotations` fails the moment the two disagree in either
 //! direction. That audit is what makes this generator necessary rather than
 //! convenient: entries are committed data, and a committed set with no way to
@@ -182,9 +182,11 @@ pub fn generate(root: &Path, write: bool) -> Result<(), Fail> {
     let mut wanted: BTreeMap<String, String> = BTreeMap::new();
     let mut surfaces: BTreeMap<String, String> = BTreeMap::new();
     for label in &live {
-        let Some((module, name)) = declared.get(label) else {
-            continue;
-        };
+        let (module, name) = declared.get(label).ok_or_else(|| {
+            Fail::from(format!(
+                "the Atlas source register marks `{label}` live, but the vendored library has no declaration for it"
+            ))
+        })?;
         let text = surface(label)?;
         if let Some(other) = surfaces.insert(text.clone(), label.clone()) {
             return Err(Fail::from(format!(

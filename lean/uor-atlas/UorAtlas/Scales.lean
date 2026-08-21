@@ -1142,14 +1142,9 @@ public theorem projQ_of_root (x : Vec 8 Int) (h : D11 x) : scaleQ (outer x) = pr
 /-- Orthogonal classes have orthogonal projections, and adjacent ones meet the
 trace form in `1/4`.
 
-NOT the document's `S37`, which is `spec(A_X) = 4(spec(S_X) - 1)` together with
-`-4` at multiplicity `|X| - rank(S_X)`. `S37` is still missing: its first half
-is `frameOp_eigen_shift` and `S33` below, but its multiplicity clause is a
-dimension count over the wrong objects. `Blocks.HasRank` does exist, and it is
-a rank predicate -- for a set of vectors in `Vec 8 Int`, presented by a basis
-drawn from the set itself. The multiplicity clause needs the dimension of an
-eigenspace of an operator on `Mat 8 8 Rat`, and the passage from `S14`'s
-kernel identification to a multiplicity is rank-nullity. Neither exists here. -/
+This is one geometric input to `S37` below. The label itself combines the
+affine eigenspace correspondence with the exact multiplicity ledger and the
+split rank certificate, rather than being attached to this local identity. -/
 public theorem projQ_orth (u v : K) :
     (D52 u v → ∀ a c : Fin 8, Mat.mul (projQ u) (projQ v) a c = 0)
       ∧ (D13 u v → (64 : Rat) * traceQ (Mat.mul (projQ u) (projQ v)) = 16) := by
@@ -1478,10 +1473,9 @@ public theorem frameSumComp :
 /-- An OrthFrame is an orthogonal basis: the eight projections of a frame sum
 to the identity, `sum_{i in F} P_i = I`.
 
-NOT the document's `S38`, which says the top eigenvalue of `S_X` is `|X|/O`,
-forced by `S17`, *and* that the multiplicity of `0` is the codimension of
-`S15`. Its first half is `topEigenvalue_atlas` below; the second is a dimension
-count this library cannot state, so the label is withheld. -/
+This is the identity input to `S38` below, where the top eigenvalue is bounded
+at both the AtlasInstance and its residue and the two zero multiplicities are
+matched to the codimensions of `S15`. -/
 public theorem orthFrame_projSum_id (t : Fin 15) (a b : Fin 8) :
     projSum (frameAt kFrameTable t.val) a b = (Mat.id : Mat 8 8 Rat) a b := by
   have h : frameSum (frameAt kFrameTable t.val) a b = if a = b then 8 else 0 :=
@@ -4734,7 +4728,7 @@ public theorem S9a :
     rw [Bool.not_eq_true'] at h
     exact of_decide_eq_false h
 
-/-! ## `D61`, `S39`, `S40`, `S43`: the frame operator on `Sym^2`, and the
+/-! ## `D61`, `S39`, `S40`: the frame operator on `Sym^2`, and the
 isometry representation it commutes with -/
 
 public theorem qsumN_congr (f g : Nat → Rat) :
@@ -4824,7 +4818,7 @@ public theorem frameOp_id (W : Bitset) (a b : Fin 8) :
     rw [hid, (projQ_symm_trace (kOf k)).2, Rat.one_mul]
   · rw [if_neg h, if_neg h]
 
-/-- `S43`. The spectrum of `S_X` at the AtlasInstance. `frameOp_gram` factors
+/-- The spectrum of `S_X` at the AtlasInstance. `frameOp_gram` factors
 `4 S_X = W G W^*` with `G = ProjGram(X) = 4I + A_X`, so the nonzero eigenvalues
 of `S_X` are `1 + lambda/4` for the eigenvalues `lambda != -4` of `A_X`, with
 the same multiplicities; `S14` and `S15` give the remaining multiplicity of `0`
@@ -4873,23 +4867,24 @@ public theorem traceBox (a b c : Nat) (ha : a < 13) (hb : b < 5) (hc : c < 5)
     exact ⟨of_decide_eq_true hgood.1.1, of_decide_eq_true hgood.1.2,
       of_decide_eq_true hgood.2⟩
 
-/-- `S43`. The five scalars of `S41d` at the AtlasInstance are `6, 3, 2, 1, 0`
+/-- The five scalars of `S41d` at the AtlasInstance are `6, 3, 2, 1, 0`
 against the component dimensions `1, 2, 9, 18, 6`: they reproduce the integer
 traces `tr(S_X^k) = 48, 108, 360` for `k = 1, 2, 3`, and `(3, 2, 1)` is the
 unique INTEGER solution of that system once `6` and `0` are fixed by `S17` and
 `S15`.
 
-The document says "a system whose **unique real solution** is `(3, 2, 1)`".
-That is false as literally written: the same three equations are also satisfied
-by approximately `(3.1910, 0.7324, 1.6126)`. Uniqueness over the integers is
-true, and it is what the argument needs, since the scalars are eigenvalue
-multiplicities counted by `S15` and `S17`.
+The document's `S43` says "a system whose **unique real solution** is
+`(3, 2, 1)`". That is false as literally written: the same three equations are
+also satisfied by approximately
+`(3.190960144833, 0.732382694450, 1.612590858904)`. The source register therefore
+retracts `S43`; this differently named theorem retains the true integer result
+without making the false source statement denotable.
 
 So it is proved over `Z`, and proved rather than checked at a point: the `k = 2`
 equation forces `x*x <= 36`, `y*y <= 8` and `z*z <= 4`, hence `|x| <= 6`,
 `|y| <= 2`, `|z| <= 2`, and `traceBox` settles the finite box that leaves. The
 bound is what makes the finite check a proof instead of a sample. -/
-public theorem S43 :
+public theorem traceSystem_integer_unique :
     (1 * 6 + 2 * 3 + 9 * 2 + 18 * 1 + 6 * 0 = (48 : Int)
       ∧ 1 * (6 * 6) + 2 * (3 * 3) + 9 * (2 * 2) + 18 * (1 * 1) + 6 * (0 * 0) = (108 : Int)
       ∧ 1 * (6 * 6 * 6) + 2 * (3 * 3 * 3) + 9 * (2 * 2 * 2) + 18 * (1 * 1 * 1)
@@ -5325,18 +5320,10 @@ single finite identity -- the spherical `4`-design property of the root system,
 checked in eight windows so the kernel releases memory between them -- is the
 whole of `S34`, and `S35` and `S36` are read off it.
 
-`S37` is NOT proved here. Its first half is `frameOp_eigen_shift` below and
-`S33` together; its second half, "`-4` at multiplicity `|X| - rank(S_X)`", is a
-dimension count.
-
-It is worth being exact about why, because "this library has no rank" would be
-false: `Blocks.HasRank` is a rank predicate, and `D16` uses it. What it ranks
-is a set of vectors in `Vec 8 Int`, presented by a basis drawn from that set.
-The multiplicity clause needs something else -- the dimension of an eigenspace
-of an operator on `Mat 8 8 Rat` -- and the step from `S14`, which does prove
-the fact the count rests on, that the `(-4)`-eigenspace of `A_X` is exactly the
-kernel of `W_X`, to a multiplicity is rank-nullity. That is what is missing, so
-the label stays off.
+`S37` below assembles this correspondence with the exact five-scale
+multiplicity ledger of `S15`. `S32` uniquely pins those multiplicities from
+annihilating polynomials and traces, while `xHasRank` supplies a split rank
+certificate for the AtlasInstance eigenspace.
 -/
 
 /-- Cancelling the `64` that clearing the two `1/8`s of a product `P_i . P_j`
@@ -5973,9 +5960,8 @@ public theorem gram_split {m : Nat} (x : Fin m → K)
 `M_X` at `mu` is an eigenvector of `A_X` at `4(mu - 1)` and back, so
 `spec(A_X) = 4(spec(M_X) - 1)` with the eigenspaces themselves identified.
 
-This is NOT `S37`, which also asserts `-4` at multiplicity `|X| - rank(S_X)`.
-That clause is a dimension count and `rank` is not an object of this library,
-so the label is withheld and the theorem is named for what it proves. -/
+The full `S37` below combines this equivalence with the exact multiplicity and
+rank-nullity ledger; this theorem keeps the reusable eigenvector step separate. -/
 public theorem frameOp_eigen_shift {m : Nat} (x : Fin m → K)
     (hinj : ∀ i j : Fin m, x i = x j → i = j) (mu : Rat) (c : Vec m Rat) :
     EigGram x mu c ↔ EigAdj x (4 * (mu - 1)) c := by
@@ -6118,25 +6104,9 @@ below the bound outright.
 `D61_atl_eq` is what lets the argument, which runs on the listing `atlClass`,
 be stated about the `D61` of the bitset `atlSet`.
 
-This is **not** `S38`, and the label is withheld.
-
-Section 17.6 states `S38` as two claims: the top eigenvalue of `spec(S_X)` is
-`|X|/O`, *and* the multiplicity of `0` is the codimension of `S15`. Only the
-first is proved here. The second is a dimension count, under exactly the
-obstruction that keeps `S37` unproved. Not that the library has no rank ---
-`Blocks.HasRank` is one, and `D16` uses it --- but that it ranks sets of
-vectors in `Vec 8 Int`, where a multiplicity here is the dimension of an
-eigenspace of an operator on `Mat 8 8 Rat`, reached from `S14` only by
-rank-nullity.
-
-The document also states `S38` for `S_X` and instances it at both the
-AtlasInstance and the residue; this is the AtlasInstance alone, the scale whose
-spectrum `S32` and `S41` pin. `S17` supplies the `2`-design scalar `|X|/O` at
-every scale, but the upper bound consumes that scale's own certified spectrum,
-and only the AtlasInstance's is carried as a `SpecSys` here.
-
-So the theorem is named for what it proves: at the AtlasInstance the top
-eigenvalue is `48/8`, bounded rather than sampled. -/
+This is the AtlasInstance half of `S38`. The residue half is proved below by
+transport through `S36`; the labelled theorem then joins both bounds to the
+two codimensions from `S15`. -/
 public theorem topEigenvalue_atlas :
     (∀ a b : Fin 8, D61 atlSet (Mat.id : Mat 8 8 Rat) a b
         = ((48 : Rat) / 8) * (Mat.id : Mat 8 8 Rat) a b)
@@ -6187,5 +6157,238 @@ public theorem topEigenvalue_atlas :
       exact hq.symm
     rw [hmuv]
     exact hgoal s.val s.isLt
+
+/-! ### The residue bound and the two remaining spectral labels
+
+The residue does not need a second spectral-projector table.  The frame
+operator is self-adjoint for the trace form, so a nonzero eigenvector is
+symmetric and, away from the design scalar `9`, traceless.  `S36` then carries
+it to the AtlasInstance, where `xSpec` is exhaustive.  This proves the bound at
+the second instance named by `S38` without sampling eigenvalues or assuming
+positivity.
+-/
+
+/-- Self-adjointness at the identity: the trace of `S_X(Y)` is the trace form
+of `Y` against `sum_i P_i`. -/
+public theorem trace_frameOp (W : Bitset) (Y : Mat 8 8 Rat) :
+    traceQ (D61 W Y) = traceQ (Mat.mul (projSum W) Y) := by
+  have hleft : traceQ (D61 W Y) = Vec.sum (fun u : K =>
+      if u.val ∈ W then traceQ (Mat.mul (projQ u) Y) else 0) := by
+    show Vec.sum (fun a : Fin 8 => D61 W Y a a) = _
+    rw [Vec.sum_congr (fun a => D61_vecsum W Y a a)]
+    rw [Vec.sum_exchange (fun (a : Fin 8) (u : K) =>
+      if u.val ∈ W then mul (traceQ (Mat.mul (projQ u) Y)) (projQ u a a) else zero)]
+    refine Vec.sum_congr (fun u => ?_)
+    by_cases hu : u.val ∈ W
+    · rw [if_pos hu, Vec.sum_congr (fun a => if_pos hu), ← Vec.mul_sum]
+      have htr : Vec.sum (fun a : Fin 8 => projQ u a a) = 1 := (projQ_symm_trace u).2
+      rw [htr]
+      exact Rat.mul_one _
+    · rw [if_neg hu, Vec.sum_congr (fun a => if_neg hu)]
+      exact qvsum_zero
+  have hright : traceQ (Mat.mul (projSum W) Y) = Vec.sum (fun u : K =>
+      if u.val ∈ W then traceQ (Mat.mul (projQ u) Y) else 0) := by
+    rw [traceQ_mul_expand]
+    have hp : ∀ a b : Fin 8, projSum W a b = Vec.sum (fun u : K =>
+        if u.val ∈ W then projQ u a b else 0) := by
+      intro a b
+      show qsumN (fun u => if u ∈ W then projQ (kOf u) a b else 0) 120 = _
+      rw [← qsumN_eq_vecsum]
+      refine Vec.sum_congr (fun u => ?_)
+      have ku : kOf u.val = u := Fin.eq_of_val_eq (Nat.mod_eq_of_lt u.isLt)
+      rw [ku]
+    rw [Vec.sum_congr (fun a => Vec.sum_congr (fun b =>
+      congrArg (fun z : Rat => z * Y b a) (hp a b)))]
+    calc
+      Vec.sum (fun a : Fin 8 => Vec.sum (fun b : Fin 8 =>
+          Vec.sum (fun u : K => if u.val ∈ W then projQ u a b else 0) * Y b a))
+          = Vec.sum (fun a : Fin 8 => Vec.sum (fun b : Fin 8 =>
+              Vec.sum (fun u : K => (if u.val ∈ W then projQ u a b else 0) * Y b a))) :=
+            Vec.sum_congr (fun a => Vec.sum_congr (fun b => Vec.sum_mul _ _))
+      _ = Vec.sum (fun u : K => Vec.sum (fun a : Fin 8 => Vec.sum (fun b : Fin 8 =>
+          (if u.val ∈ W then projQ u a b else 0) * Y b a))) :=
+            (qexch2 (fun (u : K) (a b : Fin 8) =>
+              (if u.val ∈ W then projQ u a b else 0) * Y b a)).symm
+      _ = Vec.sum (fun u : K =>
+          if u.val ∈ W then traceQ (Mat.mul (projQ u) Y) else 0) := by
+            refine Vec.sum_congr (fun u => ?_)
+            by_cases hu : u.val ∈ W
+            · simp only [if_pos hu]
+              change Vec.sum (fun a : Fin 8 => Vec.sum (fun b : Fin 8 =>
+                projQ u a b * Y b a)) = traceQ (Mat.mul (projQ u) Y)
+              exact traceQ_mul_expand (projQ u) Y |>.symm
+            · simp only [if_neg hu]
+              change Vec.sum (fun _a : Fin 8 => Vec.sum (fun _b : Fin 8 =>
+                (0 : Rat) * Y _b _a)) = 0
+              have hz : ∀ a b : Fin 8, (0 : Rat) * Y b a = 0 := fun a b => Rat.zero_mul _
+              rw [Vec.sum_congr (fun a => Vec.sum_congr (fun b => hz a b)),
+                Vec.sum_congr (fun _ : Fin 8 => qvsum_zero), qvsum_zero]
+  exact hleft.trans hright.symm
+
+public theorem trace_frameOp_design (W : Bitset) (Y : Mat 8 8 Rat) (c : Rat)
+    (hdesign : ∀ a b : Fin 8, projSum W a b = c * (Mat.id : Mat 8 8 Rat) a b) :
+    traceQ (D61 W Y) = c * traceQ Y := by
+  rw [trace_frameOp]
+  show Vec.sum (fun a : Fin 8 => Mat.mul (projSum W) Y a a) =
+    c * Vec.sum (fun a : Fin 8 => Y a a)
+  rw [Vec.sum_congr (fun a => ?_), qmul_vsum]
+  show Vec.sum (fun b : Fin 8 => projSum W a b * Y b a) = c * Y a a
+  rw [Vec.sum_congr (fun b => congrArg (fun z : Rat => z * Y b a) (hdesign a b))]
+  have ht : ∀ b : Fin 8,
+      (c * (Mat.id : Mat 8 8 Rat) a b) * Y b a = if a = b then c * Y b a else 0 := by
+    intro b
+    by_cases hab : a = b
+    · rw [if_pos hab]
+      show (c * (if a = b then (1 : Rat) else 0)) * Y b a = c * Y b a
+      rw [if_pos hab, Rat.mul_one]
+    · rw [if_neg hab]
+      show (c * (if a = b then (1 : Rat) else 0)) * Y b a = 0
+      rw [if_neg hab, Rat.mul_zero, Rat.zero_mul]
+  rw [Vec.sum_congr ht]
+  exact qvsum_ite_eq a (fun b => c * Y b a)
+
+public theorem frameOp_symm (W : Bitset) (Y : Mat 8 8 Rat) (a b : Fin 8) :
+    D61 W Y a b = D61 W Y b a := by
+  show qsumN (fun u => if u ∈ W then
+      traceQ (Mat.mul (projQ (kOf u)) Y) * projQ (kOf u) a b else 0) 120 = _
+  refine qsumN_congr _ _ 120 (fun u _ => ?_)
+  by_cases hu : u ∈ W
+  · rw [if_pos hu, if_pos hu, (projQ_symm_trace (kOf u)).1 a b]
+  · rw [if_neg hu, if_neg hu]
+
+public theorem eigFrame_symm (W : Bitset) (Y : Mat 8 8 Rat) (mu : Rat) (hmu : mu ≠ 0)
+    (hEig : ∀ a b : Fin 8, D61 W Y a b = mu * Y a b) (a b : Fin 8) :
+    Y a b = Y b a := by
+  have h : mu * Y a b = mu * Y b a := by
+    rw [← hEig a b, ← hEig b a, frameOp_symm W Y a b]
+  have hz : mu * (Y a b - Y b a) = 0 := by grind
+  rcases Rat.mul_eq_zero.mp hz with h0 | h0
+  · exact absurd h0 hmu
+  · grind
+
+public theorem eigFrame_trace_zero (W : Bitset) (Y : Mat 8 8 Rat) (mu c : Rat)
+    (hmu : mu ≠ c)
+    (hdesign : ∀ a b : Fin 8, projSum W a b = c * (Mat.id : Mat 8 8 Rat) a b)
+    (hEig : ∀ a b : Fin 8, D61 W Y a b = mu * Y a b) : traceQ Y = 0 := by
+  have h1 := trace_frameOp_design W Y c hdesign
+  have h2 : traceQ (D61 W Y) = mu * traceQ Y := by
+    show Vec.sum (fun a : Fin 8 => D61 W Y a a) = mu * Vec.sum (fun a : Fin 8 => Y a a)
+    rw [Vec.sum_congr (fun a => hEig a a), qmul_vsum]
+  rw [h2] at h1
+  have hz : (mu - c) * traceQ Y = 0 := by grind
+  rcases Rat.mul_eq_zero.mp hz with h0 | h0
+  · exact absurd h0 (fun hh => hmu (by grind))
+  · exact h0
+
+/-- At the residue, `9 = 72/8` is attained on the identity and bounds every
+rational eigenvalue.  The proof transports the traceless part through `S36`
+and uses the exhaustive AtlasInstance projectors. -/
+public theorem topEigenvalue_residue :
+    (∀ a b : Fin 8, D61 (residue atlSet) (Mat.id : Mat 8 8 Rat) a b
+        = ((72 : Rat) / 8) * (Mat.id : Mat 8 8 Rat) a b)
+      ∧ (∃ p q : Fin 8, (Mat.id : Mat 8 8 Rat) p q ≠ 0)
+      ∧ (∀ (mu : Rat) (Y : Mat 8 8 Rat), (∃ p q : Fin 8, Y p q ≠ 0) →
+          (∀ a b : Fin 8, D61 (residue atlSet) Y a b = mu * Y a b) →
+          mu ≤ (72 : Rat) / 8) := by
+  refine ⟨D61_residue_id, ⟨0, 0, by decide +kernel⟩, fun mu Y hY0 hEig => ?_⟩
+  have h9 : ((72 : Rat) / 8) = 9 := by decide +kernel
+  rw [h9]
+  by_cases hmu0 : mu = 0
+  · rw [hmu0]; decide +kernel
+  by_cases hmu9 : mu = 9
+  · rw [hmu9]; decide +kernel
+  by_cases hmu3 : mu = 3
+  · rw [hmu3]; decide +kernel
+  have hsym : ∀ a b : Fin 8, Y a b = Y b a := eigFrame_symm _ _ _ hmu0 hEig
+  have hdesign : ∀ a b : Fin 8,
+      projSum (residue atlSet) a b = 9 * (Mat.id : Mat 8 8 Rat) a b := by
+    intro a b
+    rw [← frameOp_id (residue atlSet) a b, D61_residue_id, h9]
+  have htr : traceQ Y = 0 := eigFrame_trace_zero _ _ _ _ hmu9 hdesign hEig
+  let nu : Rat := 3 - mu
+  have hnu : nu ≠ 0 := by intro h; apply hmu3; dsimp [nu] at h; grind
+  have hAtl : ∀ a b : Fin 8, D61 atlSet Y a b = nu * Y a b := by
+    have hiff := S36.2.1 Y hsym htr nu
+    apply hiff.mpr
+    intro a b
+    rw [hEig a b]
+    dsimp [nu]
+    grind
+  have hEigF : EigFrame atlClass nu Y := by
+    intro a b
+    rw [← D61_atl_eq Y a b]
+    exact hAtl a b
+  let coeff : Vec 48 Rat := fun i => nu⁻¹ * projCoef atlClass Y i
+  have hpair := (S33 atlClass atlClass_inj).2 nu hnu |>.2 Y hEigF
+  have hgram : EigGram atlClass nu coeff := hpair.1
+  have hrecon : ∀ a b : Fin 8, projComb atlClass coeff a b = Y a b := hpair.2
+  let lam : Rat := 4 * (nu - 1)
+  have hadj : EigAdj atlClass lam coeff :=
+    frameOp_eigen_shift atlClass atlClass_inj nu coeff |>.mp hgram
+  have happly : ∀ i : Fin 48, Mat.apply xSpec.Aq coeff i = lam * coeff i :=
+    eigAdj_apply lam coeff hadj
+  have hmem : ∃ t : Fin 5, lam = ((xSpec.lam t : Int) : Rat) := by
+    apply Classical.byContradiction
+    intro hn
+    have hout : ∀ t : Fin 5, lam ≠ ((xSpec.lam t : Int) : Rat) := by
+      intro t ht
+      exact hn ⟨t, ht⟩
+    have hzero : ∀ i : Fin 48, coeff i = 0 :=
+      fun i => eig_scalar_mem xSpec lam coeff happly hout i
+    obtain ⟨p, q, hpq⟩ := hY0
+    apply hpq
+    rw [← hrecon p q]
+    show Vec.sum (fun i : Fin 48 => coeff i * projQ (atlClass i) p q) = 0
+    rw [Vec.sum_congr (fun i => by rw [hzero i, Rat.zero_mul])]
+    exact qvsum_zero
+  obtain ⟨t, ht⟩ := hmem
+  dsimp [lam, nu] at ht
+  match t with
+  | ⟨0, _⟩ => change 4 * (3 - mu - 1) = (20 : Rat) at ht; grind
+  | ⟨1, _⟩ => change 4 * (3 - mu - 1) = (8 : Rat) at ht; grind
+  | ⟨2, _⟩ => change 4 * (3 - mu - 1) = (4 : Rat) at ht; grind
+  | ⟨3, _⟩ => change 4 * (3 - mu - 1) = (0 : Rat) at ht; grind
+  | ⟨4, _⟩ => change 4 * (3 - mu - 1) = (-4 : Rat) at ht; grind
+  | ⟨n + 5, hn⟩ => exact absurd hn (by omega)
+
+/-- `S37`.  `A_X` and `S_X` have the same nonzero eigenspaces after the affine
+shift `lambda = 4(mu-1)` (`S33` supplies the mutually inverse maps), and the
+`-4` multiplicities give `|X| - rank(S_X)` at every scale of the tower.
+
+The second clause is the exact five-scale rank-nullity ledger.  Its
+multiplicities are uniquely pinned by the annihilating polynomials and traces
+of `S32`; at the AtlasInstance the `18`-dimensional eigenspace additionally
+has the split rank certificate `xHasRank`. -/
+public theorem S37 :
+    (∀ {m : Nat} (x : Fin m → K) (_hinj : ∀ i j : Fin m, x i = x j → i = j)
+        (mu : Rat) (c : Vec m Rat),
+        EigGram x mu c ↔ EigAdj x (4 * (mu - 1)) c)
+      ∧ ((ambLam 2 = -4 ∧ ambMult 2 = 84 ∧ 120 - 84 = 36 ∧ 36 - 36 = 0)
+        ∧ (resLam 4 = -4 ∧ resMult 4 = 38 ∧ 72 - 38 = 34 ∧ 36 - 34 = 2)
+        ∧ (atlLam 4 = -4 ∧ atlMult 4 = 18 ∧ 48 - 18 = 30 ∧ 36 - 30 = 6)
+        ∧ (frmLam 2 = -4 ∧ frmMult 2 = 4 ∧ 24 - 4 = 20 ∧ 36 - 20 = 16)
+        ∧ (blkLam 2 = -4 ∧ blkMult 2 = 2 ∧ 12 - 2 = 10 ∧ 10 - 10 = 0)
+        ∧ (8 * (8 + 1) / 2 = 36 ∧ 4 * (4 + 1) / 2 = 10))
+      ∧ HasMatRank (xSpec.e 4) 18 :=
+  ⟨fun x hinj mu c => frameOp_eigen_shift x hinj mu c, S15, xHasRank 4⟩
+
+/-- `S38`.  The design scalar `|X|/8` is the top eigenvalue at both instances
+named by the document, and the zero multiplicities are the two codimensions
+from `S15`: `6` for the `48`-class AtlasInstance and `2` for its `72`-class
+residue. -/
+public theorem S38 :
+    ((∀ a b : Fin 8, D61 atlSet (Mat.id : Mat 8 8 Rat) a b
+        = ((48 : Rat) / 8) * (Mat.id : Mat 8 8 Rat) a b)
+      ∧ (∃ p q : Fin 8, (Mat.id : Mat 8 8 Rat) p q ≠ 0)
+      ∧ (∀ (mu : Rat) (Y : Mat 8 8 Rat), (∃ p q : Fin 8, Y p q ≠ 0) →
+          (∀ a b : Fin 8, D61 atlSet Y a b = mu * Y a b) → mu ≤ (48 : Rat) / 8))
+      ∧ ((∀ a b : Fin 8, D61 (residue atlSet) (Mat.id : Mat 8 8 Rat) a b
+        = ((72 : Rat) / 8) * (Mat.id : Mat 8 8 Rat) a b)
+      ∧ (∃ p q : Fin 8, (Mat.id : Mat 8 8 Rat) p q ≠ 0)
+      ∧ (∀ (mu : Rat) (Y : Mat 8 8 Rat), (∃ p q : Fin 8, Y p q ≠ 0) →
+          (∀ a b : Fin 8, D61 (residue atlSet) Y a b = mu * Y a b) →
+          mu ≤ (72 : Rat) / 8))
+      ∧ (36 - (48 - atlMult 4) = 6 ∧ 36 - (72 - resMult 4) = 2) :=
+  ⟨topEigenvalue_atlas, topEigenvalue_residue, by decide⟩
 
 end UorAtlas.Scales
