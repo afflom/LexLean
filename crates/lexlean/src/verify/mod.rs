@@ -708,7 +708,6 @@ pub fn run(
         .collect();
     all_names.push(probe_name.clone());
     all_names.push(audit_name.clone());
-    workspace::reject_module_conflicts(project, &all_names).map_err(fail)?;
 
     // Every external reached by any module (§18.8): direct globals, defined
     // values, and case constructors.
@@ -729,36 +728,34 @@ pub fn run(
         .map_err(fail)?;
     debug_assert_eq!(probe.name, probe_name);
 
-    // Stage 9 preparation: the audit module text is fixed by the build.
-    let mut declaration_names: Vec<String> = Vec::new();
+    // Stage 9 preparation: the audit module family is fixed by the build.
+    let mut module_declarations: Vec<(String, Vec<String>)> = Vec::new();
     for module in &build.modules {
         let document = &checked.modules[&module.module].document;
+        let mut names = Vec::new();
         for declaration in document.declarations() {
-            declaration_names.push(format!("{}.{}", module.lean_module, declaration.lean_name));
+            names.push(format!("{}.{}", module.lean_module, declaration.lean_name));
         }
         if let Some(core) = &document.core {
-            declaration_names.extend(
+            names.extend(
                 core.declarations
                     .iter()
                     .map(|declaration| declaration.name.clone()),
             );
         }
+        module_declarations.push((module.lean_module.clone(), names));
     }
-    declaration_names.sort();
-    let generated_module_names: Vec<String> = build
-        .modules
+    let audit_modules = crate::backend::lean::audit_modules(&semantic_hex32, &module_declarations);
+    let mut declaration_names: Vec<String> = audit_modules
         .iter()
-        .map(|module| module.lean_module.clone())
+        .flat_map(|module| module.declarations.iter().cloned())
         .collect();
-    let (audit_module_name, audit_text) = crate::backend::lean::audit_module(
-        &semantic_hex32,
-        &generated_module_names,
-        &declaration_names,
-    );
-    debug_assert_eq!(audit_module_name, audit_name);
+    declaration_names.sort();
+    all_names.extend(audit_modules.iter().map(|module| module.name.clone()));
+    workspace::reject_module_conflicts(project, &all_names).map_err(fail)?;
 
     // Generated-source audit before any Lean invocation (§18.2): the build
-    // modules, the probe, and the audit module itself.
+    // modules, the probe, and every audit module itself.
     for module in &build.modules {
         let is_core = checked
             .modules
@@ -779,8 +776,13 @@ pub fn run(
     if let Err(reason) = generated_source_audit(&probe.text, false) {
         return Err(fail(internal(format!("probe module: {reason}"))));
     }
-    if let Err(reason) = generated_source_audit(&audit_text, true) {
-        return Err(fail(internal(format!("audit module: {reason}"))));
+    for audit in &audit_modules {
+        if let Err(reason) = generated_source_audit(&audit.text, true) {
+            return Err(fail(internal(format!(
+                "audit module `{}`: {reason}",
+                audit.name
+            ))));
+        }
     }
 
     // Staging under the build root with owner-only permissions (§25.6).
@@ -1066,62 +1068,76 @@ pub fn run(
         process_records.push(record);
     }
 
-    // Stage 9–10: the audit module and exact output parsing (§18.9, §22.5).
-    write_staged(
-        staging.path(),
-        &format!("audit/{audit_name}.lean"),
-        audit_text.as_bytes(),
-    )?;
-    let audit_source = staging_utf8
-        .join("audit")
-        .join(format!("{audit_name}.lean"));
-    let audit_record = run_child(
-        &ChildSpec {
-            tool: "lean",
-            module: Some(audit_name.clone()),
-            program: &toolchain.lake.path,
-            executable_sha256: toolchain.lean.sha256,
-            argv: vec![
-                "env".to_owned(),
-                "lean".to_owned(),
-                audit_source.to_string(),
-            ],
-            cwd: &workspace_root,
-            extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
-            home: ChildHome::Toolchain {
-                toolchain_bin: &toolchain_bin,
+    // Stage 9–10: process-sized audit modules and exact output parsing
+    // (§18.9, §22.5). Each member imports one generated module, so the
+    // final policy audit cannot recreate the monolithic replay peak.
+    let mut observed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut audit_output = String::new();
+    for audit in &audit_modules {
+        let source_relative = format!("audit/{}.lean", audit.name);
+        write_staged(staging.path(), &source_relative, audit.text.as_bytes())?;
+        let audit_source = staging_utf8.join(&source_relative);
+        let audit_record = run_child(
+            &ChildSpec {
+                tool: "lean",
+                module: Some(audit.name.clone()),
+                program: &toolchain.lake.path,
+                executable_sha256: toolchain.lean.sha256,
+                argv: vec![
+                    "env".to_owned(),
+                    "lean".to_owned(),
+                    audit_source.to_string(),
+                ],
+                cwd: &workspace_root,
+                extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
+                home: ChildHome::Toolchain {
+                    toolchain_bin: &toolchain_bin,
+                },
             },
-        },
-        &limits,
-        &normalizer,
-    )
-    .map_err(fail)?;
-    if audit_record.exit_code != 0 {
-        return Err(fail(Diagnostic::new(
-            code!("LLV7004"),
-            format!(
-                "the axiom audit failed: {}{}",
-                audit_record.stdout.trim_end(),
-                audit_record.stderr.trim_end()
-            ),
-        )));
+            &limits,
+            &normalizer,
+        )
+        .map_err(fail)?;
+        if audit_record.exit_code != 0 {
+            return Err(fail(Diagnostic::new(
+                code!("LLV7004"),
+                format!(
+                    "axiom audit member `{}` for `{}` failed: {}{}",
+                    audit.name,
+                    audit.generated_module,
+                    audit_record.stdout.trim_end(),
+                    audit_record.stderr.trim_end()
+                ),
+            )));
+        }
+        let stage = format!("axiom audit member `{}`", audit.name);
+        require_silent(&audit_record, &stage, true).map_err(fail)?;
+        let member_observed = axiom::parse_audit_output(&audit_record.stdout, &audit.declarations)
+            .map_err(|failure| fail(audit_diagnostic(checked, build, failure)))?;
+        for (name, axioms) in member_observed {
+            if observed.insert(name.clone(), axioms).is_some() {
+                return Err(fail(internal(format!(
+                    "axiom audit member `{}` repeated declaration `{name}`",
+                    audit.name
+                ))));
+            }
+        }
+        audit_output.push_str(&audit_record.stdout);
+        write_staged(
+            staging.path(),
+            &format!("audit/{}.process.json", audit.name),
+            &audit_record.to_json().to_file_bytes(),
+        )?;
+        process_records.push(audit_record);
     }
-    // The audit's stdout is exactly the `#print axioms` records (checked by
-    // the parser); its stderr must be empty (§20.2).
-    require_silent(&audit_record, "the axiom audit", true).map_err(fail)?;
-    write_staged(
-        staging.path(),
-        "audit/output.txt",
-        audit_record.stdout.as_bytes(),
-    )?;
-    write_staged(
-        staging.path(),
-        "audit/process.json",
-        &audit_record.to_json().to_file_bytes(),
-    )?;
-    let observed = axiom::parse_audit_output(&audit_record.stdout, &declaration_names)
-        .map_err(|failure| fail(audit_diagnostic(checked, build, failure)))?;
-    process_records.push(audit_record);
+    if observed.len() != declaration_names.len() {
+        return Err(fail(internal(format!(
+            "axiom audit family observed {} of {} declarations",
+            observed.len(),
+            declaration_names.len()
+        ))));
+    }
+    write_staged(staging.path(), "audit/output.txt", audit_output.as_bytes())?;
 
     // Stage 11: per-declaration policy enforcement (§22.6).
     let mut declaration_rows: Vec<Json> = Vec::new();

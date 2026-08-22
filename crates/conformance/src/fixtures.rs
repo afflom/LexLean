@@ -345,7 +345,9 @@ fn files_under(dir: &Path) -> Vec<String> {
 fn process_bound(relative_in_artifact: &str) -> bool {
     relative_in_artifact == "attestation.json"
         || relative_in_artifact == "probe/process.json"
-        || relative_in_artifact == "audit/process.json"
+        || relative_in_artifact
+            .strip_prefix("audit/")
+            .is_some_and(|name| name.ends_with(".process.json"))
         || relative_in_artifact.starts_with("oleans/")
         || relative_in_artifact.starts_with("process/")
         || relative_in_artifact.starts_with("pdf/")
@@ -689,7 +691,7 @@ mod tests {
             "oleans/A/B.olean",
             "process/lean/A.json",
             "probe/process.json",
-            "audit/process.json",
+            "audit/LexLeanAudit.A1.Main.process.json",
             "pdf/Main.pdf",
         ] {
             assert!(process_bound(bound), "{bound}");

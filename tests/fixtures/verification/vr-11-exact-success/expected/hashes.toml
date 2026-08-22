@@ -3,7 +3,7 @@
 # compiler executable (presence only). SPEC.md §28.2, §28.4.
 
 [platform_independent]
-".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.A89e85bd5ccf8e14613b698b7dce21e3d.lean" = "ce72b0930147248dfa799553ba634a7da3d05df24977acc9873052cdc47d91a2"
+".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.A89e85bd5ccf8e14613b698b7dce21e3d.LexLeanExample.Main.lean" = "ce72b0930147248dfa799553ba634a7da3d05df24977acc9873052cdc47d91a2"
 ".lexlean/verified/$ATTESTATION/audit/output.txt" = "e0a31c670eac06f52782d864e0a948c11d06d4901077474ddcc6afb86817ac0a"
 ".lexlean/verified/$ATTESTATION/build-manifest.json" = "fc621a76581bfb1e05f965bb34bd6b797d89e3211e340eb8a467a4c1ff21bfb0"
 ".lexlean/verified/$ATTESTATION/coverage/LexLeanExample/Main.coverage.json" = "5a81aa88d63337f087021e9bf442e661a9154c61b6977d71c9d2fd8517c80bd1"
@@ -16,7 +16,7 @@
 [process_bound]
 files = [
     ".lexlean/verified/$ATTESTATION/attestation.json",
-    ".lexlean/verified/$ATTESTATION/audit/process.json",
+    ".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.A89e85bd5ccf8e14613b698b7dce21e3d.LexLeanExample.Main.process.json",
     ".lexlean/verified/$ATTESTATION/oleans/LexLeanExample/Main.olean",
     ".lexlean/verified/$ATTESTATION/probe/process.json",
     ".lexlean/verified/$ATTESTATION/process/lean/LexLeanExample.Main.json",

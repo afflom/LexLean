@@ -203,7 +203,9 @@ fn normalized_verify_records(verified: &Path) -> Result<Vec<(String, Vec<u8>)>, 
             .to_string_lossy()
             .replace('\\', "/");
         let is_process = relative == "probe/process.json"
-            || relative == "audit/process.json"
+            || relative
+                .strip_prefix("audit/")
+                .is_some_and(|name| name.ends_with(".process.json"))
             || relative.starts_with("process/");
         let is_module = (relative.starts_with("probe/") || relative.starts_with("audit/"))
             && relative.ends_with(".lean");

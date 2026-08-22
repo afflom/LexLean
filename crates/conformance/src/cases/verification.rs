@@ -61,7 +61,6 @@ pub(crate) fn run(id: &str) {
             let root = &fixture.outcome.root;
             for evidence in [
                 "probe/process.json",
-                "audit/process.json",
                 "audit/output.txt",
                 "build-manifest.json",
                 "attestation.json",
@@ -71,6 +70,12 @@ pub(crate) fn run(id: &str) {
                     "stage evidence `{evidence}` exists"
                 );
             }
+            assert!(
+                support::file_set(&root.join("audit"))
+                    .iter()
+                    .any(|name| name.ends_with(".process.json")),
+                "axiom-audit process evidence exists"
+            );
             assert!(
                 !support::file_set(&root.join("process/lean")).is_empty(),
                 "compilation stage evidence"
@@ -395,6 +400,29 @@ pub(crate) fn run(id: &str) {
         }
         // §18.9: the audit prints axioms exactly once per declaration.
         "VR-09" => {
+            let members = lexlean::backend::lean::audit_modules(
+                "0123456789abcdef0123456789abcdef",
+                &[
+                    (
+                        "LexLeanExample.Zed".to_owned(),
+                        vec!["Demo.Z.b".to_owned(), "Demo.Z.a".to_owned()],
+                    ),
+                    (
+                        "LexLeanExample.Alpha".to_owned(),
+                        vec!["Demo.A.one".to_owned()],
+                    ),
+                ],
+            );
+            assert_eq!(members.len(), 2, "one audit member per generated module");
+            assert_eq!(members[0].generated_module, "LexLeanExample.Alpha");
+            assert_eq!(members[1].declarations, ["Demo.Z.a", "Demo.Z.b"]);
+            assert!(
+                members.iter().all(|member| {
+                    member.text.matches("\nimport ").count() == 1
+                        && member.text.matches("#print axioms").count() == member.declarations.len()
+                }),
+                "each member imports one generated module and prints each owned declaration once"
+            );
             let fixture = support::verified();
             let audit_dir = fixture.outcome.root.join("audit");
             let audit_source = support::file_set(&audit_dir)
@@ -743,8 +771,8 @@ pub(crate) fn run(id: &str) {
                     Box::new(|f: &str| f == "audit/output.txt"),
                 ),
                 (
-                    "audit/process.json",
-                    Box::new(|f: &str| f == "audit/process.json"),
+                    "audit/*.process.json",
+                    Box::new(|f: &str| f.starts_with("audit/") && f.ends_with(".process.json")),
                 ),
                 (
                     "process/lean/*.json",

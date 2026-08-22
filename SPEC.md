@@ -2226,7 +2226,7 @@ Generated Lean MUST contain no:
 - string literal, except canonical native-core data and the fixed generic
   decoder's keys and diagnostics in a module that linked a `coremodule`;
 - character literal used as documentation;
-- command whose purpose is textual output, except the separate axiom-audit module;
+- command whose purpose is textual output, except the separate axiom-audit modules;
 - source-text copy;
 - glossary description;
 - `sorry`;
@@ -2320,25 +2320,39 @@ The probe establishes only that the external constant can inhabit the declared i
 
 A preexisting module with the reserved probe name is an environment conflict and causes verification to fail. Before any compilation, LexLean also rejects a preexisting workspace/search-path module whose full name equals any generated document module.
 
-### 18.9 Axiom-audit module
+### 18.9 Axiom-audit module family
 
-Verification generates an audit module named:
+Verification reserves an audit module root named:
 
 ```text
 LexLeanAudit.A<first-32-hex-of-semantic-id>
 ```
 
-It imports every generated module in sorted order and emits one:
+For every generated module `<generated-module>`, it generates one audit member
+named:
+
+```text
+LexLeanAudit.A<first-32-hex-of-semantic-id>.<generated-module>
+```
+
+Members are ordered by generated module name. Each member imports exactly its
+generated module and emits one:
 
 ```lean
 #print axioms <fully-qualified-declaration-name>
 ```
 
-for every generated definition and theorem-like declaration in sorted fully qualified name order.
+for every definition and theorem-like declaration owned by that generated
+module, in sorted fully qualified name order. Thus each generated declaration
+is audited exactly once, while no audit process reconstructs the entire
+generated environment as new declarations.
 
-The audit module contains no other command and no comments. Its source and normalized output are verification artifacts.
+An audit member contains no other command and no comments. Every member source
+and normalized process record, plus the concatenated normalized output in
+member order, are verification artifacts.
 
-A preexisting module with the reserved audit name is an environment conflict and causes verification to fail.
+A preexisting module with the reserved audit root or any member name is an
+environment conflict and causes verification to fail.
 
 ---
 
@@ -2794,7 +2808,7 @@ A failed command removes its staging tree and leaves no verified artifact.
 6. external-interface probe generation and elaboration;
 7. generated-module elaboration and `.olean` production;
 8. separate-process `leanchecker` replay for every generated module;
-9. axiom-audit module generation and execution;
+9. process-sized axiom-audit module-family generation and execution;
 10. exact axiom-output parsing;
 11. per-declaration policy enforcement;
 12. optional configured PDF rendering;
@@ -2855,7 +2869,8 @@ or:
 '<name>' depends on axioms: [<comma-separated Lean names>]
 ```
 
-The parser:
+Each audit member's output is parsed against that member's declarations before
+the observed maps are merged. The parser:
 
 - accepts an optional Lean location/information envelope;
 - requires the quoted declaration name to equal the expected full name;
@@ -2917,9 +2932,9 @@ lexicons/*.closure.json
 oleans/*.olean
 probe/<probe-module>.lean
 probe/process.json
-audit/<audit-module>.lean
+audit/<audit-module-member>.lean
 audit/output.txt
-audit/process.json
+audit/<audit-module-member>.process.json
 process/lean/*.json
 process/leanchecker/*.json
 pdf/*                                      # when configured
@@ -4051,7 +4066,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `VR-06` | `verification` | Verification neither requests nor includes ilean artifacts. | §22.3 |
 | `VR-07` | `verification` | A Lean warning, unknown informational message, overflow, or missing output fails verification. | §20.2, §22.3 |
 | `VR-08` | `verification` | Every generated module is replayed by a separate leanchecker process and every replay must succeed. | §22.4 |
-| `VR-09` | `verification` | The unique reserved audit module prints axioms for every generated declaration exactly once. | §18.9 |
+| `VR-09` | `verification` | The reserved audit module family audits one generated module per process and prints axioms for every generated declaration exactly once. | §18.9 |
 | `VR-10` | `verification` | The axiom parser accepts only the pinned exact output forms and rejects missing, duplicate, extra, or malformed records. | §22.5 |
 | `VR-11` | `verification` | None, allow-subset, and exact axiom policies are enforced exactly and recorded per declaration. | §22.6 |
 | `VR-12` | `verification` | Child process output is normalized with the exact path and line rules before hashing. | §22.7 |

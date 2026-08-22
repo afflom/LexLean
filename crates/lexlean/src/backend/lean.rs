@@ -2506,26 +2506,44 @@ pub fn probe_module(
     })
 }
 
-/// The axiom-audit module source (§18.9): imports every generated module in
-/// sorted order and prints axioms for every declaration in sorted fully
-/// qualified name order.
+/// One member of the reserved axiom-audit module family (§18.9).
+pub struct AuditModule {
+    /// The full reserved Lean module name.
+    pub name: String,
+    /// The generated module whose declarations this member audits.
+    pub generated_module: String,
+    /// Sorted fully qualified declaration names printed by this member.
+    pub declarations: Vec<String>,
+    /// Complete generated Lean source.
+    pub text: String,
+}
+
+/// The axiom-audit module family (§18.9): one process-sized member per
+/// generated module, in sorted module order, with every owned declaration
+/// printed once in sorted fully qualified name order.
 #[must_use]
-pub fn audit_module(
+pub fn audit_modules(
     semantic_hex32: &str,
-    generated_modules: &[String],
-    declaration_names: &[String],
-) -> (String, String) {
-    let name = format!("LexLeanAudit.A{semantic_hex32}");
-    let mut text = String::from("module\n");
-    let mut sorted_modules = generated_modules.to_vec();
-    sorted_modules.sort();
-    for module in &sorted_modules {
-        text.push_str(&format!("import {module}\n"));
-    }
-    let mut sorted_names = declaration_names.to_vec();
-    sorted_names.sort();
-    for declaration in &sorted_names {
-        text.push_str(&format!("#print axioms {declaration}\n"));
-    }
-    (name, text)
+    module_declarations: &[(String, Vec<String>)],
+) -> Vec<AuditModule> {
+    let root = format!("LexLeanAudit.A{semantic_hex32}");
+    let mut modules = module_declarations.to_vec();
+    modules.sort_by(|left, right| left.0.cmp(&right.0));
+    modules
+        .into_iter()
+        .map(|(generated_module, mut declarations)| {
+            declarations.sort();
+            let name = format!("{root}.{generated_module}");
+            let mut text = format!("module\nimport {generated_module}\n");
+            for declaration in &declarations {
+                text.push_str(&format!("#print axioms {declaration}\n"));
+            }
+            AuditModule {
+                name,
+                generated_module,
+                declarations,
+                text,
+            }
+        })
+        .collect()
 }

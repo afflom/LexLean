@@ -6,7 +6,7 @@ Feature: verification
   Scenario: Verification runs every specified stage in order and exposes no stage-suppression option.
     Given the committed nat-add-zero example project verified against the pinned Lean 4.32.1 toolchain
     When the published verified directory is inspected
-    Then it holds probe/process.json, audit/process.json, audit/output.txt, build-manifest.json and attestation.json
+    Then it holds probe/process.json, at least one audit/*.process.json, audit/output.txt, build-manifest.json and attestation.json
     And process/lean/ and process/leanchecker/ each hold at least one process record
     But lexlean verify --skip-audit, verify --no-replay and verify --output each exit 2 as unknown options
 
@@ -60,10 +60,10 @@ Feature: verification
     Then lexlean verify fails with LLV7003
 
   @VR-09 @build
-  Scenario: The unique reserved audit module prints axioms for every generated declaration exactly once.
+  Scenario: The reserved audit module family audits one generated module per process and prints axioms for every generated declaration exactly once.
     Given the audit/ directory of the verified nat-add-zero example
-    When the reserved audit .lean module is read
-    Then it contains exactly one `#print axioms` directive
+    When the reserved audit .lean members are read
+    Then together they contain exactly one `#print axioms` directive
     And that directive names LexLeanExample.Main.add_zero
 
   @VR-10 @build
@@ -93,7 +93,7 @@ Feature: verification
   Scenario: A verified directory contains the complete fixed source, map, coverage, olean, probe, audit, and process artifact set.
     Given the verified nat-add-zero example
     When every file under the verified directory is matched against the fixed artifact slots
-    Then each file falls into attestation.json, build-manifest.json, modules/*.lean, modules/*.tex, maps/*.map.json, coverage/*.coverage.json, lexicons/*.closure.json, oleans/*, probe/*.lean, probe/process.json, audit/*.lean, audit/output.txt, audit/process.json, process/lean/*.json or process/leanchecker/*.json
+    Then each file falls into attestation.json, build-manifest.json, modules/*.lean, modules/*.tex, maps/*.map.json, coverage/*.coverage.json, lexicons/*.closure.json, oleans/*, probe/*.lean, probe/process.json, audit/*.lean, audit/output.txt, audit/*.process.json, process/lean/*.json or process/leanchecker/*.json
     And every one of those slots is populated by at least one file
 
   @VR-14 @build
