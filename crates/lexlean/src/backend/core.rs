@@ -900,10 +900,11 @@ end LexLeanCore.Runtime
 "#;
 
 // A command owns every reconstructed expression in its declaration closure
-// until all declarations in that command have reached the kernel.  Eight
-// declarations amortize JSON decoding without retaining the transient
-// closures that make the native Atlas verifier compete with its compiler.
-const CORE_DECLARATIONS_PER_COMMAND: usize = 8;
+// until all declarations in that command have reached the kernel.  Keep
+// related declarations together for sharing, but split a group whose exact
+// closure would retain too many transient expressions beside the environment.
+const CORE_DECLARATIONS_PER_COMMAND: usize = 64;
+const CORE_NODES_PER_COMMAND: usize = 10_240;
 const CORE_NODES_PER_JSON_BATCH: usize = 1_024;
 
 fn remapped_root(mapping: &[usize], root: usize) -> Result<usize, Diagnostic> {
@@ -1098,6 +1099,58 @@ fn core_chunk(
     })
 }
 
+fn core_command_ranges(
+    core: &CoreModule,
+    order: &[&CoreDeclaration],
+    owners: &BTreeMap<String, String>,
+) -> Result<Vec<std::ops::Range<usize>>, Diagnostic> {
+    fn split(
+        core: &CoreModule,
+        order: &[&CoreDeclaration],
+        owners: &BTreeMap<String, String>,
+        range: std::ops::Range<usize>,
+        include_unowned_generated: bool,
+        out: &mut Vec<std::ops::Range<usize>>,
+    ) -> Result<(), Diagnostic> {
+        let chunk = core_chunk(
+            core,
+            &order[range.clone()],
+            owners,
+            include_unowned_generated,
+        )?;
+        if chunk.nodes.len() <= CORE_NODES_PER_COMMAND || range.len() == 1 {
+            out.push(range);
+            return Ok(());
+        }
+        let middle = range.start + range.len() / 2;
+        split(core, order, owners, range.start..middle, false, out)?;
+        split(
+            core,
+            order,
+            owners,
+            middle..range.end,
+            include_unowned_generated,
+            out,
+        )
+    }
+
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    while start < order.len() {
+        let end = (start + CORE_DECLARATIONS_PER_COMMAND).min(order.len());
+        split(
+            core,
+            order,
+            owners,
+            start..end,
+            end == order.len(),
+            &mut ranges,
+        )?;
+        start = end;
+    }
+    Ok(ranges)
+}
+
 fn append_core_command(
     text: &mut String,
     core: &CoreModule,
@@ -1185,9 +1238,14 @@ pub fn render_lean(checked: &CheckedModule, core: &CoreModule) -> Result<Emitter
     text.push_str(LEAN_CORE_DECODER);
     let order = emission_order(core)?;
     let owners = generated_owners(core);
-    let groups = order.chunks(CORE_DECLARATIONS_PER_COMMAND).count();
-    for (index, group) in order.chunks(CORE_DECLARATIONS_PER_COMMAND).enumerate() {
-        let chunk = core_chunk(core, group, &owners, index + 1 == groups)?;
+    let ranges = core_command_ranges(core, &order, &owners)?;
+    for (index, range) in ranges.iter().enumerate() {
+        let chunk = core_chunk(
+            core,
+            &order[range.clone()],
+            &owners,
+            index + 1 == ranges.len(),
+        )?;
         append_core_command(&mut text, core, &chunk)?;
     }
     emit_chunk(
