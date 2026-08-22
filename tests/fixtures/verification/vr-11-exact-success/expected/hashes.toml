@@ -3,15 +3,15 @@
 # compiler executable (presence only). SPEC.md §28.2, §28.4.
 
 [platform_independent]
-".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.A17228ad443aeacb76db60358b5967069.lean" = "ce72b0930147248dfa799553ba634a7da3d05df24977acc9873052cdc47d91a2"
+".lexlean/verified/$ATTESTATION/audit/LexLeanAudit.A5662e72e0adb1bd9e26e5b190a0f118d.lean" = "ce72b0930147248dfa799553ba634a7da3d05df24977acc9873052cdc47d91a2"
 ".lexlean/verified/$ATTESTATION/audit/output.txt" = "e0a31c670eac06f52782d864e0a948c11d06d4901077474ddcc6afb86817ac0a"
-".lexlean/verified/$ATTESTATION/build-manifest.json" = "006401d83379bd5d318a198d79be3433ae64fa144c355e8161c4c90604b24059"
+".lexlean/verified/$ATTESTATION/build-manifest.json" = "aa7fb33d4d958b8a5022468b8625ccea1508c71e484afc690d1fb9580d053a0d"
 ".lexlean/verified/$ATTESTATION/coverage/LexLeanExample/Main.coverage.json" = "5a81aa88d63337f087021e9bf442e661a9154c61b6977d71c9d2fd8517c80bd1"
-".lexlean/verified/$ATTESTATION/lexicons/Main.closure.json" = "d1f71c79a07d498af6843a41ad2cc647d730ee3323ced94760cd0a8eea1bf394"
-".lexlean/verified/$ATTESTATION/maps/LexLeanExample/Main.map.json" = "01eac936449b42f222bf882feff65a88076076d103ca2a1df2b41439f1ad603c"
+".lexlean/verified/$ATTESTATION/lexicons/Main.closure.json" = "e3ccaf68438657e3d4be155b2252ba99b8ced2217f6272103a7fc43b3beb96d0"
+".lexlean/verified/$ATTESTATION/maps/LexLeanExample/Main.map.json" = "b16af2691a434b3a6744a41e08fb86c6e0cd10be85ee104a282cd1eaa5df6863"
 ".lexlean/verified/$ATTESTATION/modules/LexLeanExample/Main.lean" = "792d7e4ee5a217e84aa1de344819b604708295330fe60d72142e4377b1fade13"
 ".lexlean/verified/$ATTESTATION/modules/LexLeanExample/Main.tex" = "8de0caeff94f772f520b5acfa68458761dd2bdf96f78488ec3872ff3d07864e8"
-".lexlean/verified/$ATTESTATION/probe/LexLeanProbe.P17228ad443aeacb76db60358b5967069.lean" = "9b60841472826e74bb77f24f90d6dc56dcfe4ab727fa000a8ae6f164b7edb8d5"
+".lexlean/verified/$ATTESTATION/probe/LexLeanProbe.P5662e72e0adb1bd9e26e5b190a0f118d.lean" = "9b60841472826e74bb77f24f90d6dc56dcfe4ab727fa000a8ae6f164b7edb8d5"
 
 [process_bound]
 files = [
