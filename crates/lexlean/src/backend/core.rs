@@ -892,7 +892,7 @@ def decodeAndAdd (data : String) : CoreM Unit := do
 end LexLeanCore.Runtime
 "#;
 
-const CORE_DECLARATIONS_PER_COMMAND: usize = 128;
+const CORE_DECLARATIONS_PER_COMMAND: usize = 64;
 
 fn remapped_root(mapping: &[usize], root: usize) -> Result<usize, Diagnostic> {
     mapping
