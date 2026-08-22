@@ -45,29 +45,74 @@ fn gather(root: &Path, dirs: &[&str], extensions: &[&str], out: &mut Vec<PathBuf
     out.dedup();
 }
 
-/// Decode the committed Atlas source itself.  Coverage gates deliberately
+/// A decoded member of the committed native Atlas source graph.
+struct AtlasSourceModule {
+    path: PathBuf,
+    name: String,
+    source: String,
+    core: lexlean::ir::core::CoreModule,
+}
+
+/// Decode the committed Atlas source graph itself. Coverage gates deliberately
 /// enter through this function: the migration oracle can prove equivalence,
 /// but it cannot define which declarations the released LexLean corpus owns.
-fn atlas_source_core(root: &Path) -> Result<lexlean::ir::core::CoreModule, Fail> {
-    let path = root.join("examples/uor-atlas/src/Atlas.lex.tex");
-    let source =
-        std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let marker = "\\coredata{";
-    let start = source.find(marker).ok_or_else(|| {
-        Fail::from(format!(
-            "R4: {} has no native core payload; the Atlas source must arm its own coverage audit",
-            path.display()
-        ))
-    })? + marker.len();
-    let tail = &source[start..];
-    let end = tail.find("}\n\\end{coremodule}").ok_or_else(|| {
-        Fail::from(format!(
-            "R4: {} has no closed native core module",
-            path.display()
-        ))
-    })?;
-    lexlean::ir::core::CoreModule::parse(&tail[..end])
-        .map_err(|reason| format!("R4: {}: {reason}", path.display()).into())
+fn atlas_source_cores(root: &Path) -> Result<Vec<AtlasSourceModule>, Fail> {
+    let source_root = root.join("examples/uor-atlas/src");
+    let mut paths: Vec<PathBuf> = walkdir::WalkDir::new(&source_root)
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| entry.into_path())
+        .filter(|path| path.to_string_lossy().ends_with(".lex.tex"))
+        .collect();
+    paths.sort();
+    if paths.is_empty() {
+        return Err(Fail::from(
+            "R4: the native Atlas source graph is empty; its coverage audit is unarmed",
+        ));
+    }
+
+    let mut modules = Vec::with_capacity(paths.len());
+    for path in paths {
+        let source = std::fs::read_to_string(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let marker = "\\coredata{";
+        if source.matches(marker).count() != 1 {
+            return Err(Fail::from(format!(
+                "R4: {} must contain exactly one native core payload",
+                path.display()
+            )));
+        }
+        let start = source.find(marker).expect("counted one marker") + marker.len();
+        let tail = &source[start..];
+        let end = tail.find("}\n\\end{coremodule}").ok_or_else(|| {
+            Fail::from(format!(
+                "R4: {} has no closed native core module",
+                path.display()
+            ))
+        })?;
+        let core = lexlean::ir::core::CoreModule::parse(&tail[..end])
+            .map_err(|reason| Fail::from(format!("R4: {}: {reason}", path.display())))?;
+        let relative = path.strip_prefix(&source_root).map_err(|error| {
+            Fail::from(format!(
+                "R4: {} is outside the Atlas source root: {error}",
+                path.display()
+            ))
+        })?;
+        let name = relative
+            .to_string_lossy()
+            .strip_suffix(".lex.tex")
+            .expect("filtered source suffix")
+            .replace(['/', '\\'], ".");
+        modules.push(AtlasSourceModule {
+            path,
+            name,
+            source,
+            core,
+        });
+    }
+    Ok(modules)
 }
 
 /// The repository root files and dot-directories with a defined role
@@ -411,33 +456,35 @@ pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
         .cloned()
         .collect();
     let live: BTreeSet<String> = entry.iter().chain(ambient.iter()).cloned().collect();
-    let core = atlas_source_core(root)?;
+    let cores = atlas_source_cores(root)?;
     let mut declared: BTreeMap<String, String> = BTreeMap::new();
     let mut lookalike: Vec<String> = Vec::new();
-    for declaration in &core.declarations {
-        let name = declaration
-            .name
-            .rsplit('.')
-            .next()
-            .unwrap_or(&declaration.name);
-        if !is_label_shaped(name) {
-            continue;
-        }
-        if withheld.contains(name) {
-            return Err(Fail::from(format!(
-                "R4: the native Atlas source declares `{}`, which the registers withhold (retracted, superseded, or non-denotable)",
-                declaration.name
-            )));
-        }
-        if live.contains(name) {
-            if let Some(first) = declared.insert(name.to_owned(), declaration.name.clone()) {
+    for module in &cores {
+        for declaration in &module.core.declarations {
+            let name = declaration
+                .name
+                .rsplit('.')
+                .next()
+                .unwrap_or(&declaration.name);
+            if !is_label_shaped(name) {
+                continue;
+            }
+            if withheld.contains(name) {
                 return Err(Fail::from(format!(
-                    "R4: `{name}` is declared as both `{first}` and `{}` in the native Atlas source; one label has one declaration",
+                    "R4: the native Atlas source declares `{}`, which the registers withhold (retracted, superseded, or non-denotable)",
                     declaration.name
                 )));
             }
-        } else {
-            lookalike.push(declaration.name.clone());
+            if live.contains(name) {
+                if let Some(first) = declared.insert(name.to_owned(), declaration.name.clone()) {
+                    return Err(Fail::from(format!(
+                        "R4: `{name}` is declared as both `{first}` and `{}` in the native Atlas source; one label has one declaration",
+                        declaration.name
+                    )));
+                }
+            } else {
+                lookalike.push(declaration.name.clone());
+            }
         }
     }
     let missing: Vec<&str> = live
@@ -507,11 +554,11 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
             "R4: the frozen Atlas package is absent while the Atlas source is registered",
         ));
     }
-    let core = atlas_source_core(root)?;
-    let declared: BTreeSet<&str> = core
-        .declarations
+    let cores = atlas_source_cores(root)?;
+    let declared: BTreeSet<String> = cores
         .iter()
-        .map(|declaration| declaration.name.as_str())
+        .flat_map(|module| module.core.declarations.iter())
+        .map(|declaration| declaration.name.clone())
         .collect();
 
     // The registers, read before the entries so every entry's identity can be
@@ -745,34 +792,69 @@ pub fn audit_atlas_exercise(root: &Path) -> Result<(), Fail> {
         )));
     }
 
-    let core = atlas_source_core(root)?;
-    if core
-        .imports
+    let cores = atlas_source_cores(root)?;
+    let atlas = cores
         .iter()
-        .any(|module| module == "UorAtlas" || module.starts_with("UorAtlas."))
-    {
-        return Err(Fail::from(
-            "R8: the native Atlas source imports the handwritten migration oracle",
-        ));
+        .find(|module| module.name == "Atlas")
+        .ok_or_else(|| {
+            Fail::from("R4: the native Atlas source graph has no `Atlas` root module")
+        })?;
+    for module in &cores {
+        if module.name != "Atlas" {
+            let import = format!("\\importmodule{{{}}}", module.name);
+            if !atlas.source.lines().any(|line| line == import) {
+                return Err(Fail::from(format!(
+                    "R4: the native Atlas root does not directly import `{}` from {}",
+                    module.name,
+                    module.path.display()
+                )));
+            }
+        }
     }
-    let proof_nodes: BTreeSet<usize> = core.proof_nodes.iter().copied().collect();
-    for declaration in &core.declarations {
-        if matches!(declaration.kind, lexlean::ir::core::CoreDeclKind::Theorem)
-            && !declaration
-                .value
-                .is_some_and(|value| proof_nodes.contains(&value))
+
+    let mut declarations: BTreeMap<String, String> = BTreeMap::new();
+    for module in &cores {
+        if module
+            .core
+            .imports
+            .iter()
+            .any(|name| name == "UorAtlas" || name.starts_with("UorAtlas."))
         {
             return Err(Fail::from(format!(
-                "R4: native Atlas theorem `{}` has no classified proof root",
-                declaration.name
+                "R8: {} imports the handwritten migration oracle",
+                module.path.display()
             )));
+        }
+        let proof_nodes: BTreeSet<usize> = module.core.proof_nodes.iter().copied().collect();
+        for declaration in &module.core.declarations {
+            if let Some(first) =
+                declarations.insert(declaration.name.clone(), module.path.display().to_string())
+            {
+                return Err(Fail::from(format!(
+                    "R4: native Atlas declaration `{}` occurs in both {first} and {}",
+                    declaration.name,
+                    module.path.display()
+                )));
+            }
+            if matches!(declaration.kind, lexlean::ir::core::CoreDeclKind::Theorem)
+                && !declaration
+                    .value
+                    .is_some_and(|value| proof_nodes.contains(&value))
+            {
+                return Err(Fail::from(format!(
+                    "R4: native Atlas theorem `{}` has no classified proof root in {}",
+                    declaration.name,
+                    module.path.display()
+                )));
+            }
         }
     }
 
     println!(
-        "audit-atlas-exercise: {} frozen entries are prefix-free; the sole Atlas entrypoint owns {} declarations and all theorem proofs (R4, R7, R8)",
+        "audit-atlas-exercise: {} frozen entries are prefix-free; the sole Atlas entrypoint directly roots {} native modules owning {} declarations and all theorem proofs (R4, R7, R8)",
         surfaces.len(),
-        core.declarations.len()
+        cores.len(),
+        declarations.len()
     );
     Ok(())
 }

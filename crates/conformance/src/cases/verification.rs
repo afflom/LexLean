@@ -1,4 +1,4 @@
-//! The `verification` suite: VR-01..VR-18.
+//! The `verification` suite: VR-01..VR-19.
 
 use lexlean::{Selection, VerifyRequest};
 
@@ -18,6 +18,26 @@ fn process_records(dir: &camino::Utf8Path) -> Vec<serde_json::Value> {
         .map(|name| {
             serde_json::from_slice(&std::fs::read(dir.join(name).as_std_path()).expect("read"))
                 .expect("a process record parses")
+        })
+        .collect()
+}
+
+fn source_tree(root: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    walkdir::WalkDir::new(root)
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| {
+            let relative = entry
+                .path()
+                .strip_prefix(root)
+                .expect("source is below its root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            (
+                relative,
+                std::fs::read(entry.path()).expect("native Atlas source reads"),
+            )
         })
         .collect()
 }
@@ -977,14 +997,14 @@ pub(crate) fn run(id: &str) {
             let root = support::repo_root();
             let library = root.join("lean/uor-atlas");
             let exporter = root.join("xtask/lean/AtlasOracleExport.lean");
-            let source = root.join("examples/uor-atlas/src/Atlas.lex.tex");
+            let source = root.join("examples/uor-atlas/src");
             assert!(
                 library.join("lakefile.toml").is_file(),
                 "the completed migration oracle is committed as a Lake package"
             );
             assert!(
-                exporter.is_file() && source.is_file(),
-                "the semantic exporter and native Atlas source are committed"
+                exporter.is_file() && source.join("Atlas.lex.tex").is_file(),
+                "the semantic exporter and rooted native Atlas source are committed"
             );
             if !support::lean_backed("VR-19") {
                 return;
@@ -1004,7 +1024,7 @@ pub(crate) fn run(id: &str) {
                 String::from_utf8_lossy(&built.stderr)
             );
             let scratch = tempfile::tempdir().expect("temporary export directory");
-            let exported = scratch.path().join("Atlas.lex.tex");
+            let exported = scratch.path().join("src");
             let migrated = std::process::Command::new(bin.join("lake"))
                 .args(["env", "lean"])
                 .arg(&exporter)
@@ -1019,14 +1039,17 @@ pub(crate) fn run(id: &str) {
                 String::from_utf8_lossy(&migrated.stderr)
             );
             assert!(
-                std::fs::read(&exported).expect("exported source")
-                    == std::fs::read(&source).expect("committed source"),
-                "every committed native type, value, proof and declaration row equals the completed migration oracle"
+                source_tree(&exported) == source_tree(source.as_std_path()),
+                "every committed native module, type, value, proof and declaration row equals the completed migration oracle"
             );
-            let native = std::fs::read_to_string(source).expect("native source");
+            let native = source_tree(source.as_std_path());
             assert!(
-                native.contains("\"imports\":[\"Init\"]"),
-                "the native core imports only Init and not the migration oracle"
+                native.values().all(|bytes| {
+                    let text = String::from_utf8_lossy(bytes);
+                    !text.contains("\"imports\":[\"UorAtlas")
+                        && !text.contains("\"imports\":[\"Init\",\"UorAtlas")
+                }),
+                "the native cores never import the migration oracle"
             );
         }
         other => panic!("no verification case is wired for {other}"),

@@ -85,15 +85,16 @@ end LexLeanExample.Main
 
 and the canonical LaTeX document, regenerated from IR rather than copied ("The goal follows by reflexivity."), plus source maps, coverage, and a manifest — all byte-reproducible across directories. `lexlean verify` then compiles the module under the pinned toolchain, replays it with `leanchecker`, parses `#print axioms` exactly, and records the empty observed axiom set in a content-addressed attestation.
 
-The larger [native Atlas source](examples/uor-atlas/src/Atlas.lex.tex) uses the
-generic closed-core form for lossless formal-library migration. Its typed
-expression DAG, declarations, definition bodies, proofs, inductive metadata,
-instances, and explicit axiom policies are linked semantic data. The same value
-generates readable canonical LaTeX and reconstructs kernel-checked Lean
-declarations. The completed implementation under [lean/uor-atlas](lean/uor-atlas/)
-is retained only as a migration oracle: `VR-19` re-exports it and requires exact
-source bytes, while the generated Atlas imports `Init` and never imports the
-oracle.
+The larger [native Atlas source graph](examples/uor-atlas/src/Atlas.lex.tex) is
+rooted by `Atlas.lex.tex` and uses the generic closed-core form for lossless
+formal-library migration. Its module-local typed expression DAGs, declarations,
+definition bodies, proofs, inductive metadata, instances, and explicit axiom
+policies are linked semantic data. The same values generate readable canonical
+LaTeX and reconstruct kernel-checked Lean declarations. The completed
+implementation under [lean/uor-atlas](lean/uor-atlas/) is retained only as a
+migration oracle: `VR-19` re-exports every module and requires exact source
+bytes, while the generated Atlas modules import `Init` and one another, never
+the oracle.
 
 ## Examples that verify under the pinned toolchain
 

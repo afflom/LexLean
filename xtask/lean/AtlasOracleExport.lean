@@ -247,39 +247,100 @@ private def declarationJson (env : Environment) (names : Std.HashMap Name Name)
       ("synthesis_order", Json.arr <| instanceData.synthOrder.map toJson)]) :: fields
   return Json.mkObj fields
 
-def writeSource (path : System.FilePath) : CoreM Unit := do
+private def atlasDeclarations (env : Environment) : Array (Name × ConstantInfo) :=
+  let declarations := env.constants.toList.toArray.filter fun (name, _) =>
+    isAtlasDeclaration env name
+  declarations.qsort fun left right => Name.quickLt left.1 right.1
+
+private def declarationModules (env : Environment)
+    (declarations : Array (Name × ConstantInfo)) : Array Name := Id.run do
+  let mut modules : Array Name := #[]
+  for (name, _) in declarations do
+    if let some moduleName := moduleOf? env name then
+      if !modules.contains moduleName then modules := modules.push moduleName
+  return modules.qsort Name.quickLt
+
+private def documentModuleName (moduleName : Name) : String :=
+  if moduleName == `UorAtlas.ClosurePresentation then
+    "Atlas"
+  else
+    String.intercalate "." (moduleName.toString.splitOn ".").tail
+
+private def documentSourcePath (root : System.FilePath) (moduleName : String) :
+    System.FilePath :=
+  root / (String.intercalate "/" (moduleName.splitOn ".") ++ ".lex.tex")
+
+private def dependencyModules (env : Environment) (owner : Name)
+    (expressions : Array Expr) : Array Name := Id.run do
+  let mut modules : Array Name := #[]
+  for expression in expressions do
+    let dependencies := expression.foldConsts #[] fun dependency found =>
+      if found.contains dependency then found else found.push dependency
+    for dependency in dependencies do
+      if let some moduleName := moduleOf? env dependency then
+        if isAtlasModule moduleName && moduleName != owner && !modules.contains moduleName then
+          modules := modules.push moduleName
+  return modules.qsort Name.quickLt
+
+def writeSources (root : System.FilePath) : CoreM Unit := do
   let env ← getEnv
-  let mut declarations : Array (Name × ConstantInfo) := #[]
-  for (name, info) in env.constants.toList do
-    if isAtlasDeclaration env name then declarations := declarations.push (name, info)
-  declarations := declarations.qsort fun left right => Name.quickLt left.1 right.1
+  let declarations := atlasDeclarations env
   let names := renamedNames declarations
-  let mut state : DagState := {}
-  let mut rows : Array Json := #[]
-  for (name, info) in declarations do
-    let (row, next) := (declarationJson env names name info).run state
-    state := next
-    rows := rows.push row
-  let proofNodes ← Meta.MetaM.run' do
-    let mut nodes : Array Json := #[]
-    for index in [:state.expressions.size] do
-      let expression := state.expressions[index]!
-      if !expression.hasLooseBVars then
-        try
-          if ← Meta.isProof expression then
-            nodes := nodes.push (toJson index)
-        catch _ => pure ()
-    return nodes
-  let payload := Json.mkObj [
-    ("spec", "lexlean/core-module/1"),
-    ("imports", Json.arr #["Init"]),
-    ("nodes", Json.arr state.nodes),
-    ("proof_nodes", Json.arr proofNodes),
-    ("declarations", Json.arr rows)] |>.compress
-  let source := "\\begin{lexlean}{Atlas}\n\\title{Atlas definition one label}\n\\begin{coremodule}\n\\coredata{" ++
-    payload ++ "}\n\\end{coremodule}\n\\end{lexlean}\n"
-  IO.FS.writeFile path source
-  IO.println s!"atlas-oracle-export: {declarations.size} declarations, {state.nodes.size} shared nodes, {source.utf8ByteSize} bytes"
+  let modules := declarationModules env declarations
+  let documentModules := modules.map documentModuleName
+  if (documentModules.filter fun name => name == "Atlas").size != 1 then
+    throwError "the native Atlas root must own exactly one oracle declaration module"
+  IO.FS.createDirAll root
+  let mut totalNodes := 0
+  let mut totalBytes := 0
+  for moduleName in modules do
+    let moduleDeclarations := declarations.filter fun (name, _) =>
+      moduleOf? env name == some moduleName
+    let mut state : DagState := {}
+    let mut rows : Array Json := #[]
+    for (name, info) in moduleDeclarations do
+      let (row, next) := (declarationJson env names name info).run state
+      state := next
+      rows := rows.push row
+    let proofNodes ← Meta.MetaM.run' do
+      let mut nodes : Array Json := #[]
+      for index in [:state.expressions.size] do
+        let expression := state.expressions[index]!
+        if !expression.hasLooseBVars then
+          try
+            if ← Meta.isProof expression then
+              nodes := nodes.push (toJson index)
+          catch _ => pure ()
+      return nodes
+    let documentModule := documentModuleName moduleName
+    let dependencyNames := dependencyModules env moduleName state.expressions
+    let mut dependencies := dependencyNames.map documentModuleName
+    if documentModule == "Atlas" then
+      dependencies := documentModules.filter fun name => name != "Atlas"
+    else if dependencies.contains "Atlas" then
+      throwError s!"oracle module `{moduleName}` depends on the native Atlas root"
+    dependencies := dependencies.qsort (.<.)
+    let mut imports : Array Json := #["Init"]
+    for dependency in dependencies do
+      imports := imports.push (toJson s!"LexLeanExample.{dependency}")
+    let payload := Json.mkObj [
+      ("spec", "lexlean/core-module/1"),
+      ("imports", Json.arr imports),
+      ("nodes", Json.arr state.nodes),
+      ("proof_nodes", Json.arr proofNodes),
+      ("declarations", Json.arr rows)] |>.compress
+    let sourceImports := String.join <| dependencies.toList.map fun dependency =>
+      "\\importmodule{" ++ dependency ++ "}\n"
+    let source := "\\begin{lexlean}{" ++ documentModule ++ "}\n" ++ sourceImports ++
+      "\\title{Atlas definition one label}\n\\begin{coremodule}\n\\coredata{" ++
+      payload ++ "}\n\\end{coremodule}\n\\end{lexlean}\n"
+    let path := documentSourcePath root documentModule
+    if let some parent := path.parent then IO.FS.createDirAll parent
+    IO.FS.writeFile path source
+    totalNodes := totalNodes + state.nodes.size
+    totalBytes := totalBytes + source.utf8ByteSize
+    IO.println s!"atlas-oracle-export-module: {documentModule} declarations={moduleDeclarations.size} nodes={state.nodes.size} bytes={source.utf8ByteSize}"
+  IO.println s!"atlas-oracle-export: {modules.size} modules, {declarations.size} declarations, {totalNodes} module-local nodes, {totalBytes} bytes"
 
 def audit : CoreM Unit := do
   let env ← getEnv
@@ -337,6 +398,7 @@ end LexLean.AtlasOracle
 
 def LexLean.AtlasOracle.writeIfRequested : CoreM Unit := do
   if let some path ← IO.getEnv "LEXLEAN_ATLAS_EXPORT" then
-    writeSource path
+    writeSources path
 
+set_option maxHeartbeats 0 in
 #eval LexLean.AtlasOracle.writeIfRequested
