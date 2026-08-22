@@ -795,12 +795,19 @@ private def addOne (nodes : Array Expr) (declarations : Array Json) (json : Json
   catch error =>
     throwError m!"native core declaration '{name}':{indentD error.toMessageData}"
 
-def decodeAndAdd (data : String) : CoreM Unit := do
-  let document ← liftString (Json.parse data)
-  let nodeRows ← liftString (arrayField document "nodes")
-  let mut nodes : Array Expr := #[]
-  for row in nodeRows do
+private def decodeNodeBatch (nodes : Array Expr) (data : String) : CoreM (Array Expr) := do
+  let json ← liftString (Json.parse data)
+  let rows ← liftString json.getArr?
+  let mut nodes := nodes
+  for row in rows do
     nodes := nodes.push (← liftString (nodeOf nodes row))
+  pure nodes
+
+def decodeAndAdd (nodeBatches : Array String) (data : String) : CoreM Unit := do
+  let mut nodes : Array Expr := #[]
+  for batch in nodeBatches do
+    nodes ← decodeNodeBatch nodes batch
+  let document ← liftString (Json.parse data)
   let declarations ← liftString (arrayField document "declarations")
   let order ← liftString (arrayField document "order")
   for index in order do
@@ -893,6 +900,7 @@ end LexLeanCore.Runtime
 "#;
 
 const CORE_DECLARATIONS_PER_COMMAND: usize = 64;
+const CORE_NODES_PER_JSON_BATCH: usize = 1_024;
 
 fn remapped_root(mapping: &[usize], root: usize) -> Result<usize, Diagnostic> {
     mapping
@@ -1095,7 +1103,6 @@ fn append_core_command(
     struct CorePayload<'a> {
         declarations: &'a [CoreDeclaration],
         imports: &'a [String],
-        nodes: &'a [CoreNode],
         order: &'a [usize],
         proof_nodes: &'a [usize],
         spec: &'a str,
@@ -1103,33 +1110,57 @@ fn append_core_command(
     let payload = serde_json::to_string(&CorePayload {
         declarations: &chunk.declarations,
         imports: &core.imports,
-        nodes: &chunk.nodes,
         order: &chunk.order,
         proof_nodes: &chunk.proof_nodes,
         spec: &core.spec,
     })
     .map_err(|error| internal(format!("cannot encode core module chunk: {error}")))?;
-    let mut pieces = Vec::new();
-    let mut piece = String::new();
-    for character in payload.chars() {
-        if piece.len() >= 500_000 {
-            pieces.push(std::mem::take(&mut piece));
+
+    fn append_string_expression(text: &mut String, value: &str, indent: &str) {
+        let mut pieces = Vec::new();
+        let mut piece = String::new();
+        for character in value.chars() {
+            if piece.len() >= 500_000 {
+                pieces.push(std::mem::take(&mut piece));
+            }
+            piece.push(character);
         }
-        piece.push(character);
+        if !piece.is_empty() {
+            pieces.push(piece);
+        }
+        text.push_str("(\n");
+        for (index, piece) in pieces.iter().enumerate() {
+            text.push_str(indent);
+            text.push_str(&format!("{piece:?}"));
+            if index + 1 != pieces.len() {
+                text.push_str(" ++");
+            }
+            text.push('\n');
+        }
+        text.push_str(indent);
+        text.push(')');
     }
-    if !piece.is_empty() {
-        pieces.push(piece);
-    }
-    text.push_str("\nrun_cmd Lean.Elab.Command.liftCoreM (LexLeanCore.Runtime.decodeAndAdd (\n");
-    for (index, piece) in pieces.iter().enumerate() {
+
+    let node_batches = chunk
+        .nodes
+        .chunks(CORE_NODES_PER_JSON_BATCH)
+        .map(|nodes| {
+            serde_json::to_string(nodes)
+                .map_err(|error| internal(format!("cannot encode core node batch: {error}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    text.push_str("\nrun_cmd Lean.Elab.Command.liftCoreM (LexLeanCore.Runtime.decodeAndAdd #[\n");
+    for (index, batch) in node_batches.iter().enumerate() {
         text.push_str("  ");
-        text.push_str(&format!("{piece:?}"));
-        if index + 1 != pieces.len() {
-            text.push_str(" ++");
+        append_string_expression(text, batch, "    ");
+        if index + 1 != node_batches.len() {
+            text.push(',');
         }
         text.push('\n');
     }
-    text.push_str("))\n");
+    text.push_str("] ");
+    append_string_expression(text, &payload, "  ");
+    text.push_str(")\n");
     Ok(())
 }
 
