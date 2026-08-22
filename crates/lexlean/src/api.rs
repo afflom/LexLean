@@ -817,8 +817,19 @@ impl Engine {
     }
 
     fn verify_inner(&self, request: &VerifyRequest) -> Result<VerifiedProject, LexLeanError> {
-        let (checked, lock) = self.checked(&request.selection)?;
+        let (mut checked, lock) = self.checked(&request.selection)?;
         let rendered = render_build(&self.project, &checked)?;
+        // Rendering is the last consumer of the core expression DAG.  Keeping
+        // two linked copies of a large migration corpus alive while Lean
+        // constructs and serializes the same environment needlessly adds
+        // gigabytes to the verification peak.
+        for module in checked.modules.values_mut() {
+            if let Some(core) = &mut module.document.core {
+                core.nodes.clear();
+                core.proof_nodes.clear();
+            }
+        }
+        checked.linked.modules.clear();
         // One mutation lock spans build publication, every verification
         // stage, and the verified-set publication (§21.8).
         let guard = acquire_lock(&self.project)?;

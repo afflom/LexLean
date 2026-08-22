@@ -715,10 +715,15 @@ pub fn run(
     let mut externals: BTreeMap<String, crate::ir::term::ExternalConstRef> =
         checked.external_used.clone();
     for checked_module in checked.modules.values() {
-        externals.extend(crate::backend::lean::document_externals(
-            &checked_module.document,
-            &checked.closure,
-        ));
+        // Core-module external closure was established during linking.  Its
+        // expression DAG is deliberately released after rendering so Lean,
+        // rather than a duplicate Rust graph, owns the verification peak.
+        if checked_module.document.core.is_none() {
+            externals.extend(crate::backend::lean::document_externals(
+                &checked_module.document,
+                &checked.closure,
+            ));
+        }
     }
     let probe = crate::backend::lean::probe_module(&semantic_hex32, &externals, &checked.closure)
         .map_err(fail)?;
