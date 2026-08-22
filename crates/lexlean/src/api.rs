@@ -818,8 +818,10 @@ impl Engine {
 
     fn verify_inner(&self, request: &VerifyRequest) -> Result<VerifiedProject, LexLeanError> {
         let prepared = std::thread::scope(|scope| {
-            scope
-                .spawn(|| {
+            let thread = std::thread::Builder::new()
+                .name("lexlean-verification-preparation".to_owned())
+                .stack_size(64 * 1024 * 1024)
+                .spawn_scoped(scope, || {
                     let (mut checked, lock) = self.checked(&request.selection)?;
                     let rendered = render_build(&self.project, &checked)?;
                     // Rendering is the last consumer of parser atoms,
@@ -844,12 +846,15 @@ impl Engine {
                     checked.visible_union.clear();
                     Ok((checked, lock, rendered))
                 })
-                .join()
+                .map_err(|io_error| {
+                    host_failure(format!("verification preparation thread: {io_error}"))
+                })?;
+            Ok(match thread.join() {
+                Ok(prepared) => prepared?,
+                Err(payload) => std::panic::resume_unwind(payload),
+            })
         });
-        let (checked, lock, rendered) = match prepared {
-            Ok(prepared) => prepared?,
-            Err(payload) => std::panic::resume_unwind(payload),
-        };
+        let (checked, lock, rendered) = prepared?;
         // One mutation lock spans build publication, every verification
         // stage, and the verified-set publication (§21.8).
         let guard = acquire_lock(&self.project)?;
