@@ -892,6 +892,247 @@ def decodeAndAdd (data : String) : CoreM Unit := do
 end LexLeanCore.Runtime
 "#;
 
+const CORE_DECLARATIONS_PER_COMMAND: usize = 128;
+
+fn remapped_root(mapping: &[usize], root: usize) -> Result<usize, Diagnostic> {
+    mapping
+        .get(root)
+        .copied()
+        .filter(|mapped| *mapped != usize::MAX)
+        .ok_or_else(|| internal(format!("core chunk omitted expression node {root}")))
+}
+
+fn remap_node(node: &CoreNode, mapping: &[usize]) -> Result<CoreNode, Diagnostic> {
+    Ok(match node {
+        CoreNode::BVar { i } => CoreNode::BVar { i: *i },
+        CoreNode::Sort { l } => CoreNode::Sort { l: l.clone() },
+        CoreNode::Const { n, u } => CoreNode::Const {
+            n: n.clone(),
+            u: u.clone(),
+        },
+        CoreNode::App { f, x } => CoreNode::App {
+            f: remapped_root(mapping, *f)?,
+            x: remapped_root(mapping, *x)?,
+        },
+        CoreNode::Lambda { n, b, t, v } => CoreNode::Lambda {
+            n: n.clone(),
+            b: *b,
+            t: remapped_root(mapping, *t)?,
+            v: remapped_root(mapping, *v)?,
+        },
+        CoreNode::Forall { n, b, t, v } => CoreNode::Forall {
+            n: n.clone(),
+            b: *b,
+            t: remapped_root(mapping, *t)?,
+            v: remapped_root(mapping, *v)?,
+        },
+        CoreNode::Let { n, t, v, body, d } => CoreNode::Let {
+            n: n.clone(),
+            t: remapped_root(mapping, *t)?,
+            v: remapped_root(mapping, *v)?,
+            body: remapped_root(mapping, *body)?,
+            d: *d,
+        },
+        CoreNode::Nat { v } => CoreNode::Nat { v: v.clone() },
+        CoreNode::String { v } => CoreNode::String { v: v.clone() },
+        CoreNode::Projection { n, s, i, x } => CoreNode::Projection {
+            n: n.clone(),
+            s: s.clone(),
+            i: *i,
+            x: remapped_root(mapping, *x)?,
+        },
+    })
+}
+
+fn remap_declaration(
+    declaration: &CoreDeclaration,
+    mapping: &[usize],
+) -> Result<CoreDeclaration, Diagnostic> {
+    let mut declaration = declaration.clone();
+    declaration.r#type = remapped_root(mapping, declaration.r#type)?;
+    declaration.value = declaration
+        .value
+        .map(|root| remapped_root(mapping, root))
+        .transpose()?;
+    if let Some(structure) = declaration
+        .inductive
+        .as_mut()
+        .and_then(|inductive| inductive.structure.as_mut())
+    {
+        for field in &mut structure.fields {
+            field.auto_param = field
+                .auto_param
+                .map(|root| remapped_root(mapping, root))
+                .transpose()?;
+        }
+    }
+    Ok(declaration)
+}
+
+struct CoreChunk {
+    declarations: Vec<CoreDeclaration>,
+    nodes: Vec<CoreNode>,
+    order: Vec<usize>,
+    proof_nodes: Vec<usize>,
+}
+
+fn core_chunk(
+    core: &CoreModule,
+    emitted: &[&CoreDeclaration],
+    owners: &BTreeMap<String, String>,
+    include_unowned_generated: bool,
+) -> Result<CoreChunk, Diagnostic> {
+    let emitted_names: BTreeSet<&str> = emitted
+        .iter()
+        .map(|declaration| declaration.name.as_str())
+        .collect();
+    let declaration_indices: Vec<usize> = core
+        .declarations
+        .iter()
+        .enumerate()
+        .filter_map(|(index, declaration)| {
+            let selected = if declaration.generated {
+                owners
+                    .get(&declaration.name)
+                    .is_some_and(|owner| emitted_names.contains(owner.as_str()))
+                    || (include_unowned_generated && !owners.contains_key(&declaration.name))
+            } else {
+                emitted_names.contains(declaration.name.as_str())
+            };
+            selected.then_some(index)
+        })
+        .collect();
+    let mut needed = vec![false; core.nodes.len()];
+    let mut work = Vec::new();
+    for index in &declaration_indices {
+        let declaration = &core.declarations[*index];
+        work.push(declaration.r#type);
+        if let Some(value) = declaration.value {
+            work.push(value);
+        }
+        if let Some(structure) = declaration
+            .inductive
+            .as_ref()
+            .and_then(|inductive| inductive.structure.as_ref())
+        {
+            work.extend(structure.fields.iter().filter_map(|field| field.auto_param));
+        }
+    }
+    while let Some(root) = work.pop() {
+        if needed[root] {
+            continue;
+        }
+        needed[root] = true;
+        match &core.nodes[root] {
+            CoreNode::App { f, x } => work.extend([*f, *x]),
+            CoreNode::Lambda { t, v, .. } | CoreNode::Forall { t, v, .. } => {
+                work.extend([*t, *v]);
+            }
+            CoreNode::Let { t, v, body, .. } => work.extend([*t, *v, *body]),
+            CoreNode::Projection { x, .. } => work.push(*x),
+            CoreNode::BVar { .. }
+            | CoreNode::Sort { .. }
+            | CoreNode::Const { .. }
+            | CoreNode::Nat { .. }
+            | CoreNode::String { .. } => {}
+        }
+    }
+    let mut mapping = vec![usize::MAX; core.nodes.len()];
+    let mut nodes = Vec::new();
+    for (index, node) in core.nodes.iter().enumerate() {
+        if needed[index] {
+            mapping[index] = nodes.len();
+            nodes.push(remap_node(node, &mapping)?);
+        }
+    }
+    let declarations = declaration_indices
+        .iter()
+        .map(|index| remap_declaration(&core.declarations[*index], &mapping))
+        .collect::<Result<Vec<_>, _>>()?;
+    let local_positions: BTreeMap<&str, usize> = declarations
+        .iter()
+        .enumerate()
+        .map(|(index, declaration)| (declaration.name.as_str(), index))
+        .collect();
+    let order = emitted
+        .iter()
+        .map(|declaration| {
+            local_positions
+                .get(declaration.name.as_str())
+                .copied()
+                .ok_or_else(|| {
+                    internal(format!(
+                        "core chunk omitted declaration `{}`",
+                        declaration.name
+                    ))
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let proof_nodes = core
+        .proof_nodes
+        .iter()
+        .filter_map(|root| {
+            mapping
+                .get(*root)
+                .copied()
+                .filter(|mapped| *mapped != usize::MAX)
+        })
+        .collect();
+    Ok(CoreChunk {
+        declarations,
+        nodes,
+        order,
+        proof_nodes,
+    })
+}
+
+fn append_core_command(
+    text: &mut String,
+    core: &CoreModule,
+    chunk: &CoreChunk,
+) -> Result<(), Diagnostic> {
+    #[derive(serde::Serialize)]
+    struct CorePayload<'a> {
+        declarations: &'a [CoreDeclaration],
+        imports: &'a [String],
+        nodes: &'a [CoreNode],
+        order: &'a [usize],
+        proof_nodes: &'a [usize],
+        spec: &'a str,
+    }
+    let payload = serde_json::to_string(&CorePayload {
+        declarations: &chunk.declarations,
+        imports: &core.imports,
+        nodes: &chunk.nodes,
+        order: &chunk.order,
+        proof_nodes: &chunk.proof_nodes,
+        spec: &core.spec,
+    })
+    .map_err(|error| internal(format!("cannot encode core module chunk: {error}")))?;
+    let mut pieces = Vec::new();
+    let mut piece = String::new();
+    for character in payload.chars() {
+        if piece.len() >= 500_000 {
+            pieces.push(std::mem::take(&mut piece));
+        }
+        piece.push(character);
+    }
+    if !piece.is_empty() {
+        pieces.push(piece);
+    }
+    text.push_str("\nrun_cmd Lean.Elab.Command.liftCoreM (LexLeanCore.Runtime.decodeAndAdd (\n");
+    for (index, piece) in pieces.iter().enumerate() {
+        text.push_str("  ");
+        text.push_str(&format!("{piece:?}"));
+        if index + 1 != pieces.len() {
+            text.push_str(" ++");
+        }
+        text.push('\n');
+    }
+    text.push_str("))\n");
+    Ok(())
+}
+
 /// Render a native core module as Lean.  The emitted command reconstructs
 /// semantic `Expr` and `Declaration` values, and `Lean.addDecl` submits every
 /// declaration to the kernel checker.  No backend text or unchecked
@@ -907,64 +1148,13 @@ pub fn render_lean(checked: &CheckedModule, core: &CoreModule) -> Result<Emitter
         "import Lean\nset_option autoImplicit false\nset_option maxRecDepth 100000\nset_option maxHeartbeats 1000000000\nset_option Elab.async false\n\nopen Lean\n",
     );
     text.push_str(LEAN_CORE_DECODER);
-    let positions: BTreeMap<&str, usize> = core
-        .declarations
-        .iter()
-        .enumerate()
-        .map(|(index, row)| (row.name.as_str(), index))
-        .collect();
-    let order = emission_order(core)?
-        .into_iter()
-        .map(|declaration| {
-            positions
-                .get(declaration.name.as_str())
-                .copied()
-                .ok_or_else(|| internal(format!("absent declaration `{}`", declaration.name)))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    // Keep the lexicographic field order produced by serde_json's canonical
-    // object map while serializing the typed DAG directly.  A second dynamic
-    // JSON tree is prohibitively expensive for foundation-sized modules.
-    #[derive(serde::Serialize)]
-    struct CorePayload<'a> {
-        declarations: &'a [CoreDeclaration],
-        imports: &'a [String],
-        nodes: &'a [CoreNode],
-        order: &'a [usize],
-        proof_nodes: &'a [usize],
-        spec: &'a str,
+    let order = emission_order(core)?;
+    let owners = generated_owners(core);
+    let groups = order.chunks(CORE_DECLARATIONS_PER_COMMAND).count();
+    for (index, group) in order.chunks(CORE_DECLARATIONS_PER_COMMAND).enumerate() {
+        let chunk = core_chunk(core, group, &owners, index + 1 == groups)?;
+        append_core_command(&mut text, core, &chunk)?;
     }
-    let payload = CorePayload {
-        declarations: &core.declarations,
-        imports: &core.imports,
-        nodes: &core.nodes,
-        order: &order,
-        proof_nodes: &core.proof_nodes,
-        spec: &core.spec,
-    };
-    let payload = serde_json::to_string(&payload)
-        .map_err(|error| internal(format!("cannot encode core module: {error}")))?;
-    let mut chunks = Vec::new();
-    let mut chunk = String::new();
-    for character in payload.chars() {
-        if chunk.len() >= 500_000 {
-            chunks.push(std::mem::take(&mut chunk));
-        }
-        chunk.push(character);
-    }
-    if !chunk.is_empty() {
-        chunks.push(chunk);
-    }
-    text.push_str("\nrun_cmd Lean.Elab.Command.liftCoreM (LexLeanCore.Runtime.decodeAndAdd (\n");
-    for (index, chunk) in chunks.iter().enumerate() {
-        text.push_str("  ");
-        text.push_str(&format!("{chunk:?}"));
-        if index + 1 != chunks.len() {
-            text.push_str(" ++");
-        }
-        text.push('\n');
-    }
-    text.push_str("))\n");
     emit_chunk(
         &mut emitter,
         checked,
