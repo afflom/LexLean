@@ -899,7 +899,11 @@ def decodeAndAdd (nodeBatches : Array String) (data : String) : CoreM Unit := do
 end LexLeanCore.Runtime
 "#;
 
-const CORE_DECLARATIONS_PER_COMMAND: usize = 64;
+// A command owns every reconstructed expression in its declaration closure
+// until all declarations in that command have reached the kernel.  Eight
+// declarations amortize JSON decoding without retaining the transient
+// closures that make the native Atlas verifier compete with its compiler.
+const CORE_DECLARATIONS_PER_COMMAND: usize = 8;
 const CORE_NODES_PER_JSON_BATCH: usize = 1_024;
 
 fn remapped_root(mapping: &[usize], root: usize) -> Result<usize, Diagnostic> {
