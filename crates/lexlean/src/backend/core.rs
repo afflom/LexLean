@@ -922,15 +922,26 @@ pub fn render_lean(checked: &CheckedModule, core: &CoreModule) -> Result<Emitter
                 .ok_or_else(|| internal(format!("absent declaration `{}`", declaration.name)))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut payload = serde_json::to_value(core)
-        .map_err(|error| internal(format!("cannot serialize core module: {error}")))?;
-    let object = payload
-        .as_object_mut()
-        .ok_or_else(|| internal("serialized core module is not an object"))?;
-    object.insert(
-        "order".to_owned(),
-        serde_json::Value::Array(order.into_iter().map(serde_json::Value::from).collect()),
-    );
+    // Keep the lexicographic field order produced by serde_json's canonical
+    // object map while serializing the typed DAG directly.  A second dynamic
+    // JSON tree is prohibitively expensive for foundation-sized modules.
+    #[derive(serde::Serialize)]
+    struct CorePayload<'a> {
+        declarations: &'a [CoreDeclaration],
+        imports: &'a [String],
+        nodes: &'a [CoreNode],
+        order: &'a [usize],
+        proof_nodes: &'a [usize],
+        spec: &'a str,
+    }
+    let payload = CorePayload {
+        declarations: &core.declarations,
+        imports: &core.imports,
+        nodes: &core.nodes,
+        order: &order,
+        proof_nodes: &core.proof_nodes,
+        spec: &core.spec,
+    };
     let payload = serde_json::to_string(&payload)
         .map_err(|error| internal(format!("cannot encode core module: {error}")))?;
     let mut chunks = Vec::new();

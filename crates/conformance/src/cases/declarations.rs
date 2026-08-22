@@ -307,8 +307,7 @@ pub(crate) fn run(id: &str) {
 
             let project = support::defs_project();
             let json = support::checked_project(&project)
-                .linked
-                .to_json()
+                .linked_json()
                 .to_canonical_string();
             assert!(
                 json.contains("\"policy\""),

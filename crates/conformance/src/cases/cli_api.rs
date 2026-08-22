@@ -330,12 +330,10 @@ pub(crate) fn run(id: &str) {
             // canonical fixture written directly.
             assert_eq!(
                 support::checked_project(&direct)
-                    .linked
-                    .to_json()
+                    .linked_json()
                     .to_canonical_string(),
                 support::checked_project(&messy)
-                    .linked
-                    .to_json()
+                    .linked_json()
                     .to_canonical_string(),
                 "formatting preserved the linked IR"
             );

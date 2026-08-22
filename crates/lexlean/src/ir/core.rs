@@ -375,19 +375,10 @@ pub struct CoreModule {
 impl CoreModule {
     /// Decode and enforce the closed schema invariants.
     pub fn parse(text: &str) -> Result<Self, String> {
-        let value: serde_json::Value = serde_json::from_str(text)
-            .map_err(|error| format!("invalid core-module JSON: {error}"))?;
-        let module: Self = serde_json::from_value(value)
+        let module: Self = serde_json::from_str(text)
             .map_err(|error| format!("invalid core-module JSON: {error}"))?;
         module.validate()?;
-        let canonical = serde_json::to_string(
-            &serde_json::to_value(&module)
-                .map_err(|error| format!("cannot canonicalize core-module JSON: {error}"))?,
-        )
-        .map_err(|error| format!("cannot canonicalize core-module JSON: {error}"))?;
-        if text != canonical {
-            return Err("core-module JSON is not in canonical byte form".to_owned());
-        }
+        CanonicalSyntax::check(text.as_bytes())?;
         Ok(module)
     }
 
@@ -549,11 +540,229 @@ impl CoreModule {
         }
         Ok(())
     }
+}
 
-    /// Canonical semantic JSON included in the linked-IR identity.
-    #[must_use]
-    pub fn semantic_json(&self) -> serde_json::Value {
-        serde_json::to_value(self).unwrap_or(serde_json::Value::Null)
+/// Streaming validation of the restricted canonical JSON spelling.  The
+/// typed serde pass above owns schema validation; this pass enforces the
+/// byte-level rules without allocating a second tree for a foundation model.
+struct CanonicalSyntax<'a> {
+    bytes: &'a [u8],
+    at: usize,
+}
+
+impl<'a> CanonicalSyntax<'a> {
+    fn check(bytes: &'a [u8]) -> Result<(), String> {
+        let mut parser = Self { bytes, at: 0 };
+        parser.value()?;
+        if parser.at != bytes.len() {
+            return Err(
+                "core-module JSON is not in canonical byte form: trailing bytes".to_owned(),
+            );
+        }
+        Ok(())
+    }
+
+    fn current(&self) -> Option<u8> {
+        self.bytes.get(self.at).copied()
+    }
+
+    fn take(&mut self, expected: u8) -> Result<(), String> {
+        if self.current() != Some(expected) {
+            return Err(format!(
+                "core-module JSON is not in canonical byte form at byte {}",
+                self.at
+            ));
+        }
+        self.at += 1;
+        Ok(())
+    }
+
+    fn literal(&mut self, value: &[u8]) -> Result<(), String> {
+        if !self.bytes[self.at..].starts_with(value) {
+            return Err(format!(
+                "core-module JSON is not in canonical byte form at byte {}",
+                self.at
+            ));
+        }
+        self.at += value.len();
+        Ok(())
+    }
+
+    fn value(&mut self) -> Result<(), String> {
+        match self.current() {
+            Some(b'{') => self.object(),
+            Some(b'[') => self.array(),
+            Some(b'"') => self.string(),
+            Some(b't') => self.literal(b"true"),
+            Some(b'f') => self.literal(b"false"),
+            Some(b'-' | b'0'..=b'9') => self.integer(),
+            _ => Err(format!(
+                "core-module JSON is not in canonical byte form at byte {}",
+                self.at
+            )),
+        }
+    }
+
+    fn object(&mut self) -> Result<(), String> {
+        self.take(b'{')?;
+        if self.current() == Some(b'}') {
+            self.at += 1;
+            return Ok(());
+        }
+        let mut previous: Option<String> = None;
+        loop {
+            let start = self.at;
+            self.string()?;
+            let key: String = serde_json::from_slice(&self.bytes[start..self.at])
+                .map_err(|error| format!("invalid core-module JSON key: {error}"))?;
+            if previous.as_ref().is_some_and(|prior| prior >= &key) {
+                return Err(format!(
+                    "core-module JSON is not in canonical byte form: object key `{key}` is not strictly ordered"
+                ));
+            }
+            previous = Some(key);
+            self.take(b':')?;
+            self.value()?;
+            match self.current() {
+                Some(b',') => self.at += 1,
+                Some(b'}') => {
+                    self.at += 1;
+                    return Ok(());
+                }
+                _ => {
+                    return Err(format!(
+                        "core-module JSON is not in canonical byte form at byte {}",
+                        self.at
+                    ));
+                }
+            }
+        }
+    }
+
+    fn array(&mut self) -> Result<(), String> {
+        self.take(b'[')?;
+        if self.current() == Some(b']') {
+            self.at += 1;
+            return Ok(());
+        }
+        loop {
+            self.value()?;
+            match self.current() {
+                Some(b',') => self.at += 1,
+                Some(b']') => {
+                    self.at += 1;
+                    return Ok(());
+                }
+                _ => {
+                    return Err(format!(
+                        "core-module JSON is not in canonical byte form at byte {}",
+                        self.at
+                    ));
+                }
+            }
+        }
+    }
+
+    fn string(&mut self) -> Result<(), String> {
+        self.take(b'"')?;
+        loop {
+            match self.current() {
+                Some(b'"') => {
+                    self.at += 1;
+                    return Ok(());
+                }
+                Some(b'\\') => {
+                    self.at += 1;
+                    match self.current() {
+                        Some(b'"' | b'\\' | b'b' | b'f' | b'n' | b'r' | b't') => self.at += 1,
+                        Some(b'u') => {
+                            self.at += 1;
+                            let end = self.at.checked_add(4).ok_or_else(|| {
+                                "core-module JSON escape offset overflow".to_owned()
+                            })?;
+                            let Some(hex) = self.bytes.get(self.at..end) else {
+                                return Err("unterminated core-module JSON escape".to_owned());
+                            };
+                            if !hex
+                                .iter()
+                                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+                            {
+                                return Err("core-module JSON uses a noncanonical Unicode escape"
+                                    .to_owned());
+                            }
+                            let value = hex.iter().fold(0u32, |value, byte| {
+                                value * 16
+                                    + u32::from(match byte {
+                                        b'0'..=b'9' => byte - b'0',
+                                        b'a'..=b'f' => byte - b'a' + 10,
+                                        _ => 0,
+                                    })
+                            });
+                            if value >= 0x20 || matches!(value, 0x08 | 0x09 | 0x0a | 0x0c | 0x0d) {
+                                return Err(
+                                    "core-module JSON uses a nonminimal Unicode escape".to_owned()
+                                );
+                            }
+                            self.at = end;
+                        }
+                        _ => return Err("core-module JSON uses a noncanonical escape".to_owned()),
+                    }
+                }
+                Some(0x00..=0x1f) => {
+                    return Err("core-module JSON contains an unescaped control byte".to_owned());
+                }
+                Some(_) => self.at += 1,
+                None => return Err("unterminated core-module JSON string".to_owned()),
+            }
+        }
+    }
+
+    fn integer(&mut self) -> Result<(), String> {
+        let negative = self.current() == Some(b'-');
+        if negative {
+            self.at += 1;
+        }
+        match self.current() {
+            Some(b'0') => {
+                self.at += 1;
+                if negative || self.current().is_some_and(|byte| byte.is_ascii_digit()) {
+                    return Err("core-module JSON uses a noncanonical integer".to_owned());
+                }
+            }
+            Some(b'1'..=b'9') => {
+                self.at += 1;
+                while self.current().is_some_and(|byte| byte.is_ascii_digit()) {
+                    self.at += 1;
+                }
+            }
+            _ => return Err("core-module JSON contains an invalid integer".to_owned()),
+        }
+        if self
+            .current()
+            .is_some_and(|byte| matches!(byte, b'.' | b'e' | b'E' | b'+'))
+        {
+            return Err("core-module JSON contains a non-integer number".to_owned());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod canonical_syntax_tests {
+    use super::CanonicalSyntax;
+
+    #[test]
+    fn canonical_json_is_checked_without_a_value_tree() {
+        assert!(CanonicalSyntax::check(br#"{"a":[0,true,"x\n"],"b":-2}"#).is_ok());
+        for rejected in [
+            br#"{"b":0,"a":0}"#.as_slice(),
+            br#"{"a": 0}"#.as_slice(),
+            br#"{"a":"\u0061"}"#.as_slice(),
+            br#"{"a":-0}"#.as_slice(),
+            br#"{"a":null}"#.as_slice(),
+        ] {
+            assert!(CanonicalSyntax::check(rejected).is_err());
+        }
     }
 }
 

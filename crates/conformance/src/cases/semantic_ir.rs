@@ -28,7 +28,7 @@ fn collect_tags(value: &serde_json::Value, key: &str, out: &mut BTreeSet<String>
 
 fn linked_json(project: &P) -> serde_json::Value {
     let checked = support::checked_project(project);
-    serde_json::from_str(&checked.linked.to_json().to_canonical_string())
+    serde_json::from_str(&checked.linked_json().to_canonical_string())
         .expect("linked IR is canonical JSON")
 }
 
@@ -105,8 +105,8 @@ pub(crate) fn run(id: &str) {
             let second = support::checked_project(&project);
             assert_eq!(first.semantic_id, second.semantic_id);
             assert_eq!(
-                first.linked.to_json().to_canonical_string(),
-                second.linked.to_json().to_canonical_string()
+                first.linked_json().to_canonical_string(),
+                second.linked_json().to_canonical_string()
             );
         }
         // §17.3: term IR is exactly the closed variant set.
@@ -287,8 +287,7 @@ pub(crate) fn run(id: &str) {
         "SM-06" => {
             let project = P::example();
             let json = support::checked_project(&project)
-                .linked
-                .to_json()
+                .linked_json()
                 .to_canonical_string();
             assert!(
                 json.contains("\"i\":["),
@@ -482,7 +481,7 @@ pub(crate) fn run(id: &str) {
                 .to_canonical_string();
             let recomputed = lexlean::artifact::content_id::semantic_id(
                 lexlean::compiler_semantics_id(),
-                &checked.linked.to_json().to_canonical_string(),
+                &checked.linked_json().to_canonical_string(),
                 &module_closure,
             );
             assert_eq!(
@@ -527,8 +526,7 @@ pub(crate) fn run(id: &str) {
         "SM-12" => {
             let project = P::example();
             let json = support::checked_project(&project)
-                .linked
-                .to_json()
+                .linked_json()
                 .to_canonical_string();
             for prose in [
                 "natural number",

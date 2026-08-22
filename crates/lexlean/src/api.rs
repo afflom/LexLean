@@ -829,7 +829,6 @@ impl Engine {
                 core.proof_nodes.clear();
             }
         }
-        checked.linked.modules.clear();
         // One mutation lock spans build publication, every verification
         // stage, and the verified-set publication (§21.8).
         let guard = acquire_lock(&self.project)?;
@@ -963,9 +962,7 @@ impl Engine {
         }
         match scratch_engine.checked(&request.selection) {
             Ok((after, _)) => {
-                let before_json = before.linked.to_json().to_canonical_string();
-                let after_json = after.linked.to_json().to_canonical_string();
-                if before_json != after_json {
+                if before.semantic_id != after.semantic_id {
                     return Err(LexLeanError::from_diagnostic(Diagnostic::new(
                         code!("LLI9001"),
                         "phase fmt: formatting did not preserve linked IR; no file was rewritten",

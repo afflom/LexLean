@@ -23,7 +23,7 @@ use crate::grammar::proposition::{
 use crate::grammar::structural::{self, AtomRange, BlockAst, DeclAst, ModuleAst, PolicyKind};
 use crate::ir::core::CoreModule;
 use crate::ir::declaration::{AxiomPolicy, DeclBody, Declaration};
-use crate::ir::document::{Block, DocumentModule, LinkedProject, Phrase, PhraseItem, Section};
+use crate::ir::document::{Block, DocumentModule, Phrase, PhraseItem, Section};
 use crate::ir::proof::{CaseProof, Proof};
 use crate::ir::term::{Binder, ExternalConstRef, GlobalRef, LocalId, Term};
 use crate::lexicon::lse::QualifiedId;
@@ -175,8 +175,6 @@ pub struct CheckedModule {
 pub struct CheckedProject {
     /// Checked modules by name.
     pub modules: BTreeMap<String, CheckedModule>,
-    /// The linked project IR.
-    pub linked: LinkedProject,
     /// The glossary closure.
     pub closure: Closure,
     /// The union of visible packages across modules.
@@ -190,6 +188,33 @@ pub struct CheckedProject {
     pub semantic_id: Sha256Digest,
     /// The canonical lock bytes hashed into the source ID.
     pub canonical_lock: Vec<u8>,
+}
+
+impl CheckedProject {
+    /// Canonical linked-IR JSON without retaining a second copy of every
+    /// document in the checked project.
+    #[must_use]
+    pub fn linked_json(&self) -> crate::artifact::canonical_json::Json {
+        linked_json(&self.modules)
+    }
+}
+
+fn linked_json(modules: &BTreeMap<String, CheckedModule>) -> crate::artifact::canonical_json::Json {
+    crate::artifact::canonical_json::Json::object(vec![
+        (
+            "spec",
+            crate::artifact::canonical_json::Json::Str("lexlean/linked-ir/1".to_owned()),
+        ),
+        (
+            "modules",
+            crate::artifact::canonical_json::Json::Arr(
+                modules
+                    .values()
+                    .map(|module| module.document.to_json())
+                    .collect(),
+            ),
+        ),
+    ])
 }
 
 fn err(diagnostics: Vec<Diagnostic>) -> LexLeanError {
@@ -598,12 +623,6 @@ fn check_project_inline(
     }
 
     // Content identity (§21.3, §21.4).
-    let linked = LinkedProject {
-        modules: modules
-            .iter()
-            .map(|(name, module)| (name.clone(), module.document.clone()))
-            .collect(),
-    };
     let sources: Vec<(String, Vec<u8>)> = {
         let mut list: Vec<(String, Vec<u8>)> = loaded
             .values()
@@ -617,7 +636,7 @@ fn check_project_inline(
         &canonical_lock,
         &sources,
     );
-    let linked_ir_json = linked.to_json().to_canonical_string();
+    let linked_ir_json = linked_json(&modules).to_canonical_string();
     let closure_json = closure
         .closure_json("", &visible_union)
         .to_canonical_string();
@@ -635,7 +654,6 @@ fn check_project_inline(
 
     Ok(CheckedProject {
         modules,
-        linked,
         closure,
         visible_union,
         external_used,
