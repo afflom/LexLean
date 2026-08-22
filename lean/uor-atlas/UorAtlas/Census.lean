@@ -52,7 +52,7 @@ block exactly once, so the enumeration counts blocks rather than quadruples and
 needs no `O(n^2)` deduplication pass -- and nothing has to be materialised in
 order to be counted.
 
-## What is proved here, and what is not
+## The local census stage
 
 `T22` is `|Blk| = 3150`, and a cardinality is two obligations: exhibiting the
 blocks, and showing there are no others.
@@ -62,16 +62,15 @@ The first is discharged below. `blkExhibit` names `3150` pairwise distinct
 `block_of_quad` -- so `|Blk| >= 3150` is a theorem and not an enumeration's
 say-so.
 
-The second is discharged in part. `quad_in_table` proves that no closure
+The second starts here. `quad_in_table` proves that no closure
 escapes the table: every orthogonal quadruple whose closure holds twelve
-classes closes to an entry of it. What is left is the implication neither half
-supplies, that a `D16` block *is* the closure of an orthogonal quadruple --
-that its twelve classes contain four pairwise orthogonal ones. While that is
-open this module carries **no** `T22`, and `T23`, `T24`, `T25`, `T25x`, `T26`,
-`T26x` and `T27` -- which quantify over the completed census, over `Blk`, over
-`Frm`, over all of `Atl` -- are absent for the same reason. "What completeness
-still needs", at the foot of the module, records the route and the constants
-that turn it on.
+classes closes to an entry of it. The remaining implication at this module
+boundary is that a `D16` block *is* the closure of an orthogonal quadruple --
+that its twelve classes contain four pairwise orthogonal ones. The certificate
+modules and `CensusComplete` discharge that implication and export `T22`;
+`Closure` and the `Closure*` modules then export `T23` through `T27` over the
+completed populations. The note at the foot of this module records the route
+implemented by those downstream modules.
 
 Two theorems below make the identity this module is built on a theorem rather
 than an assertion: `mem_quadSet_iff_inSpan` proves that the closure of an
@@ -1639,10 +1638,9 @@ public theorem blkInj {i j : Nat} (hi : i < 3150) (hj : j < 3150) (hne : i ≠ j
 
 /-- `3150` blocks, exhibited and pairwise distinct.
 
-This is the *exhibition* half of `T22` and is deliberately not labelled `T22`:
-`T22` is `|Blk| = 3150`, which also needs completeness -- that no `D16` block
-is missing from the table -- and completeness is not proved in this module.
-See the note at the head of the module. -/
+This is the *exhibition* half of `T22` and is deliberately not labelled `T22`.
+`CensusComplete.block_census_complete` proves that no `D16` block is missing
+from the table, and `CensusComplete.T22` combines that result with this one. -/
 public theorem blkExhibit :
     (∀ i : Nat, i < 3150 → D16 (blkAt i))
       ∧ (∀ i j : Nat, i < 3150 → j < 3150 → i ≠ j → blkAt i ≠ blkAt j) :=
@@ -1958,9 +1956,8 @@ entry of the table.
 
 The quadruple is asked to be increasing because the sweep enumerates increasing
 quadruples. That is the enumeration's convention rather than a restriction on
-the geometry -- `quadSet` is symmetric in its four arguments, since `Nat.lor`
-and `Nat.land` are -- but that symmetry is not needed here and is not proved,
-so a caller holding an unordered quadruple has to sort it first. -/
+the geometry; the downstream census closure sorts an unordered quadruple and
+proves the permutation invariance needed to invoke this theorem. -/
 public theorem quad_in_table {a b c d : Nat}
     (ha : a < 120) (hb : b < 120) (hc : c < 120) (hd : d < 120)
     (hab : a < b) (hbc : b < c) (hcd : c < d)
@@ -1994,9 +1991,9 @@ public theorem quad_in_table {a b c d : Nat}
     exact ⟨blkIdx a b c d, h.1, h.2⟩
 
 
-/-! ## What completeness still needs
+/-! ## Route completed by the census certificates
 
-`T22` is `|Blk| = 3150`. Three things would prove it and two of them are above:
+`T22` is `|Blk| = 3150`. Its proof has three parts, two of which are above:
 the table exhibits `3150` distinct blocks, and `quad_in_table` shows the table
 holds every closure. The third is the implication neither supplies -- that a
 `D16` block is a closure at all, that is, that its twelve classes contain four
@@ -2032,15 +2029,12 @@ classes of the span, and `mem_quadSet_iff_inSpan` turns that into
 
 Two obligations inside that route are not computations and are worth naming.
 The pigeonhole from "`24` distinct admissible vectors" to "the admissible set
-is exactly these" needs a counting lemma for the image of a `Bitset` under an
-injection, which this repository does not have. And `quad_in_table` asks for an
-increasing quadruple, so the four orthogonal classes the argument produces have
-to be sorted, which needs the symmetry of `quadSet` in its four arguments --
-true, since `Nat.lor` and `Nat.land` are commutative and associative, but not
-proved above.
-
-Nothing in this module is claimed on the strength of any of that, and no label
-is carried by any of it.
+is exactly these" uses the finite-image counting lemmas in `CensusClosure`.
+And `quad_in_table` asks for an increasing quadruple, so `CensusClosure` sorts
+the four orthogonal classes and proves the required permutation invariance of
+`quadSet`. The `CensusCert*` modules kernel-check the finite Gram cases, and
+`CensusComplete` combines those results into `block_census_complete` and
+`T22`.
 -/
 
 end UorAtlas.Census

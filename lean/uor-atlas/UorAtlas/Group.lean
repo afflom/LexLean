@@ -2616,10 +2616,10 @@ count is the stabiliser chain of `stabChain`, which is a Schreier-Sims run on
 the stabiliser subgroup and does not use `T28`'s number; that the group the
 chain counts is the whole gauge group is `gauge_eq`.
 
-This is not `T29`, and not `T49`: both are stated in the document for every
-AtlasInstance, and carrying this count from the witness to another instance is
-exactly the transitivity of `Aut` on `Atl` -- the document's `T27` -- which is
-not proved here. -/
+This witness theorem is the local input to the universal results.  The
+transitivity theorem `Closure.T27` is proved in `ClosureOrbitTransport`, and
+`ClosureGauge` transports this count to prove `T29` and `T49` for every
+AtlasInstance. -/
 public theorem gaugeOrderWitness : HasOrderP (D28 (Blocks.V Blocks.A0)) 4608 := by
   obtain ⟨L, hnd, hmem, hlen⟩ := stabOrder
   refine ⟨L, hnd, fun g => ?_, hlen⟩
@@ -2798,11 +2798,11 @@ available here. The group is `Aut`; the stabiliser order is
 `gaugeOrderWitness`; the population is the `Aut`-orbit of the witness
 AtlasInstance.
 
-That orbit is *not* known to be `Atl`. `Atl subset orbit` is the document's
-`T27` and is not proved here, and `orbit subset Atl` needs the blocks of an
-image to be blocks, which is the rank clause of `D16` and is not proved here
-either. So the nineteen theorems become facts about the category of the orbit,
-and they become facts about `Atl` exactly when `T27` is supplied. -/
+This module intentionally constructs the categorical layer on the orbit before
+identifying that orbit with `Atl`.  `ClosureOrbitTransport.T27` proves the
+identification in both directions after the census and orbit certificates are
+available, and the downstream closure modules then export the results over all
+of `Atl`. -/
 
 /-- The objects: class subsets, which is what `actP` acts on. -/
 @[expose] public def ClSet : Type := { W : Bitset // Blocks.ClassSet W }
@@ -4367,10 +4367,8 @@ inside `Aut(Gamma)`.** By `T59a` the two groups are the same, so the setwise
 stabiliser of `W_0` in the graph automorphism group is the one
 `gaugeOrderWitness` counts inside `Aut`.
 
-This is not `T60`, for the same reason `gaugeOrderWitness` is not `T29` or
-`T49`: the document states the count for every AtlasInstance, and carrying it
-from the witness to another instance is the transitivity of `Aut` on `Atl`,
-which is not proved here. -/
+This witness theorem is transported along `Closure.T27` in `ClosureGauge`,
+where `T60` proves the count for every AtlasInstance. -/
 public theorem gaugeGammaWitness :
     HasOrderP (fun g : Perm 120 => AutA g ∧ actP g W0 = W0) 4608 := by
   obtain ⟨L, hnd, hmem, hlen⟩ := stabOrder

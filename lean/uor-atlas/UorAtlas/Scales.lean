@@ -214,9 +214,9 @@ parts of a complete multipartite graph.
 
 Scope. `S1`, `S2`, `S6`, `S7`, `S29` and `S30` are statements about the
 exhibited AtlasPresentation `A0` of `UorAtlas.Blocks`, in exactly the sense in
-which `T14`-`T19` are: a statement about *every* block quantifies over the
-census `Blk`, which that module explains it does not have. `S8` is about `K`
-itself and is unconditional. -/
+which `T14`-`T19` are; their declaration types deliberately record that scope.
+The completed block and AtlasInstance populations are handled by the census
+and closure modules. `S8` is about `K` itself and is unconditional. -/
 
 /-- The three quadruples of block `a`, slots `3a`, `3a+1`, `3a+2` of the
 table. -/

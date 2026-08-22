@@ -2439,8 +2439,9 @@ which is why they are arguments and not side conditions. -/
 
 /-- The group-layer input `T77` runs on: inside a fixed AtlasInstance,
 `Gauge(W)` carries any BlockFrame of `W` to any other. This is a transitivity
-statement about `Aut`, which the group layer proves; it is a hypothesis here
-and nothing below assumes anything else about `Aut` that is not proved above. -/
+statement about `Aut`, which the group layer supplies across this module's
+dependency boundary; it is made an explicit hypothesis here, and nothing below
+uses any additional property of `Aut`. -/
 @[expose] public def FrameTransitive (W : Bitset) : Prop :=
   ∀ F0 F1 : Blocks.D46a,
     (∀ u : Roots.K, u.val ∈ F0.V → u.val ∈ W) →
