@@ -21,14 +21,14 @@ the repository.
 
 ### Implemented
 
-- The Atlas migration oracle is repository content retained in-tree at
-  `lean/uor-atlas/` and required by path from `examples/uor-atlas/`.
-  `just vv` builds it under the pinned `leanprover/lean4:v4.32.1` toolchain,
-  replays every module through `leanchecker` — a same-kernel replay, not an
-  independent checker (§22.4) — and runs a standing axiom gate: `#print axioms`
-  over every declaration, failing on anything outside `propext`, `Quot.sound`,
-  and `Classical.choice`. A source scan admits no `sorry`, author-declared
-  `axiom`, `opaque`, `unsafe`, or `native_decide` (`VR-19`).
+- The completed Atlas implementation is retained in-tree at `lean/uor-atlas/`
+  solely as a migration oracle and is not a path dependency of the native
+  example. `VR-19` builds and exports that oracle, then requires byte-exact
+  equality with `Atlas.lex.tex`. `just vv` verifies the generated native Atlas
+  under `leanprover/lean4:v4.32.1`, replays it through `leanchecker` — a
+  same-kernel replay, not an independent checker (§22.4) — and runs the
+  standing exact axiom gate. The oracle source audit admits no `sorry`,
+  author-declared `axiom`, `opaque`, `unsafe`, or `native_decide`.
 - Two new built-in lexicon packages, `lexlean.std.int@1.0.0` and
   `lexlean.uor.atlas@1.0.0`. The Atlas package is registered under
   `[[builtin_package]]`, locked into every project, and unconditionally
