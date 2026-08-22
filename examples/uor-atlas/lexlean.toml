@@ -21,4 +21,4 @@ max_scope_depth = 1024
 max_import_depth = 128
 max_diagnostics = 256
 max_child_output_bytes = 16777216
-child_timeout_ms = 300000
+child_timeout_ms = 10800000
