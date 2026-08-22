@@ -817,27 +817,39 @@ impl Engine {
     }
 
     fn verify_inner(&self, request: &VerifyRequest) -> Result<VerifiedProject, LexLeanError> {
-        let (mut checked, lock) = self.checked(&request.selection)?;
-        let rendered = render_build(&self.project, &checked)?;
-        // Rendering is the last consumer of parser atoms, declaration-origin
-        // tables, visibility sets, and the core expression DAG. Diagnostics
-        // during verification use the frozen source map, coverage rows, and
-        // normalized source instead. Keeping those earlier-phase structures
-        // alive while Lean constructs the same environment adds gigabytes to
-        // a foundation-sized verification peak.
-        for module in checked.modules.values_mut() {
-            module.atoms.clear();
-            module.atoms.shrink_to_fit();
-            module.decl_origins.clear();
-            module.visible.clear();
-            if let Some(core) = &mut module.document.core {
-                core.nodes.clear();
-                core.nodes.shrink_to_fit();
-                core.proof_nodes.clear();
-                core.proof_nodes.shrink_to_fit();
-            }
-        }
-        checked.visible_union.clear();
+        let prepared = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let (mut checked, lock) = self.checked(&request.selection)?;
+                    let rendered = render_build(&self.project, &checked)?;
+                    // Rendering is the last consumer of parser atoms,
+                    // declaration-origin tables, visibility sets, and the
+                    // core expression DAG. Diagnostics during verification
+                    // use the frozen source map, coverage rows, and
+                    // normalized source instead. Preparing on a scoped
+                    // thread also releases its allocation arena before Lean
+                    // constructs the same foundation-sized environment.
+                    for module in checked.modules.values_mut() {
+                        module.atoms.clear();
+                        module.atoms.shrink_to_fit();
+                        module.decl_origins.clear();
+                        module.visible.clear();
+                        if let Some(core) = &mut module.document.core {
+                            core.nodes.clear();
+                            core.nodes.shrink_to_fit();
+                            core.proof_nodes.clear();
+                            core.proof_nodes.shrink_to_fit();
+                        }
+                    }
+                    checked.visible_union.clear();
+                    Ok((checked, lock, rendered))
+                })
+                .join()
+        });
+        let (checked, lock, rendered) = match prepared {
+            Ok(prepared) => prepared?,
+            Err(payload) => std::panic::resume_unwind(payload),
+        };
         // One mutation lock spans build publication, every verification
         // stage, and the verified-set publication (§21.8).
         let guard = acquire_lock(&self.project)?;
