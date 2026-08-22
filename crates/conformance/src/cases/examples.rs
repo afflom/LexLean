@@ -190,7 +190,7 @@ pub(crate) fn run(id: &str) {
                 ("extra-proof-branch", "LLF5003"),
                 ("unrestricted-simplify", "LLF5005"),
                 ("native-decide", "LLF5005"),
-                ("atlas-level-conflation", "LLT4001"),
+                ("atlas-level-conflation", "LLR3005"),
                 ("lean-elaboration-failure", "LLV7002"),
                 ("leanchecker-failure", "LLV7003"),
                 ("malformed-axiom-output", "LLV7004"),

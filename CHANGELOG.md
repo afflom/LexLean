@@ -44,7 +44,8 @@ the repository.
   each with a planted-defect record in VERIFICATION.md.
 - `examples/uor-atlas/` verifies under the pinned toolchain with its
   committed verification records, and the negative fixture suite grows to 28
-  classes with `atlas-level-conflation`, rejected by `LLT4001`.
+  classes with `atlas-level-conflation`, rejected by `LLR3005`: a native Atlas
+  document declaration cannot be consumed as an external glossary atom.
 - `examples/uor-atlas/src/Atlas.lex.tex` is the single native semantic and
   proof source for 5,577 Atlas and supporting declarations. Both backends
   traverse that closed DAG, generated Lean imports only `Init`, and the old
