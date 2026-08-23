@@ -818,7 +818,7 @@ impl Engine {
 
     fn verify_inner(&self, request: &VerifyRequest) -> Result<VerifiedProject, LexLeanError> {
         let (mut checked, lock) = self.checked(&request.selection)?;
-        let rendered = render_build(&self.project, &checked)?;
+        let mut rendered = render_build(&self.project, &checked)?;
         // Rendering is the last consumer of parser atoms,
         // declaration-origin tables, visibility sets, and the core
         // expression DAG. Diagnostics during verification use the frozen
@@ -840,7 +840,7 @@ impl Engine {
         // stage, and the verified-set publication (§21.8).
         let guard = acquire_lock(&self.project)?;
         publish_build_locked(&self.project, &rendered, &guard)?;
-        let outcome = crate::verify::run(&self.project, &lock, &checked, &rendered)?;
+        let outcome = crate::verify::run(&self.project, &lock, &checked, &mut rendered)?;
         drop(guard);
         Ok(VerifiedProject {
             source_id: checked.source_id,
