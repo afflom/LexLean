@@ -705,10 +705,10 @@ fn require_silent(
     Ok(())
 }
 
-/// Independent proof processes run four at a time. The fixed width keeps
+/// Independent proof processes run two at a time. The fixed width keeps
 /// invocation behavior reproducible while using more than one core, and it
 /// bounds the number of simultaneously resident Lean environments.
-const PROCESS_WIDTH: usize = 4;
+const PROCESS_WIDTH: usize = 2;
 
 /// Run one deterministic batch of independent verification processes. All
 /// workers are joined before an error is returned so no child can outlive a
