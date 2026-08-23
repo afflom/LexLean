@@ -328,33 +328,45 @@ fn audit_diagnostic(
     failure.diagnostic
 }
 
-/// Release rendered data whose last consumer is generated-module
-/// elaboration. Foundation-sized source maps and coverage tables have a
-/// much larger in-memory representation than their canonical files; keeping
-/// them resident while a separate checker replays a computational proof
-/// needlessly combines two independent resource peaks.
-fn release_rendered_buffers(build: &mut RenderedBuild) {
+/// Release rendered data after its canonical bytes and generated sources
+/// have been staged. None of these fields participates in Lean diagnostic
+/// remapping, so retaining them would combine renderer and elaborator peaks.
+fn release_non_diagnostic_buffers(build: &mut RenderedBuild) {
     build.files.clear();
     build.files.shrink_to_fit();
     for module in &mut build.modules {
-        module.lean_text.clear();
-        module.lean_text.shrink_to_fit();
         module.tex_text.clear();
         module.tex_text.shrink_to_fit();
         module.coverage.source.clear();
         module.coverage.source.shrink_to_fit();
         module.coverage.latex.clear();
         module.coverage.latex.shrink_to_fit();
-        module.coverage.lean.clear();
-        module.coverage.lean.shrink_to_fit();
-        module.map.sources.clear();
-        module.map.sources.shrink_to_fit();
         module.map.artifacts.clear();
         module.map.artifacts.shrink_to_fit();
         module.map.nodes.clear();
         module.map.nodes.shrink_to_fit();
-        module.map.mappings.clear();
-        module.map.mappings.shrink_to_fit();
+    }
+}
+
+/// Release the fields retained solely to remap a generated Lean diagnostic.
+/// A module cannot subsequently emit such a diagnostic after its successful
+/// elaboration, so releasing each module at that point lowers the parent
+/// process throughout the remaining topological sequence.
+fn release_module_diagnostic_buffers(module: &mut RenderedModule) {
+    module.lean_text.clear();
+    module.lean_text.shrink_to_fit();
+    module.coverage.lean.clear();
+    module.coverage.lean.shrink_to_fit();
+    module.map.sources.clear();
+    module.map.sources.shrink_to_fit();
+    module.map.mappings.clear();
+    module.map.mappings.shrink_to_fit();
+}
+
+/// Release every generated diagnostic buffer at the elaboration boundary.
+fn release_rendered_buffers(build: &mut RenderedBuild) {
+    for module in &mut build.modules {
+        release_module_diagnostic_buffers(module);
     }
 }
 
@@ -898,6 +910,7 @@ pub fn run(
             module.lean_text.as_bytes(),
         )?;
     }
+    release_non_diagnostic_buffers(build);
     let lean_path_env = format!("{olean_root}");
     let mut process_records: Vec<ChildRecord> = Vec::new();
 
@@ -979,20 +992,21 @@ pub fn run(
     process_records.push(probe_record);
 
     // Stage 7: module elaboration in topological import order (§22.3).
-    let ordered: Vec<&RenderedModule> = {
+    let ordered: Vec<usize> = {
         let mut order = Vec::new();
         let mut placed: BTreeSet<&str> = BTreeSet::new();
-        let mut remaining: Vec<&RenderedModule> = build.modules.iter().collect();
+        let mut remaining: Vec<usize> = (0..build.modules.len()).collect();
         while !remaining.is_empty() {
             let before = remaining.len();
-            remaining.retain(|module| {
+            remaining.retain(|index| {
+                let module = &build.modules[*index];
                 let document = &checked.modules[&module.module].document;
                 let ready = document
                     .imports
                     .iter()
                     .all(|import| placed.contains(import.as_str()));
                 if ready {
-                    order.push(*module);
+                    order.push(*index);
                     placed.insert(module.module.as_str());
                     false
                 } else {
@@ -1005,8 +1019,9 @@ pub fn run(
         }
         order
     };
-    for module in &ordered {
-        let module_path = module.lean_module.replace('.', "/");
+    for module_index in ordered {
+        let module_name = build.modules[module_index].lean_module.clone();
+        let module_path = module_name.replace('.', "/");
         let source = src_root.join(format!("{module_path}.lean"));
         let olean = olean_root.join(format!("{module_path}.olean"));
         if let Some(parent) = olean.parent() {
@@ -1020,7 +1035,7 @@ pub fn run(
         let record = run_child(
             &ChildSpec {
                 tool: "lean",
-                module: Some(module.lean_module.clone()),
+                module: Some(module_name.clone()),
                 program: &toolchain.lake.path,
                 executable_sha256: toolchain.lean.sha256,
                 argv: vec![
@@ -1047,7 +1062,7 @@ pub fn run(
             return Err(LexLeanError::from_diagnostics(remap_lean_output(
                 checked,
                 build,
-                &module.lean_module,
+                &module_name,
                 &combined,
                 LeanOutcome::Rejected,
             )));
@@ -1059,7 +1074,7 @@ pub fn run(
             return Err(LexLeanError::from_diagnostics(remap_lean_output(
                 checked,
                 build,
-                &module.lean_module,
+                &module_name,
                 &combined,
                 LeanOutcome::Noisy,
             )));
@@ -1067,17 +1082,17 @@ pub fn run(
         if !olean.as_std_path().is_file() {
             return Err(fail(Diagnostic::new(
                 code!("LLV7002"),
-                format!("`{}` produced no olean", module.lean_module),
+                format!("`{module_name}` produced no olean"),
             )));
         }
         write_staged(
             staging.path(),
-            &format!("process/lean/{}.json", module.lean_module),
+            &format!("process/lean/{module_name}.json"),
             &record.to_json().to_file_bytes(),
         )?;
         process_records.push(record);
+        release_module_diagnostic_buffers(&mut build.modules[module_index]);
     }
-    drop(ordered);
 
     // Generated diagnostics have all been remapped and every canonical
     // build byte is already staged. Replay, audit, policy, and publication
