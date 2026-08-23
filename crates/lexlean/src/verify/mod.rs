@@ -705,6 +705,38 @@ fn require_silent(
     Ok(())
 }
 
+/// Independent proof processes run two at a time. The fixed width keeps
+/// invocation behavior reproducible while using more than one core, and it
+/// bounds the number of simultaneously resident Lean environments.
+const PROCESS_WIDTH: usize = 2;
+
+/// Run one deterministic batch of independent verification processes. All
+/// workers are joined before an error is returned so no child can outlive a
+/// failed verification or write into a staging tree after it is discarded.
+fn run_process_batch<T, F>(items: &[usize], job: F) -> Result<Vec<T>, Diagnostic>
+where
+    T: Send,
+    F: Fn(usize) -> Result<T, Diagnostic> + Sync,
+{
+    let joined = std::thread::scope(|scope| {
+        let job = &job;
+        let handles: Vec<_> = items
+            .iter()
+            .map(|&item| scope.spawn(move || job(item)))
+            .collect();
+        handles
+            .into_iter()
+            .map(std::thread::ScopedJoinHandle::join)
+            .collect::<Vec<_>>()
+    });
+    let mut values = Vec::with_capacity(items.len());
+    for result in joined {
+        let result = result.map_err(|_| internal("verification process worker panicked"))?;
+        values.push(result?);
+    }
+    Ok(values)
+}
+
 /// Run the complete verification pipeline (§22.1) over a rendered build.
 /// The caller holds the project mutation lock for the whole run (§21.8).
 #[allow(clippy::too_many_lines)]
@@ -992,106 +1024,115 @@ pub fn run(
     process_records.push(probe_record);
 
     // Stage 7: module elaboration in topological import order (§22.3).
-    let ordered: Vec<usize> = {
-        let mut order = Vec::new();
-        let mut placed: BTreeSet<&str> = BTreeSet::new();
-        let mut remaining: Vec<usize> = (0..build.modules.len()).collect();
-        while !remaining.is_empty() {
-            let before = remaining.len();
-            remaining.retain(|index| {
-                let module = &build.modules[*index];
-                let document = &checked.modules[&module.module].document;
-                let ready = document
+    // A topological frontier contains no dependency edges, so its members
+    // may run concurrently without making an imported olean observable
+    // before the process that owns it has completed successfully.
+    let mut placed: BTreeSet<String> = BTreeSet::new();
+    let mut remaining: Vec<usize> = (0..build.modules.len()).collect();
+    while !remaining.is_empty() {
+        let ready: Vec<usize> = remaining
+            .iter()
+            .copied()
+            .filter(|index| {
+                let document = &checked.modules[&build.modules[*index].module].document;
+                document
                     .imports
                     .iter()
-                    .all(|import| placed.contains(import.as_str()));
-                if ready {
-                    order.push(*index);
-                    placed.insert(module.module.as_str());
-                    false
-                } else {
-                    true
+                    .all(|import| placed.contains(import))
+            })
+            .collect();
+        if ready.is_empty() {
+            return Err(fail(internal("module order did not converge")));
+        }
+        for batch in ready.chunks(PROCESS_WIDTH) {
+            for &module_index in batch {
+                let module_path = build.modules[module_index].lean_module.replace('.', "/");
+                let olean = olean_root.join(format!("{module_path}.olean"));
+                if let Some(parent) = olean.parent() {
+                    std::fs::create_dir_all(parent.as_std_path()).map_err(|io_error| {
+                        fail(Diagnostic::new(
+                            code!("LLB6003"),
+                            format!("staging oleans: {io_error}"),
+                        ))
+                    })?;
                 }
-            });
-            if remaining.len() == before {
-                return Err(fail(internal("module order did not converge")));
+            }
+            let records = run_process_batch(batch, |module_index| {
+                let module_name = &build.modules[module_index].lean_module;
+                let module_path = module_name.replace('.', "/");
+                let source = src_root.join(format!("{module_path}.lean"));
+                let olean = olean_root.join(format!("{module_path}.olean"));
+                run_child(
+                    &ChildSpec {
+                        tool: "lean",
+                        module: Some(module_name.clone()),
+                        program: &toolchain.lake.path,
+                        executable_sha256: toolchain.lean.sha256,
+                        argv: vec![
+                            "env".to_owned(),
+                            "lean".to_owned(),
+                            "-o".to_owned(),
+                            olean.to_string(),
+                            source.to_string(),
+                        ],
+                        cwd: &workspace_root,
+                        extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
+                        home: ChildHome::Toolchain {
+                            toolchain_bin: &toolchain_bin,
+                        },
+                    },
+                    &limits,
+                    &normalizer,
+                )
+            })
+            .map_err(fail)?;
+            for (&module_index, record) in batch.iter().zip(records) {
+                let module_name = build.modules[module_index].lean_module.clone();
+                if record.exit_code != 0 {
+                    // Lean reports compile errors on stdout under `lake env
+                    // lean`; remap over both streams (§20.4).
+                    let combined = format!("{}\n{}", record.stdout, record.stderr);
+                    return Err(LexLeanError::from_diagnostics(remap_lean_output(
+                        checked,
+                        build,
+                        &module_name,
+                        &combined,
+                        LeanOutcome::Rejected,
+                    )));
+                }
+                // Any warning or unknown informational message fails
+                // verification (§20.2, §22.3), remapped like an error.
+                if !record.stdout.trim().is_empty() || !record.stderr.trim().is_empty() {
+                    let combined = format!("{}\n{}", record.stdout, record.stderr);
+                    return Err(LexLeanError::from_diagnostics(remap_lean_output(
+                        checked,
+                        build,
+                        &module_name,
+                        &combined,
+                        LeanOutcome::Noisy,
+                    )));
+                }
+                let module_path = module_name.replace('.', "/");
+                let olean = olean_root.join(format!("{module_path}.olean"));
+                if !olean.as_std_path().is_file() {
+                    return Err(fail(Diagnostic::new(
+                        code!("LLV7002"),
+                        format!("`{module_name}` produced no olean"),
+                    )));
+                }
+                write_staged(
+                    staging.path(),
+                    &format!("process/lean/{module_name}.json"),
+                    &record.to_json().to_file_bytes(),
+                )?;
+                process_records.push(record);
+                release_module_diagnostic_buffers(&mut build.modules[module_index]);
             }
         }
-        order
-    };
-    for module_index in ordered {
-        let module_name = build.modules[module_index].lean_module.clone();
-        let module_path = module_name.replace('.', "/");
-        let source = src_root.join(format!("{module_path}.lean"));
-        let olean = olean_root.join(format!("{module_path}.olean"));
-        if let Some(parent) = olean.parent() {
-            std::fs::create_dir_all(parent.as_std_path()).map_err(|io_error| {
-                fail(Diagnostic::new(
-                    code!("LLB6003"),
-                    format!("staging oleans: {io_error}"),
-                ))
-            })?;
+        for &module_index in &ready {
+            placed.insert(build.modules[module_index].module.clone());
         }
-        let record = run_child(
-            &ChildSpec {
-                tool: "lean",
-                module: Some(module_name.clone()),
-                program: &toolchain.lake.path,
-                executable_sha256: toolchain.lean.sha256,
-                argv: vec![
-                    "env".to_owned(),
-                    "lean".to_owned(),
-                    "-o".to_owned(),
-                    olean.to_string(),
-                    source.to_string(),
-                ],
-                cwd: &workspace_root,
-                extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
-                home: ChildHome::Toolchain {
-                    toolchain_bin: &toolchain_bin,
-                },
-            },
-            &limits,
-            &normalizer,
-        )
-        .map_err(fail)?;
-        if record.exit_code != 0 {
-            // Lean reports compile errors on stdout under `lake env lean`;
-            // remap over both streams (§20.4).
-            let combined = format!("{}\n{}", record.stdout, record.stderr);
-            return Err(LexLeanError::from_diagnostics(remap_lean_output(
-                checked,
-                build,
-                &module_name,
-                &combined,
-                LeanOutcome::Rejected,
-            )));
-        }
-        // Any warning or unknown informational message fails verification
-        // (§20.2, §22.3), remapped to its source span exactly like an error.
-        if !record.stdout.trim().is_empty() || !record.stderr.trim().is_empty() {
-            let combined = format!("{}\n{}", record.stdout, record.stderr);
-            return Err(LexLeanError::from_diagnostics(remap_lean_output(
-                checked,
-                build,
-                &module_name,
-                &combined,
-                LeanOutcome::Noisy,
-            )));
-        }
-        if !olean.as_std_path().is_file() {
-            return Err(fail(Diagnostic::new(
-                code!("LLV7002"),
-                format!("`{module_name}` produced no olean"),
-            )));
-        }
-        write_staged(
-            staging.path(),
-            &format!("process/lean/{module_name}.json"),
-            &record.to_json().to_file_bytes(),
-        )?;
-        process_records.push(record);
-        release_module_diagnostic_buffers(&mut build.modules[module_index]);
+        remaining.retain(|index| !ready.contains(index));
     }
 
     // Generated diagnostics have all been remapped and every canonical
@@ -1101,33 +1142,43 @@ pub fn run(
 
     // Stage 8: separate-process leanchecker replay per module, sorted
     // (§22.4).
-    let mut sorted_modules: Vec<&RenderedModule> = build.modules.iter().collect();
-    sorted_modules.sort_by(|a, b| a.lean_module.cmp(&b.lean_module));
-    for module in &sorted_modules {
-        let record = leanchecker::replay_module(
-            &toolchain,
-            &module.lean_module,
-            &lean_path_env,
-            &workspace_root,
-            &limits,
-            &normalizer,
-        )
-        // A replay failure is about this module, so it points at the
-        // module's own source rather than at the project manifest (§20.1).
-        .map_err(|diagnostic| {
-            let diagnostic = module_spans
-                .get(&module.lean_module)
-                .map_or(diagnostic.clone(), |span| {
-                    diagnostic.with_span(span.clone())
-                });
-            fail(diagnostic)
-        })?;
-        write_staged(
-            staging.path(),
-            &format!("process/leanchecker/{}.json", module.lean_module),
-            &record.to_json().to_file_bytes(),
-        )?;
-        process_records.push(record);
+    let mut sorted_modules: Vec<usize> = (0..build.modules.len()).collect();
+    sorted_modules.sort_by(|a, b| {
+        build.modules[*a]
+            .lean_module
+            .cmp(&build.modules[*b].lean_module)
+    });
+    for batch in sorted_modules.chunks(PROCESS_WIDTH) {
+        let records = run_process_batch(batch, |module_index| {
+            let module_name = &build.modules[module_index].lean_module;
+            leanchecker::replay_module(
+                &toolchain,
+                module_name,
+                &lean_path_env,
+                &workspace_root,
+                &limits,
+                &normalizer,
+            )
+            // A replay failure is about this module, so it points at the
+            // module's source rather than at the project manifest (§20.1).
+            .map_err(|diagnostic| {
+                module_spans
+                    .get(module_name)
+                    .map_or(diagnostic.clone(), |span| {
+                        diagnostic.with_span(span.clone())
+                    })
+            })
+        })
+        .map_err(fail)?;
+        for (&module_index, record) in batch.iter().zip(records) {
+            let module_name = &build.modules[module_index].lean_module;
+            write_staged(
+                staging.path(),
+                &format!("process/leanchecker/{module_name}.json"),
+                &record.to_json().to_file_bytes(),
+            )?;
+            process_records.push(record);
+        }
     }
 
     // Stage 9–10: process-sized audit modules and exact output parsing
@@ -1138,59 +1189,70 @@ pub fn run(
     for audit in &audit_modules {
         let source_relative = format!("audit/{}.lean", audit.name);
         write_staged(staging.path(), &source_relative, audit.text.as_bytes())?;
-        let audit_source = staging_utf8.join(&source_relative);
-        let audit_record = run_child(
-            &ChildSpec {
-                tool: "lean",
-                module: Some(audit.name.clone()),
-                program: &toolchain.lake.path,
-                executable_sha256: toolchain.lean.sha256,
-                argv: vec![
-                    "env".to_owned(),
-                    "lean".to_owned(),
-                    audit_source.to_string(),
-                ],
-                cwd: &workspace_root,
-                extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
-                home: ChildHome::Toolchain {
-                    toolchain_bin: &toolchain_bin,
+    }
+    let audit_indices: Vec<usize> = (0..audit_modules.len()).collect();
+    for batch in audit_indices.chunks(PROCESS_WIDTH) {
+        let records = run_process_batch(batch, |audit_index| {
+            let audit = &audit_modules[audit_index];
+            let source_relative = format!("audit/{}.lean", audit.name);
+            let audit_source = staging_utf8.join(&source_relative);
+            run_child(
+                &ChildSpec {
+                    tool: "lean",
+                    module: Some(audit.name.clone()),
+                    program: &toolchain.lake.path,
+                    executable_sha256: toolchain.lean.sha256,
+                    argv: vec![
+                        "env".to_owned(),
+                        "lean".to_owned(),
+                        audit_source.to_string(),
+                    ],
+                    cwd: &workspace_root,
+                    extra_env: vec![("LEAN_PATH".to_owned(), lean_path_env.clone())],
+                    home: ChildHome::Toolchain {
+                        toolchain_bin: &toolchain_bin,
+                    },
                 },
-            },
-            &limits,
-            &normalizer,
-        )
+                &limits,
+                &normalizer,
+            )
+        })
         .map_err(fail)?;
-        if audit_record.exit_code != 0 {
-            return Err(fail(Diagnostic::new(
-                code!("LLV7004"),
-                format!(
-                    "axiom audit member `{}` for `{}` failed: {}{}",
-                    audit.name,
-                    audit.generated_module,
-                    audit_record.stdout.trim_end(),
-                    audit_record.stderr.trim_end()
-                ),
-            )));
-        }
-        let stage = format!("axiom audit member `{}`", audit.name);
-        require_silent(&audit_record, &stage, true).map_err(fail)?;
-        let member_observed = axiom::parse_audit_output(&audit_record.stdout, &audit.declarations)
-            .map_err(|failure| fail(audit_diagnostic(&declaration_spans, failure)))?;
-        for (name, axioms) in member_observed {
-            if observed.insert(name.clone(), axioms).is_some() {
-                return Err(fail(internal(format!(
-                    "axiom audit member `{}` repeated declaration `{name}`",
-                    audit.name
-                ))));
+        for (&audit_index, audit_record) in batch.iter().zip(records) {
+            let audit = &audit_modules[audit_index];
+            if audit_record.exit_code != 0 {
+                return Err(fail(Diagnostic::new(
+                    code!("LLV7004"),
+                    format!(
+                        "axiom audit member `{}` for `{}` failed: {}{}",
+                        audit.name,
+                        audit.generated_module,
+                        audit_record.stdout.trim_end(),
+                        audit_record.stderr.trim_end()
+                    ),
+                )));
             }
+            let stage = format!("axiom audit member `{}`", audit.name);
+            require_silent(&audit_record, &stage, true).map_err(fail)?;
+            let member_observed =
+                axiom::parse_audit_output(&audit_record.stdout, &audit.declarations)
+                    .map_err(|failure| fail(audit_diagnostic(&declaration_spans, failure)))?;
+            for (name, axioms) in member_observed {
+                if observed.insert(name.clone(), axioms).is_some() {
+                    return Err(fail(internal(format!(
+                        "axiom audit member `{}` repeated declaration `{name}`",
+                        audit.name
+                    ))));
+                }
+            }
+            audit_output.push_str(&audit_record.stdout);
+            write_staged(
+                staging.path(),
+                &format!("audit/{}.process.json", audit.name),
+                &audit_record.to_json().to_file_bytes(),
+            )?;
+            process_records.push(audit_record);
         }
-        audit_output.push_str(&audit_record.stdout);
-        write_staged(
-            staging.path(),
-            &format!("audit/{}.process.json", audit.name),
-            &audit_record.to_json().to_file_bytes(),
-        )?;
-        process_records.push(audit_record);
     }
     if observed.len() != declaration_names.len() {
         return Err(fail(internal(format!(
@@ -1550,4 +1612,34 @@ pub fn reserved_module_names(semantic_id: Sha256Digest) -> (String, String) {
         format!("LexLeanProbe.P{hex32}"),
         format!("LexLeanAudit.A{hex32}"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{mpsc, Mutex};
+    use std::time::Duration;
+
+    use super::{internal, run_process_batch};
+
+    #[test]
+    fn process_batch_is_concurrent_and_result_order_is_stable() {
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Mutex::new(receiver);
+        let values = run_process_batch(&[7, 3], |item| {
+            if item == 7 {
+                receiver
+                    .lock()
+                    .map_err(|_| internal("test receiver lock was poisoned"))?
+                    .recv_timeout(Duration::from_secs(2))
+                    .map_err(|error| internal(format!("test receive: {error}")))?;
+            } else {
+                sender
+                    .send(())
+                    .map_err(|error| internal(format!("test send: {error}")))?;
+            }
+            Ok(item)
+        })
+        .expect("the independent jobs run together");
+        assert_eq!(values, vec![7, 3]);
+    }
 }
