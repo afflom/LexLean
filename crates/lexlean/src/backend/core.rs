@@ -287,7 +287,7 @@ struct Sharing {
     requirements: Vec<usize>,
 }
 
-fn sharing(core: &CoreModule) -> Sharing {
+fn sharing(core: &CoreModule, declarations: &[&CoreDeclaration]) -> Sharing {
     let mut requirements: Vec<usize> = Vec::with_capacity(core.nodes.len());
     let mut references = vec![0usize; core.nodes.len()];
     for node in &core.nodes {
@@ -322,7 +322,7 @@ fn sharing(core: &CoreModule) -> Sharing {
         };
         requirements.push(requirement);
     }
-    for declaration in &core.declarations {
+    for declaration in declarations {
         references[declaration.r#type] = references[declaration.r#type].saturating_add(1);
         if let Some(value) = declaration.value {
             references[value] = references[value].saturating_add(1);
@@ -1334,14 +1334,15 @@ pub fn render_latex(checked: &CheckedModule, core: &CoreModule) -> Result<Emitte
         "\\documentclass[11pt]{article}\n\\usepackage[T1]{fontenc}\n\\usepackage{amsmath,amssymb}\n\\usepackage[hidelinks]{hyperref}\n\\begin{document}\n\\begin{center}{\\LARGE Native core module}\\end{center}\n\\section*{Kernel-linked declarations}\n",
         "core-latex-preamble",
     );
-    let sharing = sharing(core);
+    let declarations = environment_declarations(core)?;
+    let sharing = sharing(core, &declarations);
     let printer = Printer {
         module: core,
         helpers: &sharing.closed,
         shared_open: &sharing.open,
         requirements: &sharing.requirements,
     };
-    for declaration in environment_declarations(core)? {
+    for declaration in declarations {
         let mut scope = Vec::new();
         let ty = printer.term(declaration.r#type, &mut scope)?;
         let mut text = format!(
