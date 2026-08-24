@@ -149,6 +149,9 @@ pub struct RenderedModule {
     pub module: String,
     /// The full generated Lean module name.
     pub lean_module: String,
+    /// Every declaration installed by the generated module, frozen before
+    /// foundation-sized core expression DAGs are released.
+    pub declaration_names: Vec<String>,
     /// The generated Lean text.
     pub lean_text: String,
     /// The canonical LaTeX text.
@@ -257,6 +260,20 @@ pub fn render_build(
             latex: tex_emitter.coverage_rows(),
             lean: lean_emitter.coverage_rows(),
         };
+        let mut declaration_names: Vec<String> = checked_module
+            .document
+            .declarations()
+            .into_iter()
+            .map(|declaration| format!("{lean_module}.{}", declaration.lean_name))
+            .collect();
+        if let Some(core) = &checked_module.document.core {
+            declaration_names.extend(
+                crate::backend::core::environment_declarations(core)
+                    .map_err(LexLeanError::from_diagnostic)?
+                    .into_iter()
+                    .map(|declaration| declaration.name.clone()),
+            );
+        }
         // Output coverage closure is checked mechanically before anything
         // is published (§19.6, §20.5).
         if let Err(reason) =
@@ -304,6 +321,7 @@ pub fn render_build(
         modules.push(RenderedModule {
             module: name.clone(),
             lean_module,
+            declaration_names,
             lean_text: lean_emitter.text().to_owned(),
             tex_text: tex_emitter.text().to_owned(),
             coverage,

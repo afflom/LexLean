@@ -790,20 +790,7 @@ pub fn run(
     // Stage 9 preparation: the audit module family is fixed by the build.
     let mut module_declarations: Vec<(String, Vec<String>)> = Vec::new();
     for module in &build.modules {
-        let document = &checked.modules[&module.module].document;
-        let mut names = Vec::new();
-        for declaration in document.declarations() {
-            names.push(format!("{}.{}", module.lean_module, declaration.lean_name));
-        }
-        if let Some(core) = &document.core {
-            names.extend(
-                crate::backend::core::environment_declarations(core)
-                    .map_err(fail)?
-                    .into_iter()
-                    .map(|declaration| declaration.name.clone()),
-            );
-        }
-        module_declarations.push((module.lean_module.clone(), names));
+        module_declarations.push((module.lean_module.clone(), module.declaration_names.clone()));
     }
     let audit_modules = crate::backend::lean::audit_modules(&semantic_hex32, &module_declarations);
     let mut declaration_names: Vec<String> = audit_modules
@@ -1315,8 +1302,10 @@ pub fn run(
             ]));
         }
         if let Some(core) = &document.core {
-            for declaration in crate::backend::core::environment_declarations(core).map_err(fail)? {
-                let observed_set = observed.get(&declaration.name).cloned().unwrap_or_default();
+            for declaration in &core.declarations {
+                let Some(observed_set) = observed.get(&declaration.name).cloned() else {
+                    continue;
+                };
                 if !declaration.policy.permits(&observed_set) {
                     return Err(fail(Diagnostic::new(
                         code!("LLV7005"),
