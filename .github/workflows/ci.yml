@@ -63,16 +63,28 @@ jobs:
       - name: Reserve bounded overflow memory for native Atlas
         run: |
           set -euo pipefail
-          sudo fallocate -l 6G "$RUNNER_TEMP/lexlean-atlas.swap"
+          sudo fallocate -l 4G "$RUNNER_TEMP/lexlean-atlas.swap"
           sudo chmod 600 "$RUNNER_TEMP/lexlean-atlas.swap"
           sudo mkswap "$RUNNER_TEMP/lexlean-atlas.swap"
           sudo swapon "$RUNNER_TEMP/lexlean-atlas.swap"
+          sudo sysctl vm.swappiness=10
           swapon --show
       - name: Run the normative acceptance gate
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ci-evidence
+          monitor_resources() {
+            while true; do
+              date -u +'%Y-%m-%dT%H:%M:%SZ'
+              free -m
+              df -h "$RUNNER_TEMP"
+              sleep 60
+            done
+          }
+          monitor_resources > >(tee ci-evidence/resources.txt) &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true; wait "$monitor_pid" 2>/dev/null || true' EXIT
           just vv 2>&1 | tee ci-evidence/vv.txt
       # The example gate discovers Atlas rather than receiving an allow-list.
       # These assertions make its complete proof run visible as first-class CI
@@ -86,8 +98,8 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
-          name: acceptance-gate-log
-          path: ci-evidence/vv.txt
+          name: acceptance-gate-evidence
+          path: ci-evidence
           if-no-files-found: error
           retention-days: 14
 

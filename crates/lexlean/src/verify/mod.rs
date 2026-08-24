@@ -705,10 +705,12 @@ fn require_silent(
     Ok(())
 }
 
-/// Independent proof processes run two at a time. The fixed width keeps
-/// invocation behavior reproducible while using more than one core, and it
-/// bounds the number of simultaneously resident Lean environments.
-const PROCESS_WIDTH: usize = 2;
+/// Proof processes run one at a time. A single Atlas environment approaches
+/// the memory available on the normative GitHub runner; overlapping two made
+/// the hosted runner lose its control-plane heartbeat while swapping. Lean is
+/// still free to use its own internal parallelism, while this fixed outer
+/// width makes the verifier's peak resident set bounded and reproducible.
+const PROCESS_WIDTH: usize = 1;
 
 /// Run one deterministic batch of independent verification processes. All
 /// workers are joined before an error is returned so no child can outlive a

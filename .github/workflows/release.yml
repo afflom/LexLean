@@ -104,10 +104,11 @@ jobs:
       - name: Reserve bounded overflow memory for native Atlas
         run: |
           set -euo pipefail
-          sudo fallocate -l 6G "$RUNNER_TEMP/lexlean-atlas.swap"
+          sudo fallocate -l 4G "$RUNNER_TEMP/lexlean-atlas.swap"
           sudo chmod 600 "$RUNNER_TEMP/lexlean-atlas.swap"
           sudo mkswap "$RUNNER_TEMP/lexlean-atlas.swap"
           sudo swapon "$RUNNER_TEMP/lexlean-atlas.swap"
+          sudo sysctl vm.swappiness=10
           swapon --show
       - name: just vv
         run: |
