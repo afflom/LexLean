@@ -984,7 +984,7 @@ statement = "Every generated module is replayed by a separate leanchecker proces
 id = "VR-09"
 level = "build"
 suite = "verification"
-statement = "The reserved audit module family audits one generated module per process and prints axioms for every generated declaration exactly once."
+statement = "The reserved audit module family audits one generated module per process and prints axioms for every declaration in its native Lean environment exactly once."
 
 [[id]]
 id = "VR-10"

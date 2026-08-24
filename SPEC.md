@@ -2180,13 +2180,23 @@ declaration nodes to `max_ir_nodes` and contributes its normalized source,
 decoded semantic value, and policy data to the project identities.
 
 Both backends traverse this same linked value. The LaTeX backend renders the
-declaration names, exact types, and definition or proof terms as a canonical
-human-readable core document. The Lean backend reconstructs `Lean.Expr` and
-`Lean.Declaration` values and submits every declaration through Lean's checked
-declaration API; generated inductive auxiliaries may be submitted only once
-but remain named rows in the IR and in the verification audit. Generated Lean
-may import only the foundational modules listed in the core data and may not
-import a migration oracle that defines the declarations being generated.
+native-environment declaration names, exact types, and definition or proof
+terms as a canonical human-readable core document. The Lean backend
+reconstructs `Lean.Expr` and `Lean.Declaration` values and submits every native
+environment declaration through Lean's checked declaration API; generated
+inductive auxiliaries may be submitted only once but remain named rows in the
+IR and in the verification audit.
+
+A lossless environment import may retain a source compiler's private
+self-recursive implementation record with `generated = true`. Such a record
+is not a safe kernel declaration that the native backend can recreate. It is
+accepted only when no native-environment declaration refers to it; it remains
+hashed import provenance and appears in neither generated backend nor the
+axiom audit. Any other generated row without a native owner is rejected. This
+classification is generic and structural: it is not selected by an Atlas
+name, module, or feature. Generated Lean may import only the foundational
+modules listed in the core data and may not import a migration oracle that
+defines the declarations being generated.
 
 This form exists for lossless migration of already elaborated formal
 libraries. A migration oracle is evidence for byte-exact conversion, not an
@@ -2342,10 +2352,10 @@ generated module and emits one:
 #print axioms <fully-qualified-declaration-name>
 ```
 
-for every definition and theorem-like declaration owned by that generated
-module, in sorted fully qualified name order. Thus each generated declaration
-is audited exactly once, while no audit process reconstructs the entire
-generated environment as new declarations.
+for every declaration installed in that generated module's native Lean
+environment, in sorted fully qualified name order. Thus each declaration
+present in the generated environment is audited exactly once, while no audit
+process reconstructs the entire generated environment as new declarations.
 
 An audit member contains no other command and no comments. Every member source
 and normalized process record, plus the concatenated normalized output in
@@ -2650,8 +2660,8 @@ project_schema = "lexlean/project/1"
 lock_schema = "lexlean/lock/1"
 lexicon_schema = "lexlean/lexicon/1"
 entry_schema = "lexlean/entry/1"
-lean_backend = "2"
-latex_backend = "1"
+lean_backend = "3"
+latex_backend = "2"
 proof_lowering = "1"
 axiom_parser = "lean-4.32.1/1"
 canonical_json = "1"
@@ -4066,7 +4076,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `VR-06` | `verification` | Verification neither requests nor includes ilean artifacts. | §22.3 |
 | `VR-07` | `verification` | A Lean warning, unknown informational message, overflow, or missing output fails verification. | §20.2, §22.3 |
 | `VR-08` | `verification` | Every generated module is replayed by a separate leanchecker process and every replay must succeed. | §22.4 |
-| `VR-09` | `verification` | The reserved audit module family audits one generated module per process and prints axioms for every generated declaration exactly once. | §18.9 |
+| `VR-09` | `verification` | The reserved audit module family audits one generated module per process and prints axioms for every declaration in its native Lean environment exactly once. | §18.9 |
 | `VR-10` | `verification` | The axiom parser accepts only the pinned exact output forms and rejects missing, duplicate, extra, or malformed records. | §22.5 |
 | `VR-11` | `verification` | None, allow-subset, and exact axiom policies are enforced exactly and recorded per declaration. | §22.6 |
 | `VR-12` | `verification` | Child process output is normalized with the exact path and line rules before hashing. | §22.7 |

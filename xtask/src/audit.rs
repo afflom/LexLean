@@ -460,7 +460,11 @@ pub fn audit_atlas_registers(root: &Path) -> Result<(), Fail> {
     let mut declared: BTreeMap<String, String> = BTreeMap::new();
     let mut lookalike: Vec<String> = Vec::new();
     for module in &cores {
-        for declaration in &module.core.declarations {
+        for declaration in
+            lexlean::backend::core::environment_declarations(&module.core).map_err(|error| {
+                Fail::from(format!("R4: {}: {}", module.path.display(), error.message))
+            })?
+        {
             let name = declaration
                 .name
                 .rsplit('.')
@@ -557,7 +561,14 @@ pub fn audit_atlas_denotations(root: &Path) -> Result<(), Fail> {
     let cores = atlas_source_cores(root)?;
     let declared: BTreeSet<String> = cores
         .iter()
-        .flat_map(|module| module.core.declarations.iter())
+        .map(|module| {
+            lexlean::backend::core::environment_declarations(&module.core).map_err(|error| {
+                Fail::from(format!("R4: {}: {}", module.path.display(), error.message))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
         .map(|declaration| declaration.name.clone())
         .collect();
 
@@ -826,7 +837,11 @@ pub fn audit_atlas_exercise(root: &Path) -> Result<(), Fail> {
             )));
         }
         let proof_nodes: BTreeSet<usize> = module.core.proof_nodes.iter().copied().collect();
-        for declaration in &module.core.declarations {
+        for declaration in
+            lexlean::backend::core::environment_declarations(&module.core).map_err(|error| {
+                Fail::from(format!("R4: {}: {}", module.path.display(), error.message))
+            })?
+        {
             if let Some(first) =
                 declarations.insert(declaration.name.clone(), module.path.display().to_string())
             {

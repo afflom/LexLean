@@ -293,7 +293,7 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `VR-06` | `build` | Verification neither requests nor includes ilean artifacts. |
 | `VR-07` | `build` | A Lean warning, unknown informational message, overflow, or missing output fails verification. |
 | `VR-08` | `build` | Every generated module is replayed by a separate leanchecker process and every replay must succeed. |
-| `VR-09` | `build` | The reserved audit module family audits one generated module per process and prints axioms for every generated declaration exactly once. |
+| `VR-09` | `build` | The reserved audit module family audits one generated module per process and prints axioms for every declaration in its native Lean environment exactly once. |
 | `VR-10` | `build` | The axiom parser accepts only the pinned exact output forms and rejects missing, duplicate, extra, or malformed records. |
 | `VR-11` | `build` | None, allow-subset, and exact axiom policies are enforced exactly and recorded per declaration. |
 | `VR-12` | `build` | Child process output is normalized with the exact path and line rules before hashing. |

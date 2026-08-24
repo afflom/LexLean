@@ -60,7 +60,7 @@ Feature: verification
     Then lexlean verify fails with LLV7003
 
   @VR-09 @build
-  Scenario: The reserved audit module family audits one generated module per process and prints axioms for every generated declaration exactly once.
+  Scenario: The reserved audit module family audits one generated module per process and prints axioms for every declaration in its native Lean environment exactly once.
     Given the audit/ directory of the verified nat-add-zero example
     When the reserved audit .lean members are read
     Then together they contain exactly one `#print axioms` directive

@@ -797,8 +797,9 @@ pub fn run(
         }
         if let Some(core) = &document.core {
             names.extend(
-                core.declarations
-                    .iter()
+                crate::backend::core::environment_declarations(core)
+                    .map_err(fail)?
+                    .into_iter()
                     .map(|declaration| declaration.name.clone()),
             );
         }
@@ -1314,7 +1315,7 @@ pub fn run(
             ]));
         }
         if let Some(core) = &document.core {
-            for declaration in &core.declarations {
+            for declaration in crate::backend::core::environment_declarations(core).map_err(fail)? {
                 let observed_set = observed.get(&declaration.name).cloned().unwrap_or_default();
                 if !declaration.policy.permits(&observed_set) {
                     return Err(fail(Diagnostic::new(

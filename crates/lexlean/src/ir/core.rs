@@ -345,9 +345,11 @@ pub struct CoreDeclaration {
     /// Instance-extension metadata, when registered as an instance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance: Option<CoreInstance>,
-    /// Whether the matching inductive/structure command creates this
-    /// declaration.  Such rows remain in the IR and audit, but are not emitted
-    /// twice.
+    /// Whether the source compiler generated this environment row. An
+    /// inductive-owned row is recreated by its owner and audited in the native
+    /// environment. A self-recursive definition that no native declaration
+    /// references is retained as import provenance, but is not a safe native
+    /// declaration and therefore appears in neither generated backend.
     #[serde(default)]
     pub generated: bool,
 }

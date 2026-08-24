@@ -573,10 +573,79 @@ fn generated_owners(core: &CoreModule) -> BTreeMap<String, String> {
     owners
 }
 
-fn emission_order(core: &CoreModule) -> Result<Vec<&CoreDeclaration>, Diagnostic> {
-    let emitted: BTreeMap<&str, &CoreDeclaration> = core
+/// The declaration rows that the native backend installs in Lean's
+/// environment.  An inductive command installs its generated auxiliaries;
+/// ordinary rows are submitted explicitly.  A source compiler may also leave
+/// a self-recursive implementation record in an imported environment.  Such
+/// a record cannot be submitted through Lean's safe checked declaration API,
+/// and is admissible here only when no installed declaration refers to it.
+///
+/// # Errors
+///
+/// Returns an internal diagnostic if a generated row has neither a native
+/// owner nor the closed, unreferenced shape required of an implementation
+/// record.
+pub fn environment_declarations(core: &CoreModule) -> Result<Vec<&CoreDeclaration>, Diagnostic> {
+    let owners = generated_owners(core);
+    let implementation_records: BTreeMap<&str, &CoreDeclaration> = core
         .declarations
         .iter()
+        .filter(|row| row.generated && !owners.contains_key(&row.name))
+        .map(|row| (row.name.as_str(), row))
+        .collect();
+
+    for (name, declaration) in &implementation_records {
+        if !matches!(declaration.kind, CoreDeclKind::Definition)
+            || !declaration
+                .value
+                .is_some_and(|value| constants_in(core, [value]).contains(*name))
+        {
+            return Err(internal(format!(
+                "generated declaration `{name}` has no native owner and is not a self-recursive implementation record"
+            )));
+        }
+    }
+
+    let environment: Vec<&CoreDeclaration> = core
+        .declarations
+        .iter()
+        .filter(|row| !row.generated || owners.contains_key(&row.name))
+        .collect();
+    if environment.is_empty() {
+        return Err(internal(
+            "a core module has no declaration that can enter the native environment",
+        ));
+    }
+    for declaration in &environment {
+        let mut roots = vec![declaration.r#type];
+        if let Some(value) = declaration.value {
+            roots.push(value);
+        }
+        if let Some(structure) = declaration
+            .inductive
+            .as_ref()
+            .and_then(|inductive| inductive.structure.as_ref())
+        {
+            roots.extend(structure.fields.iter().filter_map(|field| field.auto_param));
+        }
+        if let Some(name) = constants_in(core, roots)
+            .iter()
+            .find(|name| implementation_records.contains_key(name.as_str()))
+        {
+            return Err(internal(format!(
+                "native declaration `{}` refers to generated implementation record `{name}`",
+                declaration.name
+            )));
+        }
+    }
+    Ok(environment)
+}
+
+fn emission_order(core: &CoreModule) -> Result<Vec<&CoreDeclaration>, Diagnostic> {
+    let environment = environment_declarations(core)?;
+    let emitted: BTreeMap<&str, &CoreDeclaration> = environment
+        .iter()
+        .copied()
         .filter(|row| !row.generated)
         .map(|row| (row.name.as_str(), row))
         .collect();
@@ -993,7 +1062,6 @@ fn core_chunk(
     core: &CoreModule,
     emitted: &[&CoreDeclaration],
     owners: &BTreeMap<String, String>,
-    include_unowned_generated: bool,
 ) -> Result<CoreChunk, Diagnostic> {
     let emitted_names: BTreeSet<&str> = emitted
         .iter()
@@ -1008,7 +1076,6 @@ fn core_chunk(
                 owners
                     .get(&declaration.name)
                     .is_some_and(|owner| emitted_names.contains(owner.as_str()))
-                    || (include_unowned_generated && !owners.contains_key(&declaration.name))
             } else {
                 emitted_names.contains(declaration.name.as_str())
             };
@@ -1109,43 +1176,23 @@ fn core_command_ranges(
         order: &[&CoreDeclaration],
         owners: &BTreeMap<String, String>,
         range: std::ops::Range<usize>,
-        include_unowned_generated: bool,
         out: &mut Vec<std::ops::Range<usize>>,
     ) -> Result<(), Diagnostic> {
-        let chunk = core_chunk(
-            core,
-            &order[range.clone()],
-            owners,
-            include_unowned_generated,
-        )?;
+        let chunk = core_chunk(core, &order[range.clone()], owners)?;
         if chunk.nodes.len() <= CORE_NODES_PER_COMMAND || range.len() == 1 {
             out.push(range);
             return Ok(());
         }
         let middle = range.start + range.len() / 2;
-        split(core, order, owners, range.start..middle, false, out)?;
-        split(
-            core,
-            order,
-            owners,
-            middle..range.end,
-            include_unowned_generated,
-            out,
-        )
+        split(core, order, owners, range.start..middle, out)?;
+        split(core, order, owners, middle..range.end, out)
     }
 
     let mut ranges = Vec::new();
     let mut start = 0;
     while start < order.len() {
         let end = (start + CORE_DECLARATIONS_PER_COMMAND).min(order.len());
-        split(
-            core,
-            order,
-            owners,
-            start..end,
-            end == order.len(),
-            &mut ranges,
-        )?;
+        split(core, order, owners, start..end, &mut ranges)?;
         start = end;
     }
     Ok(ranges)
@@ -1223,8 +1270,9 @@ fn append_core_command(
 
 /// Render a native core module as Lean.  The emitted command reconstructs
 /// semantic `Expr` and `Declaration` values, and `Lean.addDecl` submits every
-/// declaration to the kernel checker.  No backend text or unchecked
-/// environment mutation is accepted by this path.
+/// native environment declaration to the kernel checker. Owner-generated
+/// auxiliaries are installed with their inductive declaration. No backend
+/// text or unchecked environment mutation is accepted by this path.
 pub fn render_lean(checked: &CheckedModule, core: &CoreModule) -> Result<Emitter, Diagnostic> {
     let mut emitter = Emitter::new();
     let node = emitter.node("core-lean-kernel-module");
@@ -1239,13 +1287,8 @@ pub fn render_lean(checked: &CheckedModule, core: &CoreModule) -> Result<Emitter
     let order = emission_order(core)?;
     let owners = generated_owners(core);
     let ranges = core_command_ranges(core, &order, &owners)?;
-    for (index, range) in ranges.iter().enumerate() {
-        let chunk = core_chunk(
-            core,
-            &order[range.clone()],
-            &owners,
-            index + 1 == ranges.len(),
-        )?;
+    for range in &ranges {
+        let chunk = core_chunk(core, &order[range.clone()], &owners)?;
         append_core_command(&mut text, core, &chunk)?;
     }
     emit_chunk(
@@ -1298,7 +1341,7 @@ pub fn render_latex(checked: &CheckedModule, core: &CoreModule) -> Result<Emitte
         shared_open: &sharing.open,
         requirements: &sharing.requirements,
     };
-    for declaration in &core.declarations {
+    for declaration in environment_declarations(core)? {
         let mut scope = Vec::new();
         let ty = printer.term(declaration.r#type, &mut scope)?;
         let mut text = format!(
@@ -1333,4 +1376,97 @@ pub fn render_latex(checked: &CheckedModule, core: &CoreModule) -> Result<Emitte
         "core-latex-preamble",
     );
     Ok(emitter)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::core::{CoreAxiomPolicy, CoreInductive, CoreReducibility, CoreTransparency};
+
+    fn declaration(name: &str, kind: CoreDeclKind, generated: bool) -> CoreDeclaration {
+        CoreDeclaration {
+            name: name.to_owned(),
+            levels: Vec::new(),
+            kind,
+            reducibility: matches!(kind, CoreDeclKind::Definition)
+                .then_some(CoreReducibility::Opaque),
+            transparency: CoreTransparency::Semireducible,
+            policy: CoreAxiomPolicy::None,
+            r#type: 0,
+            value: match kind {
+                CoreDeclKind::Definition => Some(1),
+                CoreDeclKind::Theorem => Some(0),
+                CoreDeclKind::Abbrev
+                | CoreDeclKind::Inductive
+                | CoreDeclKind::Constructor
+                | CoreDeclKind::Recursor => None,
+            },
+            inductive: None,
+            class: false,
+            instance: None,
+            generated,
+        }
+    }
+
+    fn fixture() -> CoreModule {
+        let mut inductive = declaration("Fixture.Tree", CoreDeclKind::Inductive, false);
+        inductive.value = None;
+        inductive.inductive = Some(CoreInductive {
+            num_params: 0,
+            num_indices: 0,
+            constructors: vec!["Fixture.Tree.leaf".to_owned()],
+            structure: None,
+        });
+        CoreModule {
+            spec: "lexlean/core-module/1".to_owned(),
+            imports: vec!["Init".to_owned()],
+            nodes: vec![
+                CoreNode::Const {
+                    n: "True".to_owned(),
+                    u: Vec::new(),
+                },
+                CoreNode::Const {
+                    n: "Fixture.compilerImpl".to_owned(),
+                    u: Vec::new(),
+                },
+            ],
+            proof_nodes: Vec::new(),
+            declarations: vec![
+                inductive,
+                declaration("Fixture.Tree.leaf", CoreDeclKind::Constructor, true),
+                declaration("Fixture.truth", CoreDeclKind::Theorem, false),
+                declaration("Fixture.compilerImpl", CoreDeclKind::Definition, true),
+            ],
+        }
+    }
+
+    #[test]
+    fn native_environment_excludes_only_closed_implementation_records() {
+        let core = fixture();
+        let names: Vec<&str> = environment_declarations(&core)
+            .expect("well-classified declarations")
+            .iter()
+            .map(|row| row.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["Fixture.Tree", "Fixture.Tree.leaf", "Fixture.truth"]
+        );
+    }
+
+    #[test]
+    fn native_environment_rejects_a_live_reference_to_an_implementation_record() {
+        let mut core = fixture();
+        core.declarations[2].value = Some(1);
+        let error = environment_declarations(&core).expect_err("live reference is rejected");
+        assert!(error.message.contains("Fixture.compilerImpl"));
+    }
+
+    #[test]
+    fn native_environment_rejects_an_unowned_generated_declaration() {
+        let mut core = fixture();
+        core.declarations[3].value = Some(0);
+        let error = environment_declarations(&core).expect_err("unowned generated row is rejected");
+        assert!(error.message.contains("no native owner"));
+    }
 }
