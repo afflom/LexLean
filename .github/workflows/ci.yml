@@ -21,8 +21,9 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Read-only: nothing in this workflow writes to the repository, publishes a
-# package, or mints an artifact. `release.yml` asks for what it needs there.
+# Read-only: nothing in this workflow writes to the repository or publishes a
+# package. The acceptance log is retained as CI evidence; `release.yml` asks
+# separately for the artifacts it owns.
 permissions:
   contents: read
 
@@ -67,81 +68,28 @@ jobs:
           sudo mkswap "$RUNNER_TEMP/lexlean-atlas.swap"
           sudo swapon "$RUNNER_TEMP/lexlean-atlas.swap"
           swapon --show
-      - run: just vv
-
-  # Atlas is LexLean's foundation model, not an incidental example hidden in
-  # the aggregate gate. This job runs the same discovered-example verifier in
-  # write mode so CI can publish the normalized evidence even when a migration
-  # legitimately changes it; the final diff check keeps the job red until that
-  # evidence has been reviewed and committed.
-  native-atlas:
-    name: native Atlas (66-module proof evidence)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 360
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install the pinned Rust toolchain
-        run: rustup toolchain install
-      - name: Install elan and the pinned Lean toolchain
-        run: |
-          set -euo pipefail
-          curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
-          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-          "$HOME/.elan/bin/elan" toolchain install "$(cat lean-toolchain)"
-      - name: Reserve bounded overflow memory for native Atlas
-        run: |
-          set -euo pipefail
-          sudo fallocate -l 8G "$RUNNER_TEMP/lexlean-atlas.swap"
-          sudo chmod 600 "$RUNNER_TEMP/lexlean-atlas.swap"
-          sudo mkswap "$RUNNER_TEMP/lexlean-atlas.swap"
-          sudo swapon "$RUNNER_TEMP/lexlean-atlas.swap"
-          swapon --show
-      - id: atlas
-        name: Audit and verify the complete native Atlas graph
-        run: |
-          set -euo pipefail
-          mkdir -p ci-evidence
-          {
-            echo "repository ${GITHUB_REPOSITORY}"
-            echo "commit ${GITHUB_SHA}"
-            echo "run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo "host $(uname -srm)"
-            echo "rustc $(rustc --version)"
-            echo "lean $(lean --version)"
-            echo
-          } > ci-evidence/native-atlas.txt
-          cargo xtask validate-model 2>&1 | tee -a ci-evidence/native-atlas.txt
-          cargo xtask verify-examples --write 2>&1 | tee -a ci-evidence/native-atlas.txt
-      - name: Assert complete modular Atlas evidence
+      - name: Run the normative acceptance gate
         shell: bash
         run: |
           set -euo pipefail
-          evidence="examples/uor-atlas/expected/verify"
-          test "$(find "$evidence/process/lean" -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 66
-          test "$(find "$evidence/process/leanchecker" -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 66
-          test "$(find "$evidence/audit" -maxdepth 1 -type f -name '*.lean' | wc -l)" -eq 66
-          test "$(find "$evidence/audit" -maxdepth 1 -type f -name '*.process.json' | wc -l)" -eq 66
-          test "$(wc -l < "$evidence/audit/output.txt")" -eq 5577
-          test -f "$evidence/process/lean/LexLeanExample.Atlas.json"
-          test -f "$evidence/process/leanchecker/LexLeanExample.Atlas.json"
-          test ! -e "$evidence/process/lean/LexLeanExample.Labels.json"
-          test ! -e "$evidence/process/lean/LexLeanExample.Main.json"
-          echo "native Atlas: 66 elaborations, 66 kernel replays, 66 axiom-audit members, 5577 audited declarations"
+          mkdir -p ci-evidence
+          just vv 2>&1 | tee ci-evidence/vv.txt
+      # The example gate discovers Atlas rather than receiving an allow-list.
+      # These assertions make its complete proof run visible as first-class CI
+      # evidence without running the expensive verifier a second time.
+      - name: Assert native Atlas was verified by the acceptance gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F "verify-examples: uor-atlas verified (attestation " ci-evidence/vv.txt
+          grep -F "verify-examples: uor-atlas: 267 normalized verification records equal expected/verify (§29.5)" ci-evidence/vv.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
-          name: native-atlas-log
-          path: ci-evidence/native-atlas.txt
+          name: acceptance-gate-log
+          path: ci-evidence/vv.txt
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: native-atlas-normalized-evidence
-          path: examples/uor-atlas/expected/verify
-          if-no-files-found: error
-          retention-days: 14
-      - name: Normalized Atlas evidence is committed
-        run: git diff --exit-code -- examples/uor-atlas/expected/verify
 
   # §8.3: the crate builds and its non-Lean tests pass on every supported
   # host. This job installs no Lean toolchain on purpose — that is the
