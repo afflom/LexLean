@@ -747,25 +747,6 @@ impl<'a> CanonicalSyntax<'a> {
     }
 }
 
-#[cfg(test)]
-mod canonical_syntax_tests {
-    use super::CanonicalSyntax;
-
-    #[test]
-    fn canonical_json_is_checked_without_a_value_tree() {
-        assert!(CanonicalSyntax::check(br#"{"a":[0,true,"x\n"],"b":-2}"#).is_ok());
-        for rejected in [
-            br#"{"b":0,"a":0}"#.as_slice(),
-            br#"{"a": 0}"#.as_slice(),
-            br#"{"a":"\u0061"}"#.as_slice(),
-            br#"{"a":-0}"#.as_slice(),
-            br#"{"a":null}"#.as_slice(),
-        ] {
-            assert!(CanonicalSyntax::check(rejected).is_err());
-        }
-    }
-}
-
 fn validate_segment(segment: &str) -> Result<(), String> {
     let mut chars = segment.chars();
     let Some(first) = chars.next() else {
@@ -789,4 +770,23 @@ fn validate_name(name: &str) -> Result<(), String> {
         validate_segment(segment)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod canonical_syntax_tests {
+    use super::CanonicalSyntax;
+
+    #[test]
+    fn canonical_json_is_checked_without_a_value_tree() {
+        assert!(CanonicalSyntax::check(br#"{"a":[0,true,"x\n"],"b":-2}"#).is_ok());
+        for rejected in [
+            br#"{"b":0,"a":0}"#.as_slice(),
+            br#"{"a": 0}"#.as_slice(),
+            br#"{"a":"\u0061"}"#.as_slice(),
+            br#"{"a":-0}"#.as_slice(),
+            br#"{"a":null}"#.as_slice(),
+        ] {
+            assert!(CanonicalSyntax::check(rejected).is_err());
+        }
+    }
 }
