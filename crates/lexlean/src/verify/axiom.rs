@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
-use crate::lexicon::entry::is_lean_name;
+use crate::ir::core::is_closed_lean_name;
 
 /// One rejection of the audit output (SPEC.md §22.5), with the expected
 /// declaration it is about when the parser can attribute it to exactly
@@ -62,23 +62,25 @@ fn parse_payload(payload: &str) -> Result<(String, Vec<String>), AuditFailure> {
     let rest = payload
         .strip_prefix('\'')
         .ok_or_else(|| malformed(format!("unrecognized axiom payload: {payload}")))?;
-    let (name, tail) = rest
-        .split_once('\'')
-        .ok_or_else(|| malformed(format!("unrecognized axiom payload: {payload}")))?;
-    if !is_lean_name(name) {
+    let (name, list) = if let Some(name) = rest.strip_suffix("' does not depend on any axioms") {
+        (name, None)
+    } else {
+        let (name, list) = rest
+            .strip_suffix(']')
+            .and_then(|body| body.rsplit_once("' depends on axioms: ["))
+            .ok_or_else(|| malformed(format!("unrecognized axiom payload: {payload}")))?;
+        (name, Some(list))
+    };
+    if !is_closed_lean_name(name) {
         return Err(malformed(format!("`{name}` is not a Lean name")));
     }
-    if tail == " does not depend on any axioms" {
+    let Some(list) = list else {
         return Ok((name.to_owned(), Vec::new()));
-    }
-    let list = tail
-        .strip_prefix(" depends on axioms: [")
-        .and_then(|inner| inner.strip_suffix(']'))
-        .ok_or_else(|| malformed(format!("unrecognized axiom payload: {payload}")))?;
+    };
     let mut axioms = Vec::new();
     for piece in list.split(',') {
         let axiom = piece.trim();
-        if !is_lean_name(axiom) {
+        if !is_closed_lean_name(axiom) {
             return Err(malformed(format!("`{axiom}` is not a Lean name")));
         }
         if axioms.contains(&axiom.to_owned()) {
@@ -168,10 +170,11 @@ pub fn parse_audit_output(
         // end mid-record; either is a malformed audit output.
         let mut payload = first.trim_end().to_owned();
         while !payload_terminates(&payload) {
-            let continuation = lines
-                .next()
-                .map(str::trim)
-                .filter(|continuation| !continuation.is_empty() && !continuation.contains('\''));
+            let continuation = lines.next().and_then(|line| {
+                line.starts_with(char::is_whitespace)
+                    .then(|| line.trim())
+                    .filter(|continuation| !continuation.is_empty())
+            });
             let Some(continuation) = continuation else {
                 return Err(
                     malformed(format!("unterminated axiom payload: {payload}")).about(about)

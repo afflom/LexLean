@@ -4,10 +4,16 @@ use lexlean::{Selection, VerifyRequest};
 
 use crate::support::{self, P};
 
-/// The names between the first pair of single quotes on an audit line.
+/// The declaration name before either exact axiom-payload suffix.
 fn quoted_name(line: &str) -> String {
-    line.split('\'')
-        .nth(1)
+    let payload = line.split("info: ").last().unwrap_or(line);
+    let body = payload.strip_prefix('\'').unwrap_or(payload);
+    body.strip_suffix("' does not depend on any axioms")
+        .or_else(|| {
+            body.strip_suffix(']')
+                .and_then(|body| body.rsplit_once("' depends on axioms: ["))
+                .map(|(name, _)| name)
+        })
         .unwrap_or("Demo.M.unknown")
         .to_owned()
 }

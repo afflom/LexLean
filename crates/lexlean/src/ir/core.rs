@@ -774,6 +774,12 @@ fn validate_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether `name` belongs to the closed ASCII Lean-name grammar used by
+/// native core declarations, references, and axiom policies.
+pub(crate) fn is_closed_lean_name(name: &str) -> bool {
+    validate_name(name).is_ok()
+}
+
 #[cfg(test)]
 mod canonical_syntax_tests {
     use super::CanonicalSyntax;

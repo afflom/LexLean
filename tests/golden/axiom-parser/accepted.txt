@@ -5,3 +5,4 @@
 info: 'Demo.M.guarded' does not depend on any axioms
 $STAGING/audit/A.lean:3:0: info: 'Demo.M.enveloped' does not depend on any axioms
 $STAGING/audit/A.lean:3:0-3:14: info: 'Demo.M.ranged' depends on axioms: [propext]
+'UorAtlas.Prelude.Linear.Vec.sum_ite_eq'' depends on axioms: [propext]

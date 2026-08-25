@@ -154,8 +154,14 @@ fn axiom_parser_matches_the_golden_vectors() {
     // there in both layouts and the packaged crate tests itself.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
     let name_of = |line: &str| {
-        line.split('\'')
-            .nth(1)
+        let payload = line.split("info: ").last().unwrap_or(line);
+        let body = payload.strip_prefix('\'').unwrap_or(payload);
+        body.strip_suffix("' does not depend on any axioms")
+            .or_else(|| {
+                body.strip_suffix(']')
+                    .and_then(|body| body.rsplit_once("' depends on axioms: ["))
+                    .map(|(name, _)| name)
+            })
             .unwrap_or("Demo.M.unknown")
             .to_owned()
     };
