@@ -56,7 +56,8 @@ the repository.
   generic `Lean` support module, and contains no independently authored Atlas
   implementation.
   `S43` is authoritatively the proved integer-uniqueness statement.
-  `SM-15` brings the register to 211 IDs, all implemented at level `build`.
+  `SM-15` and `VR-19` bring the register to 211 IDs, all implemented at level
+  `build`.
 
 ### Changed
 
@@ -89,7 +90,7 @@ The initial implementation of `LEXLEAN-SPEC-1`.
 
 ### Implemented
 
-All 210 conformance IDs of SPEC.md §31 are implemented at honesty level
+All 209 conformance IDs of SPEC.md §31 are implemented at honesty level
 `build`: constructed in this repository and validated against an oracle by the
 test named `conformance_<id>`. [CONFORMANCE.md](CONFORMANCE.md) is the
 generated register, [ERRORS.md](ERRORS.md) the closed diagnostic registry, and
