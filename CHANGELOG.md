@@ -58,9 +58,11 @@ the repository.
 
 ### Changed
 
-- The compiler-semantics ID changes because the accepted language data changed;
-  every committed lock and verification record is regenerated against the
-  final v0.1.1 identity.
+- The compiler-semantics ID moves from
+  `fa171c7a2d78cf17e6cb49bbec5c1eed8bee20033472b1953211104068589ba7` to
+  `95deb33a8d416d7bf60f02a36e251a71c3ee6f046b7e475d7bae2fc5ddc3767d`:
+  the accepted language changed, so §30.1 requires a new ID. Every committed
+  lock and verification record is regenerated against it.
 - The four 0.1.0 examples still format byte-identically and generate
   byte-identical Lean and LaTeX modules; their source maps and manifests
   differ only in the source and semantic digests those artifacts embed. No
