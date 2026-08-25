@@ -49,10 +49,12 @@ the repository.
   classes with `atlas-level-conflation`, rejected by `LLR3005`: a native Atlas
   document declaration cannot be consumed as an external glossary atom.
 - `examples/uor-atlas/src/Atlas.lex.tex` is the single native semantic and
-  proof source for 5,577 Atlas and supporting declarations. Both backends
-  traverse that closed DAG, generated Lean publicly imports only `Init` and
-  generated Atlas modules, privately imports only the generic `Lean` support
-  module, and contains no independently authored Atlas implementation.
+  proof source for 5,519 environment declarations; 58 private source-compiler
+  implementation records remain hashed provenance and are emitted by neither
+  backend. Both backends traverse that closed DAG, generated Lean publicly
+  imports only `Init` and generated Atlas modules, privately imports only the
+  generic `Lean` support module, and contains no independently authored Atlas
+  implementation.
   `S43` is authoritatively the proved integer-uniqueness statement.
   `SM-15` brings the register to 211 IDs, all implemented at level `build`.
 
@@ -72,7 +74,7 @@ the repository.
 
 - This is not a §30 release. `cargo xtask release-check` refuses at `0.1.1`,
   and the release criterion is met only at `1.0.0`.
-- The Atlas library's verification status is a `build` claim: it elaborates,
+- The native Atlas graph's verification status is a `build` claim: it elaborates,
   replays, and reports no axiom outside Lean's own. The mathematical content
   is the specification's, cited at `some-true`, and the Lean kernel and
   elaborator beneath it are cited, not verified; the honest claim is that the

@@ -154,7 +154,7 @@ The same gate refuses two native declarations whose final segment is the same li
 gate failed: R4: `T5` is declared as both `UorAtlas.Roots.T5` and `UorAtlas.Planted.T5` in the native Atlas source; one label has one declaration
 ```
 
-Removed: the source bytes were restored from the oracle export; the audit reports every live label rooted in the native Atlas source, including `S37`, `S38`, and the corrected integer statement `S43`.
+Removed: the source bytes were restored; the audit reports every live label rooted in the native Atlas source, including `S37`, `S38`, and the corrected integer statement `S43`.
 
 ### audit-authority-scope can fail
 
