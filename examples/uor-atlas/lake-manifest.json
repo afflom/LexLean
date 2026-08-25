@@ -1,6 +1,6 @@
 {"version": "1.2.0",
  "packagesDir": ".lake/packages",
  "packages": [],
- "name": "uor_atlas_host",
+ "name": "lexlean_atlas_host",
  "lakeDir": ".lake",
  "fixedToolchain": false}

@@ -1,6 +1,6 @@
-name = "uor_atlas_host"
+name = "lexlean_atlas_host"
 version = "0.1.0"
-defaultTargets = ["UorAtlasHost"]
+defaultTargets = ["LexLeanAtlasHost"]
 
 [[lean_lib]]
-name = "UorAtlasHost"
+name = "LexLeanAtlasHost"

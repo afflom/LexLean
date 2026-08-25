@@ -338,42 +338,6 @@ fn audit_with_options(
     Ok(())
 }
 
-/// Audit one hand-written module of the Atlas migration oracle, which forbids
-/// `sorry`, `admit`, an author-declared `axiom`,
-/// `opaque`, `unsafe`, and `native_decide` anywhere in the library).
-///
-/// It shares [`forbidden_words`] with [`audit`] so the two spellings cannot
-/// drift, but it deliberately admits comments and string literals: §18.2
-/// forbids those in *generated* Lean because nothing generates them, while
-/// a library that documents itself is exactly what AGENTS.md asks for.
-///
-/// # Errors
-/// Returns the offending token when the module names a forbidden word, or
-/// the lexing failure when the module is not lexable Lean.
-pub fn audit_library(text: &str) -> Result<(), String> {
-    let tokens = lex(text).map_err(|error| {
-        format!(
-            "unterminated {} at byte {} in the Atlas migration oracle",
-            error.what, error.at
-        )
-    })?;
-    let words = forbidden_words();
-    for token in &tokens {
-        if let LeanToken::Ident(segments) = token {
-            if segments
-                .last()
-                .is_some_and(|last| words.iter().any(|word| word == last))
-            {
-                return Err(format!(
-                    "forbidden token `{}` in the vendored library",
-                    segments.join(".")
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::forbidden_words;

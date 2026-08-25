@@ -90,11 +90,13 @@ rooted by `Atlas.lex.tex` and uses the generic closed-core form for lossless
 formal-library migration. Its module-local typed expression DAGs, declarations,
 definition bodies, proofs, inductive metadata, instances, and explicit axiom
 policies are linked semantic data. The same values generate readable canonical
-LaTeX and reconstruct kernel-checked Lean declarations. The completed
-implementation under [lean/uor-atlas](lean/uor-atlas/) is retained only as a
-migration oracle: `VR-19` re-exports every module and requires exact source
-bytes, while the generated Atlas modules import `Init` and one another, never
-the oracle.
+LaTeX and reconstruct kernel-checked Lean declarations. The one-time conversion
+and exact comparison are recorded in
+[MIGRATION.md](examples/uor-atlas/MIGRATION.md); the independently authored
+implementation is absent from the release tree. `VR-19` permanently requires
+one generated Lean module per native source module, public imports confined to
+`Init` and the generated graph, only the generic `Lean` backend-support import,
+and no second Atlas implementation.
 
 ## Examples that verify under the pinned toolchain
 

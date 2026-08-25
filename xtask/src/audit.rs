@@ -53,9 +53,8 @@ struct AtlasSourceModule {
     core: lexlean::ir::core::CoreModule,
 }
 
-/// Decode the committed Atlas source graph itself. Coverage gates deliberately
-/// enter through this function: the migration oracle can prove equivalence,
-/// but it cannot define which declarations the released LexLean corpus owns.
+/// Decode the committed Atlas source graph itself. Every coverage gate enters
+/// through this function because this source defines the released corpus.
 fn atlas_source_cores(root: &Path) -> Result<Vec<AtlasSourceModule>, Fail> {
     let source_root = root.join("examples/uor-atlas/src");
     let mut paths: Vec<PathBuf> = walkdir::WalkDir::new(&source_root)
@@ -169,114 +168,6 @@ fn outside_code_spans(line: &str, marker: &str) -> bool {
         at = absolute + marker.len();
     }
     false
-}
-
-/// The completed Atlas migration oracle carries no `sorry`, `admit`, author-declared
-/// `axiom`, `opaque`, `unsafe`, or `native_decide` (release plan §4.4; §8
-/// names each of them an explicit non-deferral).
-///
-/// The library is repository content built by `just vv`, so this is a
-/// standing gate rather than a one-time measurement: checked once is checked
-/// never on the next commit. The word list is
-/// [`lexlean::verify::source_audit`]'s, so the spelling cannot drift from the
-/// generated-Lean audit that already enforces §18.2.
-///
-/// # Errors
-/// Returns the offending module and token, or reports the gate armed when no
-/// library module exists yet --- an empty register that passed silently would
-/// read as evidence.
-pub fn audit_atlas_library(root: &Path) -> Result<(), Fail> {
-    let mut files = Vec::new();
-    gather(root, &["lean"], &[".lean"], &mut files);
-    // `gather` also sweeps the root's Markdown for the documentation audits;
-    // this gate reads Lean modules only.
-    files.retain(|path| {
-        path.extension()
-            .is_some_and(|extension| extension == "lean")
-    });
-    files.sort();
-    if files.is_empty() {
-        println!(
-            "audit-atlas-library: no migration-oracle module; the gate is armed by the first one"
-        );
-        return Ok(());
-    }
-    for path in &files {
-        let text = std::fs::read_to_string(path)
-            .map_err(|error| Fail::from(format!("{}: {error}", path.display())))?;
-        if let Err(reason) = lexlean::verify::source_audit::audit_library(&text) {
-            return Err(Fail::from(format!(
-                "R4: {}: {reason}; the Atlas migration oracle admits none of them",
-                path.display()
-            )));
-        }
-    }
-    unreachable_library_modules(root, &files)?;
-    println!(
-        "audit-atlas-library: {} migration-oracle modules, none names a forbidden construct, every one reachable from the library root (R4)",
-        files.len()
-    );
-    Ok(())
-}
-
-/// Every module of the migration oracle is reachable from its root module.
-///
-/// The axiom gate walks the environment the root pulls in, so a module sitting
-/// in the tree that nothing imports would be scanned for forbidden words and
-/// never checked for axioms --- a hole exactly the shape of the thing the gate
-/// exists to catch. The audit harness under `audit/` is deliberately outside
-/// the library and is excluded.
-fn unreachable_library_modules(root: &Path, files: &[PathBuf]) -> Result<(), Fail> {
-    let base = root.join("lean/uor-atlas");
-    let module_of = |path: &Path| -> Option<String> {
-        let rel = path.strip_prefix(&base).ok()?;
-        let text = rel.to_string_lossy();
-        let stem = text.strip_suffix(".lean")?;
-        Some(stem.replace(['/', '\\'], "."))
-    };
-    let library: BTreeSet<String> = files
-        .iter()
-        .filter(|path| !path.starts_with(base.join("audit")))
-        .filter_map(|path| module_of(path))
-        .collect();
-    if library.is_empty() {
-        return Ok(());
-    }
-    let mut reached: BTreeSet<String> = BTreeSet::new();
-    let mut stack = vec!["UorAtlas".to_owned()];
-    while let Some(name) = stack.pop() {
-        if !reached.insert(name.clone()) {
-            continue;
-        }
-        let path = base.join(format!("{}.lean", name.replace('.', "/")));
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        for line in text.lines() {
-            let rest = line
-                .strip_prefix("public import ")
-                .or_else(|| line.strip_prefix("import "));
-            if let Some(target) = rest {
-                let target = target.trim();
-                if target.starts_with("UorAtlas") {
-                    stack.push(target.to_owned());
-                }
-            }
-        }
-    }
-    let orphans: Vec<&String> = library.difference(&reached).collect();
-    if orphans.is_empty() {
-        return Ok(());
-    }
-    Err(Fail::from(format!(
-        "R4: the Atlas migration oracle has {} module(s) no import reaches from `UorAtlas`, so the equivalence export never sees them: {}",
-        orphans.len(),
-        orphans
-            .iter()
-            .map(|name| name.as_str())
-            .collect::<Vec<&str>>()
-            .join(", ")
-    )))
 }
 
 /// No two *spellable* entries share a surface in a channel (release plan
@@ -544,8 +435,8 @@ fn is_label_shaped(name: &str) -> bool {
 /// `UorAtlas.Roots.T5` after `T5` was renamed or withdrawn, and the pack would
 /// go on advertising a result the native corpus no longer owns.  A `lean`
 /// denotation is also rejected: it would reverse the authority direction by
-/// importing the handwritten migration oracle instead of naming a declaration
-/// in the document that replaced it.
+/// importing an independently authored Atlas module instead of naming a
+/// declaration owned by the document.
 ///
 /// It compares in both directions on purpose. A denotation with no
 /// declaration is a claim with nothing behind it; a declaration with no entry
@@ -832,7 +723,7 @@ pub fn audit_atlas_exercise(root: &Path) -> Result<(), Fail> {
             .any(|name| name == "UorAtlas" || name.starts_with("UorAtlas."))
         {
             return Err(Fail::from(format!(
-                "R8: {} imports the handwritten migration oracle",
+                "R8: {} imports an independently authored Atlas module",
                 module.path.display()
             )));
         }
@@ -933,244 +824,6 @@ pub fn audit_authority_scope(root: &Path) -> Result<(), Fail> {
         rows.len()
     );
     Ok(())
-}
-
-/// No two modules of the migration oracle state the same theorem.
-///
-/// Lean rejects a repeated fully-qualified name, so what survives compilation
-/// is the same statement proved twice under two namespaces --- which is what
-/// happened to `sumInt_congr`, proved in `Glue` and again in `Roots`, which
-/// imports it. A second proof of a settled fact is not merely untidy: it is a
-/// second thing to keep true, and the two can drift.
-///
-/// The comparison is the declaration's name together with the conclusion of
-/// its statement, whitespace-normalized. Binders differ freely between two
-/// spellings of one lemma --- one module binds `{n : Nat}` where another takes
-/// it from a section variable --- so comparing whole statements misses exactly
-/// the redundancy this gate exists to find, while comparing conclusions catches
-/// it and still lets two genuinely different lemmas share a name, as
-/// `Linear.neg_add` and `NumInstances.neg_add` did.
-///
-/// What it does not catch, stated so nobody reads more into a green line than
-/// it carries: the conclusions are compared as text, so the same lemma written
-/// once fully qualified and once through an `open` reads as two. This gate
-/// narrows duplication; it does not decide it.
-///
-/// # Errors
-/// Returns the repeated statement and the modules that carry it, or reports the
-/// gate armed when the library has no module yet.
-pub fn audit_atlas_duplication(root: &Path) -> Result<(), Fail> {
-    let mut files = Vec::new();
-    gather(root, &["lean"], &[".lean"], &mut files);
-    files.retain(|path| {
-        path.extension()
-            .is_some_and(|extension| extension == "lean")
-    });
-    files.sort();
-    if files.is_empty() {
-        println!("audit-atlas-duplication: no migration-oracle module; the gate is armed by the first one");
-        return Ok(());
-    }
-    let mut seen: std::collections::BTreeMap<String, (String, String)> =
-        std::collections::BTreeMap::new();
-    // Keyed on the conclusion alone, so a fact re-proved under a *different*
-    // name is caught too. Keying on `name :: conclusion` misses exactly the
-    // case that keeps happening: `imgSet` and its five lemmas were a complete
-    // duplicate of `actP` and its lemmas, invisible here because only the
-    // names differed, and `dotTri` was re-proved in a second module on purpose.
-    // Re-proving locally is never the fix; importing is, and when there is no
-    // common home, moving the fact down to one is the task.
-    let mut by_conclusion: std::collections::BTreeMap<String, (String, String, String)> =
-        std::collections::BTreeMap::new();
-    let mut counted = 0usize;
-    let mut review: Vec<String> = Vec::new();
-    for path in &files {
-        let text = std::fs::read_to_string(path)?;
-        let module = path
-            .strip_prefix(root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .into_owned();
-        for (name, signature, statement, is_theorem, body) in public_statements(&text) {
-            counted += 1;
-            // Keyed on the FULL signature, not the conclusion. `conclusion_of`
-            // strips binders, so two different functions that share a name and a
-            // return type --- `blkIdx (a b c d : Nat) : Nat` searching a table
-            // and `blkIdx (i : Nat) : Nat` reading a packed byte --- would read
-            // as one declaration and the gate would report a duplicate that is
-            // only a name collision.
-            let key = format!("{name} :: {signature}");
-            if let Some((first_module, _)) = seen.get(&key) {
-                // Reported whether or not the two are in the same file. Keying
-                // the report on `first_module != module` made every same-file
-                // duplicate invisible, and the modules this gate reads run to
-                // six thousand lines --- the file where a redundant lemma is
-                // *most* likely to be written twice is the one too long to hold
-                // in view.
-                let where_ = if *first_module == module {
-                    format!("twice in {module}")
-                } else {
-                    format!("in {first_module} and {module}")
-                };
-                return Err(Fail::from(format!(
-                    "R4: `{name}` is stated identically {where_}; one proof of a settled fact, not two that can drift"
-                )));
-            } else {
-                seen.insert(key, (module.clone(), name.clone()));
-            }
-            // Only theorems, and only conclusions that name something. A
-            // `def ... : Prop` concludes `Prop`, and an extensionality lemma
-            // concludes `a = b`; both are shapes shared by unrelated results,
-            // and matching on them reports nothing but noise. Requiring a
-            // qualified name in the conclusion keeps the check on statements
-            // that are *about* a specific object, which is what a re-proved
-            // fact looks like. It is a net rather than a proof: a duplicate
-            // written entirely in opened names would slip through, and only
-            // reading catches that one.
-            if !is_theorem || !statement.contains('.') {
-                continue;
-            }
-            if let Some((first_module, first_name, first_body)) = by_conclusion.get(&statement) {
-                // What R4 forbids is a second *proof*, so the proof is what
-                // this compares. Two exemptions follow from that, and both are
-                // real cases in this library rather than hypotheticals.
-                //
-                // Delegation: `T79`'s proof is `F6 L v g x`. Section 13 and
-                // section 19.5 name one equation twice, so one proof carries
-                // two document labels --- that is compliance, not a breach.
-                //
-                // A different argument: `aut_fix_trivial` and `autA_trivial`
-                // both conclude `g = Perm.one 120`, one by sifting a stabiliser
-                // chain from `D21 g` and one by profile pinning from `AutA g`.
-                // Neither can be derived from the other without circularity,
-                // because `T59a` --- the theorem that makes the two hypotheses
-                // interchangeable --- is proved *from* the second. Same
-                // conclusion, different theorems.
-                //
-                // So a collision is reported only when the two proofs are
-                // substantially the same text. That is a net, not a proof: two
-                // spellings of one argument slip through, and only reading
-                // catches those.
-                if body.contains(first_name.as_str()) {
-                    continue;
-                }
-                let normalize = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
-                // Identical proof text is one proof written twice, and that is
-                // decidable. Merely *similar* text is not: `inSpan_append_lo`
-                // and `inSpan_append_hi` conclude the same thing by parallel
-                // arguments about different hypotheses, and no threshold
-                // separates that from a genuine copy without over-fitting to
-                // whatever happens to sit in the tree today. So the gate fails
-                // on the decidable case and reports the rest for review --- the
-                // duplicates removed today were found exactly that way, by
-                // reading a candidate list.
-                if normalize(&body) != normalize(first_body) {
-                    review.push(format!(
-                        "  {name} in {module} and {first_name} in {first_module}"
-                    ));
-                    continue;
-                }
-                let where_ = if *first_module == module {
-                    format!("`{first_name}` in the same module")
-                } else {
-                    format!("`{first_name}` in {first_module}")
-                };
-                return Err(Fail::from(format!(
-                    "R4: `{name}` in {module} proves the same conclusion as {where_}; import it, or move it to a module both import --- never a second proof"
-                )));
-            } else {
-                by_conclusion.insert(statement, (module.clone(), name, body));
-            }
-        }
-    }
-    if !review.is_empty() {
-        println!(
-            "audit-atlas-duplication: {} pair(s) share a conclusion by different proofs; not a failure, and not nothing --- read them:",
-            review.len()
-        );
-        for line in &review {
-            println!("{line}");
-        }
-    }
-    println!(
-        "audit-atlas-duplication: {counted} public statements across {} migration-oracle modules, no proof written twice (R4)",
-        files.len()
-    );
-    Ok(())
-}
-
-/// Each public declaration's name and the conclusion of its statement.
-fn public_statements(text: &str) -> Vec<(String, String, String, bool, String)> {
-    let mut out = Vec::new();
-    let lines: Vec<&str> = text.lines().collect();
-    let mut index = 0usize;
-    while index < lines.len() {
-        let mut line = lines[index].trim_start();
-        while let Some(rest) = line.strip_prefix("@[") {
-            match rest.find(']') {
-                Some(end) => line = rest[end + 1..].trim_start(),
-                None => break,
-            }
-        }
-        let Some(rest) = line.strip_prefix("public ") else {
-            index += 1;
-            continue;
-        };
-        let Some((keyword, tail)) = ["theorem ", "def ", "abbrev "]
-            .iter()
-            .find_map(|keyword| rest.strip_prefix(keyword).map(|tail| (*keyword, tail)))
-        else {
-            index += 1;
-            continue;
-        };
-        let is_theorem = keyword == "theorem ";
-        let name: String = tail
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '\'' || *c == '.')
-            .collect();
-        // The statement runs to the proof, which may be several lines below.
-        let mut statement = String::new();
-        let mut cursor = index;
-        while cursor < lines.len() && cursor < index + 24 {
-            let piece = if cursor == index {
-                &tail[name.len()..]
-            } else {
-                lines[cursor]
-            };
-            if let Some(cut) = piece.find(":=") {
-                statement.push(' ');
-                statement.push_str(&piece[..cut]);
-                break;
-            }
-            statement.push(' ');
-            statement.push_str(piece);
-            if piece.trim_end().ends_with(":= by") || piece.trim_end().ends_with("by") {
-                break;
-            }
-            cursor += 1;
-        }
-        // Compare conclusions, not whole statements. The same lemma written in
-        // two modules rarely matches character for character --- one may bind
-        // `{n : Nat}` explicitly where the other takes it from a section
-        // variable --- and an exact match therefore misses exactly the
-        // redundancy this gate exists to find.
-        let normalized = conclusion_of(&statement);
-        let signature = statement.split_whitespace().collect::<Vec<_>>().join(" ");
-        // A slice of the proof, enough to see whether this declaration simply
-        // applies an earlier one. Two labels may share a single proof --- the
-        // document names one equation in two sections --- and a declaration
-        // that delegates is not a second proof of anything.
-        let mut body = String::new();
-        for line in lines.iter().skip(cursor).take(6) {
-            body.push(' ');
-            body.push_str(line);
-        }
-        if !name.is_empty() && !normalized.is_empty() {
-            out.push((name, signature, normalized, is_theorem, body));
-        }
-        index += 1;
-    }
-    out
 }
 
 /// R4: nothing is deferred. The markers are spelled in halves so this gate
@@ -1865,39 +1518,4 @@ pub fn audit_no_unsafe(root: &Path) -> Result<(), Fail> {
     }
     println!("audit-no-unsafe: the prohibition is active (RP-09)");
     Ok(())
-}
-
-/// The conclusion of a statement: what follows its last binder-closing `:` at
-/// bracket depth zero, whitespace-normalized. Binders differ freely between two
-/// spellings of one lemma; the conclusion does not.
-fn conclusion_of(statement: &str) -> String {
-    let bytes: Vec<char> = statement.chars().collect();
-    let mut depth = 0i32;
-    let mut last = None;
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            '(' | '[' | '{' | '\u{27e8}' => depth += 1,
-            ')' | ']' | '}' | '\u{27e9}' => depth -= 1,
-            // `::` is a qualified-name separator, never a binder close.
-            ':' if depth == 0
-                && bytes.get(index + 1) != Some(&':')
-                && bytes.get(index.wrapping_sub(1)) != Some(&':') =>
-            {
-                last = Some(index);
-            }
-            _ => {}
-        }
-        index += 1;
-    }
-    let tail = match last {
-        Some(at) => {
-            &statement[statement
-                .char_indices()
-                .nth(at + 1)
-                .map_or(statement.len(), |(i, _)| i)..]
-        }
-        None => statement,
-    };
-    tail.split_whitespace().collect::<Vec<&str>>().join(" ")
 }

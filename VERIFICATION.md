@@ -138,24 +138,6 @@ gate failed: R7: the surface `+` is owned by 2 entries in the Math channel (lexl
 
 Removed: the surface was restored; the audit reports 58 spellable surfaces with no two entries sharing one in a channel. The three parser-layer overlaps it counts separately (`-` between `lexlean.core::hyphen` and `lexlean.std.nat::sub`, and `cases`/`induction` between a grammar and a structural entry) are reported rather than hidden, because `structural` and `grammar` entries are never resolved as term atoms.
 
-### audit-atlas-library can fail
-
-Planted: a module `lean/uor-atlas/UorAtlas/Planted.lean` whose theorem is closed `by sorry`. Command: `cargo xtask validate-model`. Expected: R4 names the file and the token.
-
-```text
-gate failed: R4: /workspaces/LexLean/lean/uor-atlas/UorAtlas/Planted.lean: forbidden token `sorry` in the migration oracle; the Atlas migration oracle admits none of them
-```
-
-Planting an author `axiom` or `native_decide` instead fails the same way, naming that token. The word list is `lexlean::verify::source_audit`'s, shared with the generated-Lean audit so the two spellings cannot drift.
-
-The same gate refuses a module the library root does not reach, which is the hole a word scan alone leaves: the axiom gate walks the environment the root pulls in, so an unimported module is scanned for words and never checked for axioms. Planted: the same file with a harmless theorem, left out of `UorAtlas.lean`.
-
-```text
-gate failed: R4: the Atlas migration oracle has 1 module(s) no import reaches from `UorAtlas`, so the equivalence export never sees them: UorAtlas.Planted
-```
-
-Removed: the file was deleted; the audit reports every migration-oracle module free of forbidden constructs and reachable from the root. This check has caught agent scratch files twice.
-
 ### audit-atlas-registers can fail
 
 Planted: the native Atlas source declaration `UorAtlas.Scales.S37` renamed to `UorAtlas.Scales.MissingS37`. Command: `cargo xtask validate-model`. Expected: R4 names the live source obligation.
@@ -176,23 +158,13 @@ Removed: the source bytes were restored from the oracle export; the audit report
 
 ### audit-authority-scope can fail
 
-Planted: an authority row for the migration oracle, which is repository content. Command: `cargo xtask validate-model`. Expected: R2 refuses the row.
+Planted: an authority row citing the native Atlas source, which is repository content. Command: `cargo xtask validate-model`. Expected: R2 refuses the row.
 
 ```text
 gate failed: R2: authority `ATLAS-LIBRARY` cites repository content; what this repository builds is a `build` claim with a conformance ID, never a `some-true` citation (§27.4)
 ```
 
 A citation naming an existing repository path fails the same way, naming the path. The check reads each citation up to its first semicolon, because a legitimate row may go on to name repository fixtures as the evidence a third party compares against — `PRINT-AXIOMS-4-32-1` does exactly that with `tests/golden/axiom-parser/`, and must not be refused for it. Removed: the row was deleted; the audit reports four rows, none citing repository content.
-
-### audit-atlas-duplication can fail
-
-Planted: `sumInt_congr` re-proved in `Roots.lean`, where `Glue.lean` already proves it and `Roots` imports `Glue`. Command: `cargo xtask validate-model`. Expected: R4 names the lemma and both modules.
-
-```text
-gate failed: R4: `sumInt_congr` is stated identically in lean/uor-atlas/UorAtlas/Glue.lean and lean/uor-atlas/UorAtlas/Roots.lean; one proof of a settled fact, not two that can drift
-```
-
-Removed: the duplicate was deleted; the audit reports every public statement across the migration-oracle modules unrepeated. The comparison is a declaration's name together with the CONCLUSION of its statement: comparing whole statements missed this exact case, because one module binds `{n : Nat}` where the other takes it from a section variable. What it still does not catch is recorded in its docstring — conclusions are compared as text, so one lemma written once fully qualified and once through an `open` reads as two.
 
 ### audit-atlas-denotations can fail
 
@@ -215,7 +187,7 @@ gate failed: R2: `atlas-t48.toml` is an entry for `T48`, which the register reco
 gate failed: R2: `atlas-l1.toml` is an entry for `L1`, which the register records as non-denotable; a document could cite it as though it stood
 ```
 
-Removed: all restored; the audit reports every frozen declaration reference owned by the native source and every live label referred to once. The gate is two-directional on purpose: a reference with no source declaration advertises a result the corpus does not own, while a live declaration with no entry withholds it. Replacing a document reference with a `lean` denotation also fails, so the package cannot reverse the authority direction by importing the migration oracle.
+Removed: all restored; the audit reports every frozen declaration reference owned by the native source and every live label referred to once. The gate is two-directional on purpose: a reference with no source declaration advertises a result the corpus does not own, while a live declaration with no entry withholds it. Replacing a document reference with a `lean` denotation also fails, so the package cannot reverse the authority direction by importing an independently authored Atlas module.
 
 The disposition arm reads the label out of the entry's own id rather than out of its denotation, so an entry for a withdrawn label is rejected even though no native declaration carries that name.
 

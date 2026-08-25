@@ -61,10 +61,8 @@ pub fn check_model(root: &Path, write: bool) -> Result<(), Fail> {
     crate::audit::audit_language_closure(root)?;
     crate::audit::audit_no_unsafe(root)?;
     crate::audit::audit_surface_disjointness(root)?;
-    crate::audit::audit_atlas_library(root)?;
     crate::audit::audit_atlas_registers(root)?;
     crate::audit::audit_authority_scope(root)?;
-    crate::audit::audit_atlas_duplication(root)?;
     crate::audit::audit_atlas_denotations(root)?;
     crate::audit::audit_atlas_exercise(root)?;
     println!(

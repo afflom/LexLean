@@ -15,7 +15,7 @@
 spec = "lexlean/atlas-registers/1"
 document = "examples/uor-atlas/src/Atlas.lex.tex"
 
-# Every live label: one entry denoting a declaration in the vendored library.
+# Every live label: one entry denoting a declaration in the native Atlas source.
 entry = [
     "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8",
     "T1", "T2", "T3", "T4", "D9", "D10", "D11", "D12",

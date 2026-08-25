@@ -28,26 +28,6 @@ fn process_records(dir: &camino::Utf8Path) -> Vec<serde_json::Value> {
         .collect()
 }
 
-fn source_tree(root: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
-    walkdir::WalkDir::new(root)
-        .into_iter()
-        .flatten()
-        .filter(|entry| entry.file_type().is_file())
-        .map(|entry| {
-            let relative = entry
-                .path()
-                .strip_prefix(root)
-                .expect("source is below its root")
-                .to_string_lossy()
-                .replace('\\', "/");
-            (
-                relative,
-                std::fs::read(entry.path()).expect("native Atlas source reads"),
-            )
-        })
-        .collect()
-}
-
 /// The cases whose assertions need the pinned toolchain (§8.3); every
 /// other case is platform independent and runs on every supported host.
 const LEAN_BACKED: [&str; 14] = [
@@ -1029,62 +1009,99 @@ pub(crate) fn run(id: &str) {
         }
         "VR-19" => {
             let root = support::repo_root();
-            let library = root.join("lean/uor-atlas");
-            let exporter = root.join("xtask/lean/AtlasOracleExport.lean");
             let source = root.join("examples/uor-atlas/src");
+            let generated = root.join("examples/uor-atlas/expected/build/modules");
             assert!(
-                library.join("lakefile.toml").is_file(),
-                "the completed migration oracle is committed as a Lake package"
+                !root.join("lean/uor-atlas").exists()
+                    && !root.join("xtask/lean/AtlasOracleExport.lean").exists(),
+                "the completed one-time migration inputs are absent from the release tree"
             );
+
+            let source_modules: std::collections::BTreeSet<String> = walkdir::WalkDir::new(&source)
+                .into_iter()
+                .flatten()
+                .filter(|entry| entry.file_type().is_file())
+                .filter_map(|entry| {
+                    let relative = entry.path().strip_prefix(&source).ok()?;
+                    let name = relative.to_string_lossy().replace(['\\', '/'], ".");
+                    name.strip_suffix(".lex.tex").map(str::to_owned)
+                })
+                .collect();
             assert!(
-                exporter.is_file() && source.join("Atlas.lex.tex").is_file(),
-                "the semantic exporter and rooted native Atlas source are committed"
+                !source_modules.is_empty() && source_modules.contains("Atlas"),
+                "the native Atlas source graph is nonempty and rooted"
             );
-            if !support::lean_backed("VR-19") {
-                return;
+
+            let generated_modules: std::collections::BTreeSet<String> =
+                walkdir::WalkDir::new(&generated)
+                    .into_iter()
+                    .flatten()
+                    .filter(|entry| entry.file_type().is_file())
+                    .filter_map(|entry| {
+                        let relative = entry.path().strip_prefix(&generated).ok()?;
+                        let name = relative.to_string_lossy().replace(['\\', '/'], ".");
+                        name.strip_suffix(".lean").map(str::to_owned)
+                    })
+                    .collect();
+            let expected_modules: std::collections::BTreeSet<String> = source_modules
+                .iter()
+                .map(|name| format!("LexLeanExample.{name}"))
+                .collect();
+            assert!(
+                generated_modules == expected_modules,
+                "every native Atlas source module has exactly one generated Lean module"
+            );
+            for entry in walkdir::WalkDir::new(&generated)
+                .into_iter()
+                .flatten()
+                .filter(|entry| {
+                    entry.file_type().is_file()
+                        && entry
+                            .path()
+                            .extension()
+                            .is_some_and(|extension| extension == "lean")
+                })
+            {
+                let text = std::fs::read_to_string(entry.path()).expect("generated Lean reads");
+                for line in text.lines() {
+                    if let Some(import) = line.strip_prefix("public import ") {
+                        assert!(
+                            import == "Init" || generated_modules.contains(import),
+                            "{} publicly imports `{import}` outside Init and its generated graph",
+                            entry.path().display()
+                        );
+                    } else if let Some(import) = line.strip_prefix("import ") {
+                        assert!(
+                            import == "Lean",
+                            "{} privately imports `{import}` instead of the fixed Lean backend support module",
+                            entry.path().display()
+                        );
+                    }
+                }
             }
-            let bin = support::real_elan_home()
-                .join("toolchains")
-                .join(support::mangled_toolchain_name())
-                .join("bin");
-            let built = std::process::Command::new(bin.join("lake"))
-                .arg("build")
-                .current_dir(&library)
-                .output()
-                .expect("the pinned lake runs");
-            assert!(
-                built.status.success(),
-                "the migration oracle elaborates: {}",
-                String::from_utf8_lossy(&built.stderr)
-            );
-            let scratch = tempfile::tempdir().expect("temporary export directory");
-            let exported = scratch.path().join("src");
-            let migrated = std::process::Command::new(bin.join("lake"))
-                .args(["env", "lean"])
-                .arg(&exporter)
-                .current_dir(&library)
-                .env("LEXLEAN_ATLAS_EXPORT", &exported)
-                .output()
-                .expect("the pinned semantic exporter runs");
-            assert!(
-                migrated.status.success(),
-                "the semantic export succeeds: {}{}",
-                String::from_utf8_lossy(&migrated.stdout),
-                String::from_utf8_lossy(&migrated.stderr)
-            );
-            assert!(
-                source_tree(&exported) == source_tree(source.as_std_path()),
-                "every committed native module, type, value, proof and declaration row equals the completed migration oracle"
-            );
-            let native = source_tree(source.as_std_path());
-            assert!(
-                native.values().all(|bytes| {
-                    let text = String::from_utf8_lossy(bytes);
-                    !text.contains("\"imports\":[\"UorAtlas")
-                        && !text.contains("\"imports\":[\"Init\",\"UorAtlas")
-                }),
-                "the native cores never import the migration oracle"
-            );
+
+            for entry in walkdir::WalkDir::new(root.as_std_path())
+                .into_iter()
+                .filter_entry(|entry| {
+                    ![".git", ".lake", ".lexlean", "expected", "target"]
+                        .contains(&entry.file_name().to_string_lossy().as_ref())
+                })
+                .flatten()
+                .filter(|entry| {
+                    entry.file_type().is_file()
+                        && entry
+                            .path()
+                            .extension()
+                            .is_some_and(|extension| extension == "lean")
+                })
+            {
+                let text = std::fs::read_to_string(entry.path()).expect("Lean source reads");
+                assert!(
+                    !text.contains("UorAtlas"),
+                    "{} is an independently authored Atlas Lean source",
+                    entry.path().display()
+                );
+            }
         }
         other => panic!("no verification case is wired for {other}"),
     }

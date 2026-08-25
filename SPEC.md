@@ -2195,13 +2195,16 @@ hashed import provenance and appears in neither generated backend nor the
 axiom audit. Any other generated row without a native owner is rejected. This
 classification is generic and structural: it is not selected by an Atlas
 name, module, or feature. Generated Lean may import only the foundational
-modules listed in the core data and may not import a migration oracle that
-defines the declarations being generated.
+modules listed in the core data and other modules in the generated graph. The
+generic environment-reconstruction runtime may privately import `Lean`; no
+generated module may import an independently authored implementation of the
+declarations being generated.
 
 This form exists for lossless migration of already elaborated formal
-libraries. A migration oracle is evidence for byte-exact conversion, not an
-additional input to either backend. Once committed, the native `.lex.tex`
-module is the source of coverage and both generated artifacts.
+libraries. A one-time conversion implementation can establish byte-exact
+migration evidence, but it is not an input to either backend and is absent from
+the release tree. Once committed, the native `.lex.tex` module is the source of
+coverage and both generated artifacts.
 
 
 
@@ -4086,7 +4089,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `VR-16` | `verification` | Axioms flowing from imported theorems remain subject to the generated declaration's policy. | §22.6 |
 | `VR-17` | `verification` | Lean workspace configuration and manifest hashes must match the lock and all dependencies must be locally available. | §10.4, §22.2 |
 | `VR-18` | `verification` | Check and build results never claim verified or kernel-checked status. | §5.3 |
-| `VR-19` | `verification` | The native Atlas source is the byte-exact semantic and proof export of the completed migration oracle and does not import that oracle. | §10.4, §17.10, §22.2 |
+| `VR-19` | `verification` | The native Atlas source graph is self-contained: every generated Atlas module publicly depends only on Init and the generated graph, its only backend-support import is Lean, and no independently authored Atlas implementation exists. | §10.4, §17.10, §22.2 |
 | `CL-01` | `cli-api` | Global options and upward project discovery obey the exact CLI contract. | §23.1, §23.2 |
 | `CL-02` | `cli-api` | Init creates the complete canonical skeleton only in an absent or empty destination and never overwrites. | §23.4 |
 | `CL-03` | `cli-api` | Lock check, local update, and explicit network acquisition obey their exact mutually exclusive behavior. | §23.4 |

@@ -133,8 +133,9 @@ Feature: verification
     And neither JSON status is `verified` and neither stdout contains `kernel-checked`
 
   @VR-19 @build
-  Scenario: The native Atlas source is the byte-exact semantic and proof export of the completed migration oracle and does not import that oracle.
-    Given the completed Atlas migration oracle and the committed native Atlas source
-    When the oracle is semantically exported with the pinned toolchain
-    Then the exported source equals the committed source byte for byte
-    And the native core module does not import the migration oracle
+  Scenario: The native Atlas source graph is self-contained: every generated Atlas module publicly depends only on Init and the generated graph, its only backend-support import is Lean, and no independently authored Atlas implementation exists.
+    Given the committed native Atlas source and generated module graph
+    When the release tree is audited without the completed one-time migration inputs
+    Then every native source module has exactly one generated Lean module
+    And public imports stay within Init and the generated graph and the only backend-support import is Lean
+    And no independently authored Atlas Lean source remains

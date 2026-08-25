@@ -303,7 +303,7 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `VR-16` | `build` | Axioms flowing from imported theorems remain subject to the generated declaration's policy. |
 | `VR-17` | `build` | Lean workspace configuration and manifest hashes must match the lock and all dependencies must be locally available. |
 | `VR-18` | `build` | Check and build results never claim verified or kernel-checked status. |
-| `VR-19` | `build` | The native Atlas source is the byte-exact semantic and proof export of the completed migration oracle and does not import that oracle. |
+| `VR-19` | `build` | The native Atlas source graph is self-contained: every generated Atlas module publicly depends only on Init and the generated graph, its only backend-support import is Lean, and no independently authored Atlas implementation exists. |
 
 ## Cited authorities
 

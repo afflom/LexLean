@@ -21,14 +21,16 @@ the repository.
 
 ### Implemented
 
-- The completed Atlas implementation is retained in-tree at `lean/uor-atlas/`
-  solely as a migration oracle and is not a path dependency of the native
-  example. `VR-19` builds and exports that oracle, then requires byte-exact
-  equality with `Atlas.lex.tex`. `just vv` verifies the generated native Atlas
+- The one-time Atlas conversion is closed and recorded in
+  `examples/uor-atlas/MIGRATION.md`; its independently authored Lean source and
+  exporter are absent from the release tree. `VR-19` now permanently audits
+  the native source graph itself: every source module has one generated Lean
+  module, public imports stay within `Init` and the generated graph, the only
+  backend-support import is `Lean`, and no second Atlas implementation exists.
+  `just vv` verifies the generated native Atlas
   under `leanprover/lean4:v4.32.1`, replays it through `leanchecker` — a
   same-kernel replay, not an independent checker (§22.4) — and runs the
-  standing exact axiom gate. The oracle source audit admits no `sorry`,
-  author-declared `axiom`, `opaque`, `unsafe`, or `native_decide`.
+  standing exact axiom gate.
 - Two new built-in lexicon packages, `lexlean.std.int@1.0.0` and
   `lexlean.uor.atlas@1.0.0`. The Atlas package is registered under
   `[[builtin_package]]`, locked into every project, and unconditionally
@@ -38,9 +40,9 @@ the repository.
 - The frozen Atlas pack is complete against the native source register: every
   label carries exactly one disposition, the registers key on exact
   identifiers, and every frozen entry refers to a declaration owned by the
-  native source rather than importing the oracle. Coverage begins at
-  `Atlas.lex.tex`; exercise, denotation,
-  duplication, surface-disjointness, and authority-scope audits run as gates,
+  native source rather than importing an independently authored module.
+  Coverage begins at `Atlas.lex.tex`; exercise, denotation,
+  surface-disjointness, and authority-scope audits run as gates,
   each with a planted-defect record in VERIFICATION.md.
 - `examples/uor-atlas/` verifies under the pinned toolchain with its
   committed verification records, and the negative fixture suite grows to 28
@@ -48,18 +50,17 @@ the repository.
   document declaration cannot be consumed as an external glossary atom.
 - `examples/uor-atlas/src/Atlas.lex.tex` is the single native semantic and
   proof source for 5,577 Atlas and supporting declarations. Both backends
-  traverse that closed DAG, generated Lean imports only `Init`, and the old
-  Lean implementation remains solely as the byte-exact `VR-19` migration
-  oracle. `S43` is authoritatively the proved integer-uniqueness statement.
+  traverse that closed DAG, generated Lean publicly imports only `Init` and
+  generated Atlas modules, privately imports only the generic `Lean` support
+  module, and contains no independently authored Atlas implementation.
+  `S43` is authoritatively the proved integer-uniqueness statement.
   `SM-15` brings the register to 211 IDs, all implemented at level `build`.
 
 ### Changed
 
-- The compiler-semantics ID moves from
-  `fa171c7a2d78cf17e6cb49bbec5c1eed8bee20033472b1953211104068589ba7` to
-  `8c1b7d358793b1e476173bb8b8b826e05f4072ac2b742d242a8cae6e05550e65`: the
-  accepted language changed, so §30.1 requires a new ID. Every committed lock
-  and verification record was regenerated against it.
+- The compiler-semantics ID changes because the accepted language data changed;
+  every committed lock and verification record is regenerated against the
+  final v0.1.1 identity.
 - The four 0.1.0 examples still format byte-identically and generate
   byte-identical Lean and LaTeX modules; their source maps and manifests
   differ only in the source and semantic digests those artifacts embed. No
