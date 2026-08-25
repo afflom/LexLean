@@ -1,0 +1,34 @@
+module
+import LexLeanExample.ClosurePairs
+#print axioms UorAtlas.Closure.atlasPairCountTake
+#print axioms UorAtlas.Closure.atlasPairCountTake.eq_1
+#print axioms UorAtlas.Closure.atlasPairCountTake.eq_2
+#print axioms UorAtlas.Closure.atlasPairCountTake.eq_3
+#print axioms UorAtlas.Closure.atlasPairCountTake.eq_def
+#print axioms UorAtlas.Closure.atlasPairCountTake.match_1
+#print axioms UorAtlas.Closure.atlasPairCountTake_append
+#print axioms UorAtlas.Closure.atlasPairCountTake_nil
+#print axioms UorAtlas.Closure.atlasPairRowCount
+#print axioms UorAtlas.Closure.atlasPairs
+#print axioms UorAtlas.Closure.atlasPairs.eq_1
+#print axioms UorAtlas.Closure.atlasPairs_length_eq_count
+#print axioms UorAtlas.Closure.atlasSupports
+#print axioms UorAtlas.Closure.atlasSupports.eq_1
+#print axioms UorAtlas.Closure.framePairOK
+#print axioms UorAtlas.Closure.framePairOK.eq_1
+#print axioms UorAtlas.Closure.frameSupportRows
+#print axioms UorAtlas.Closure.frameSupportRows.eq_1
+#print axioms UorAtlas.Closure.frameSupportRows_length
+#print axioms UorAtlas.Closure.mem_atlasPairs
+#print axioms UorAtlas.Closure.mem_atlasSupports
+#print axioms UorAtlas.Closure.pairSupport
+#print axioms UorAtlas.Closure.sum_rowCounts_eq_take
+#print axioms UorAtlas.LexLeanInternal.decl1057
+#print axioms UorAtlas.LexLeanInternal.decl1246
+#print axioms UorAtlas.LexLeanInternal.decl1464
+#print axioms UorAtlas.LexLeanInternal.decl1512
+#print axioms UorAtlas.LexLeanInternal.decl510
+#print axioms UorAtlas.LexLeanInternal.decl625
+#print axioms UorAtlas.LexLeanInternal.decl74
+#print axioms UorAtlas.LexLeanInternal.decl825
+#print axioms UorAtlas.LexLeanInternal.decl873

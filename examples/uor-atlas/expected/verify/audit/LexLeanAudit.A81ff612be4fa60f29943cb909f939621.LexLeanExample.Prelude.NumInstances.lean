@@ -1,0 +1,37 @@
+module
+import LexLeanExample.Prelude.NumInstances
+#print axioms UorAtlas.LexLeanInternal.decl1126
+#print axioms UorAtlas.LexLeanInternal.decl1149
+#print axioms UorAtlas.LexLeanInternal.decl119
+#print axioms UorAtlas.LexLeanInternal.decl1202
+#print axioms UorAtlas.LexLeanInternal.decl1386
+#print axioms UorAtlas.LexLeanInternal.decl674
+#print axioms UorAtlas.Prelude.NumInstances.A1
+#print axioms UorAtlas.Prelude.NumInstances.FI1
+#print axioms UorAtlas.Prelude.NumInstances.Ideal
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.add_mem
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.casesOn
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.ctorIdx
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.mem
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.mem_all_of_mem_ne_zero
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.mk
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.mk.inj
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.mk.injEq
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.mk.noConfusion
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.mk.sizeOf_spec
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.mul_mem
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.noConfusion
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.noConfusionType
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.rec
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.recOn
+#print axioms UorAtlas.Prelude.NumInstances.Ideal.zero_mem
+#print axioms UorAtlas.Prelude.NumInstances.eq_of_add_neg_eq_zero
+#print axioms UorAtlas.Prelude.NumInstances.instAddCommGroupInt
+#print axioms UorAtlas.Prelude.NumInstances.instAddCommGroupRat
+#print axioms UorAtlas.Prelude.NumInstances.instCommRingInt
+#print axioms UorAtlas.Prelude.NumInstances.instCommRingRat
+#print axioms UorAtlas.Prelude.NumInstances.instFieldRat
+#print axioms UorAtlas.Prelude.NumInstances.intToRat
+#print axioms UorAtlas.Prelude.NumInstances.ker
+#print axioms UorAtlas.Prelude.NumInstances.ringHom_map_neg
+#print axioms UorAtlas.Prelude.NumInstances.ringHom_map_zero
