@@ -54,6 +54,19 @@ impl std::fmt::Display for Sha256Digest {
     }
 }
 
+impl serde::Serialize for Sha256Digest {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_hex())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Sha256Digest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Self::from_hex(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 /// An incremental framed hasher over one labeled recipe (§21.1).
 pub struct FramedHasher {
     hasher: Sha256,

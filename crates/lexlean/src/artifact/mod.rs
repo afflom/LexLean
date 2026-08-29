@@ -4,6 +4,7 @@
 pub mod canonical_json;
 pub mod content_id;
 pub mod manifest;
+pub mod snapshot;
 pub mod source_map;
 
 /// Durably record a directory rename (§21.8): open the parent directory

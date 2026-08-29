@@ -759,6 +759,25 @@ impl Engine {
         self.bound("check", self.check_inner(&request))
     }
 
+    /// Obtain the stable semantic snapshot (§24.1, Task 3).
+    pub fn snapshot(
+        &self,
+        request: CheckRequest,
+    ) -> Result<crate::artifact::snapshot::SemanticSnapshot, LexLeanError> {
+        self.bound("snapshot", self.snapshot_inner(&request))
+    }
+
+    fn snapshot_inner(
+        &self,
+        request: &CheckRequest,
+    ) -> Result<crate::artifact::snapshot::SemanticSnapshot, LexLeanError> {
+        let (checked, _lock) = self.checked(&request.selection)?;
+        Ok(crate::artifact::snapshot::SemanticSnapshot::from_checked(
+            &checked,
+            crate::compiler_semantics_id(),
+        ))
+    }
+
     fn check_inner(
         &self,
         request: &CheckRequest,

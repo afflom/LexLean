@@ -55,6 +55,7 @@ pub use api::{
     VerifiedProject, VerifiedUnit, VerifyRequest,
 };
 pub use artifact::content_id::Sha256Digest;
+pub use artifact::snapshot::SemanticSnapshot;
 pub use diagnostic::{Diagnostic, DiagnosticCode, Label, Note, Span};
 pub use error::{ErrorClass, LexLeanError};
 
