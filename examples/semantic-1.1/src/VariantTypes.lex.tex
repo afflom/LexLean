@@ -1,0 +1,8 @@
+\begin{lexlean}{VariantTypes}
+\useglossary{lexlean.std.bool@1.1.0}
+\useglossary{lexlean.std.nat@1.1.0}
+\title{Boolean}
+\begin{semanticmodule}
+\semanticdata{{"declarations":[{"constructors":[{"fields":[],"name":"none"},{"fields":[{"kind":"nat"}],"name":"some"}],"kind":"inductive","name":"MaybeNat","parameters":[],"type_parameters":[]},{"fields":[{"name":"value","type":{"kind":"parameter","name":"A"}}],"kind":"structure","name":"Box","parameters":[],"type_parameters":["A"]},{"fields":[{"name":"left","type":{"kind":"nat"}},{"name":"right","type":{"kind":"nat"}}],"kind":"structure","name":"PairNat","parameters":[],"type_parameters":[]},{"fields":[{"name":"default","type":{"kind":"parameter","name":"A"}}],"kind":"class","name":"DefaultValue","parameters":[],"type_parameters":["A"]},{"arguments":[{"kind":"nat"}],"class":{"name":"DefaultValue"},"fields":[{"field":"default","value":{"kind":"nat","value":"0"}}],"kind":"instance","name":"natDefault","priority":1000},{"body":{"kind":"var","name":"T"},"kind":"definition","name":"identityType","parameters":[{"name":"T","type":{"kind":"type"}}],"result":{"kind":"type"}},{"body":{"kind":"unit"},"kind":"definition","name":"unitValue","parameters":[],"result":{"kind":"unit"}},{"body":{"head":{"kind":"nat","value":"0"},"kind":"cons","tail":{"element":{"kind":"nat"},"kind":"nil"}},"kind":"definition","name":"singletonZero","parameters":[],"result":{"element":{"kind":"nat"},"kind":"list"}}],"spec":"lexlean/semantic-module/1"}}
+\end{semanticmodule}
+\end{lexlean}

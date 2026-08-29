@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "paren-open"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.paren-open"
+
+[[form]]
+id = "paren-open"
+channel = "both"
+surface = "("
+canonical_source = true
+features = []

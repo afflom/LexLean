@@ -4,7 +4,7 @@
 **Project name:** LexLean  
 **Rust crate and executable:** `lexlean`  
 **Specification identifier:** `LEXLEAN-SPEC-1`  
-**Language identifier:** `lexlean-language/1.0`  
+**Language identifiers:** `lexlean-language/1.0`, `lexlean-language/1.1`
 **Project-schema identifier:** `lexlean/project/1`  
 **Status:** Normative implementation specification  
 **Target initial release:** `1.0.0`
@@ -15,7 +15,7 @@
 
 This document is the complete implementation contract for `github.com/afflom/lexlean`.
 
-The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are normative. A behavior not authorized by this specification is not part of LexLean 1.0.
+The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are normative. A behavior not authorized by this specification is not part of LexLean language 1.0 or 1.1.
 
 A LexLean implementation conforms to this specification only when:
 
@@ -372,15 +372,22 @@ The completed repository MUST have this layout. Additional files are allowed onl
 │   └── suites/
 ├── language/
 │   ├── bootstrap.toml
+│   ├── bootstrap-1.1.toml
 │   ├── semantics.toml
+│   ├── semantics-1.1.toml
 │   ├── renderer-tokens.toml
 │   ├── core/
 │   │   ├── lexicon.toml
 │   │   └── entries/
+│   ├── core-1.1/
+│   │   ├── lexicon.toml
+│   │   └── entries/
 │   └── std/
-│       └── nat/
-│           ├── lexicon.toml
-│           └── entries/
+│       ├── bool-1.1/
+│       ├── int/
+│       ├── int-1.1/
+│       ├── nat/
+│       └── nat-1.1/
 ├── model/
 │   ├── authorities.toml
 │   ├── errors.toml
@@ -396,6 +403,8 @@ The completed repository MUST have this layout. Additional files are allowed onl
 │   ├── lexicon.schema.json
 │   ├── lock.schema.json
 │   ├── project.schema.json
+│   ├── semantic-snapshot.schema.json
+│   ├── semantic-module.schema.json
 │   └── source-map.schema.json
 ├── tests/
 │   ├── fixtures/
@@ -2208,6 +2217,89 @@ coverage and both generated artifacts.
 
 
 
+### 17.11 Language-1.1 semantic modules
+
+Language 1.1 adds the high-level `semanticmodule` alternative. It occurs
+after the ordinary module header and title, is exclusive with prose blocks
+and `coremodule`, and contains exactly one `\semanticdata{...}` canonical JSON
+value with schema `lexlean/semantic-module/1`. It is semantic declaration
+data, never Lean or LaTeX source. Language 1.0 rejects the environment.
+
+The closed declaration variants are structure, class, explicit instance,
+finite nonrecursive inductive, definition, and theorem. Structures, classes,
+and inductives carry ordered explicit type parameters, fields, and positional
+constructors; their schema-level `parameters` array is required to be empty so
+no value index can be accepted without a corresponding closed type/application
+IR. Definitions and theorems carry ordered explicit value parameters.
+Instances have exactly priority 1000,
+target a prior document class, carry the exact ordered field set, and are
+unique for one class/type argument tuple. Definitions are nonrecursive unless
+they name exactly one `Nat`, `List`, or document-inductive decreasing argument
+and their body is a top-level exhaustive match on that argument. A recursive
+self-call is legal only inside a match branch and passes a pattern-bound
+structural subvalue in that argument position. Mutual recursion, forward references, missing or mixed
+cases, recursive inductive payloads, and ambiguous instances are rejected in
+linking. An `instance_value` term names its required class/type tuple and the
+resolved prior instance. Linking recomputes that unique resolution and rejects
+a missing, different, forward, self-referential, or cyclic instance instead of
+delegating synthesis to Lean.
+
+The closed term variants are locals, canonical natural and Boolean literals,
+unit, list nil/cons, record construction, positional construction, field
+projection, document calls, conditional, exhaustive match, equality and
+natural comparison, arithmetic, Boolean connectives, propositional
+conjunction, implication,
+bi-implication, universal binding, and deterministically resolved instance
+values. Members are qualified logical
+module/name pairs. Arity, owner, ordered fields, local scope, match binder
+count, and exhaustiveness are checked before rendering. There is no source
+variant for a raw command, expression, tactic, macro, unsafe/partial/
+noncomputable definition, termination annotation, or backend extension.
+
+The closed proof variants are reflexivity, decidable Boolean bridging,
+`simp only` over a nonempty sorted unique set of document definitions,
+induction hypotheses, and the fixed `Bool.and_eq_true`, `Nat.beq_eq`, or
+`Nat.blt_eq` Boolean-to-proposition bridge lemmas; constructor
+congruence, cases, and structural induction. Each has one fixed proof-term or
+tactic lowering and one canonical LaTeX description; users cannot supply a
+tactic name or argument string. Cases and induction require a `Nat`, `List`,
+or document-inductive local; their constructor set and pattern-binder arities
+are checked exactly before rendering. Induction may carry a strictly sorted,
+unique list of other in-scope theorem parameters to generalize; the scrutinee
+cannot be generalized. Every simplification name resolves
+to one of those closed choices. An axiom-free `boolean_reflection` proof is
+available only in two validated
+generic shapes: structural `List Nat` recursion that reflects `Nat.beq` or
+`Nat.blt` into an independently recursive proposition, and a finite structure
+whose complete ordered `Nat` field set is reflected from right-associated
+Boolean conjunction into propositional conjunction. The proof payload names
+the prior Boolean and proposition definitions and the in-scope locals; record
+expected values are canonical Nat literals. The backend emits fixed natural
+deduction using primitive Nat direction lemmas and locally proved Boolean
+conjunction/reflexivity bridges. It does not invoke `propext` or a general
+tactic.
+An `apply` proof names one prior theorem and supplies exactly its ordered,
+type-checked semantic arguments; it lowers to one `exact` application and
+cannot carry a proof-term or tactic string.
+
+Every theorem has an exact axiom policy. An
+omitted `axioms` member means the exact empty set; a present member is a
+strictly sorted, duplicate-free list of Lean names and means exact equality
+with that set. Non-theorem semantic declarations always use the exact empty
+set. Verification rejects a missing, additional, or unlisted observed axiom
+and records the declared and observed sets in the attestation.
+
+Both fixed backends consume the same owned `SemanticModule`. Lean emits public
+structures, classes, fixed-priority instances, inductives, exposed total
+definitions, and theorems inside the generated logical namespace. LaTeX emits
+the corresponding ordered declaration catalog. Full output coverage and maps
+bind each emitted byte to the semantic payload. The snapshot embeds the
+decoded module and each declaration as nested JSON rather than an encoded
+string. The snapshot schema embeds the complete closed language-1.1 semantic
+module definitions; it does not validate that field as an unconstrained JSON
+value. Verification elaborates the generated module, replays it with
+`leanchecker`, and audits every theorem's observed axioms.
+
 ## 18. Lean backend
 
 ### 18.1 Output contract
@@ -2654,7 +2746,7 @@ Labels are ASCII and unique within each hash recipe.
 
 ### 21.2 Compiler-semantics ID
 
-`language/semantics.toml` contains exactly:
+`language/semantics.toml` freezes language 1.0 exactly:
 
 ```toml
 spec = "lexlean/compiler-semantics/1"
@@ -2670,7 +2762,12 @@ axiom_parser = "lean-4.32.1/2"
 canonical_json = "1"
 ```
 
-The compiler-semantics ID is the §11.5 tree digest of:
+`language/semantics-1.1.toml` independently versions the language-1.1
+semantic IR, snapshot, proof forms, and fixed backends. A 1.1-only change
+updates that file and therefore the 1.1 compiler-semantics ID without changing
+the historical 1.0 ID.
+
+The current language-1.1 compiler-semantics ID is the §11.5 tree digest of:
 
 - every regular file under `language/`;
 - every regular file under `schemas/`;
@@ -2679,7 +2776,9 @@ The compiler-semantics ID is the §11.5 tree digest of:
 
 The specification-link gate ensures these version declarations agree with this document. The digest excludes README prose, CI YAML, host binaries, timestamps, and generated build output.
 
-The released binary embeds this ID. Repository tests recompute it and compare.
+The released binary embeds both closed language IDs. Repository tests
+recompute the complete current input tree and the compatibility-filtered 1.0
+tree independently and compare both.
 
 ### 21.3 Source ID
 
@@ -3160,11 +3259,30 @@ impl Engine {
     pub fn load(project_file: &Utf8Path) -> Result<Self, LexLeanError>;
     pub fn lock(&self, request: LockRequest) -> Result<LockResult, LexLeanError>;
     pub fn check(&self, request: CheckRequest) -> Result<ProjectResultSet<CheckedUnit>, LexLeanError>;
+    pub fn snapshot(&self, request: CheckRequest) -> Result<SemanticSnapshot, LexLeanError>;
     pub fn build(&self, request: BuildRequest) -> Result<ProjectResultSet<BuiltUnit>, LexLeanError>;
     pub fn verify(&self, request: VerifyRequest) -> Result<VerifiedProject, LexLeanError>;
     pub fn format(&self, request: FormatRequest) -> Result<FormatResultSet, LexLeanError>;
 }
 ```
+
+`snapshot` executes the same normalization, lexical closure, parsing,
+elaboration, linking, resource-limit, and diagnostic pipeline as `check`. It
+does not invoke either backend, start a child process, or write a project
+artifact. Its owned, read-only DTO is serialized as
+`lexlean/semantic-snapshot/1`; object keys use canonical ASCII order, arrays
+use their specified semantic order, and the file spelling has exactly one
+final LF. The snapshot ID is SHA-256 of those exact canonical bytes.
+
+The envelope records source, semantic, compiler-semantics, and selected
+language identities; normalized relative source identities; sorted module,
+import, glossary, and visible-package closures; declarations, generated Lean
+names, axiom policies, and origins; canonical linked terms and proofs; and the
+complete native semantic module value, including expression DAG, binders,
+structures, classes, instances, inductives, constructors, recursion and proof
+metadata. Absolute paths, environment data, Rust debug text, mutable compiler
+references, and backend output are not representable. The published JSON
+Schema and derived Serde representation are the same shape.
 
 ### 24.2 Selection type
 
@@ -3944,6 +4062,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `CF-13` | `configuration-lock` | The Lake workspace contains exactly one supported Lake configuration and the recorded workspace files match. | §10.4 |
 | `CF-14` | `configuration-lock` | Language 1.0 accepts only leanprover/lean4:v4.32.1 for verification. | §8.2, §10.1 |
 | `CF-15` | `configuration-lock` | Duplicate logical modules and case-folded path or module collisions are rejected. | §23.3 |
+| `CF-16` | `configuration-lock` | Language 1.1 has a parallel exact builtin closure and rejects a language-1.0 lock or package without altering language-1.0 identities. | §10.1 |
 | `LX-01` | `lexical-closure` | Source decoding and line normalization enforce valid UTF-8, LF, final LF, and forbidden-scalar rules. | §12.1 |
 | `LX-02` | `lexical-closure` | Non-NFC source is diagnosed and canonical formatting rewrites it without semantic change. | §12.1, §23.5 |
 | `LX-03` | `lexical-closure` | Raw percent, comments, tabs, trailing spaces, and non-ASCII whitespace are rejected. | §12.1 |
@@ -4005,6 +4124,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `SM-13` | `semantic-ir` | Inherited section parameters are represented explicitly and emitted only on declarations that use them. | §17.5, §18.3 |
 | `SM-14` | `semantic-ir` | A numeral without a unique expected type is rejected rather than defaulted. | §15.5 |
 | `SM-15` | `semantic-ir` | A native core module is closed typed DAG data shared by both backends, carries explicit declaration policies, and accepts no backend source text. | §17.10 |
+| `SM-16` | `semantic-ir` | The language-1.1 semantic snapshot contains every closed declaration, term, recursion, match, instance, proof variant, and exact theorem axiom policy without paths or backend text. | §17.11 |
 | `DF-01` | `declarations` | A valid type-definition sentence emits one nonrecursive sort-valued Lean def linked to its document entry. | §15.7, §18.6 |
 | `DF-02` | `declarations` | A valid term-definition sentence emits one nonrecursive explicitly typed Lean def. | §15.7, §18.6 |
 | `DF-03` | `declarations` | A valid predicate-definition sentence emits one nonrecursive Prop-valued Lean def. | §15.7, §18.6 |
@@ -4015,6 +4135,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `DF-08` | `declarations` | Author-defined axioms, opaque declarations, and proofless theorem-like components are rejected. | §4.2, §15.8 |
 | `DF-09` | `declarations` | Every theorem-like component contains exactly one nonempty structured proof. | §15.8, §16 |
 | `DF-10` | `declarations` | Generated declarations preserve source order and every document reference respects that order. | §18.3 |
+| `DF-11` | `declarations` | Language 1.1 checks and lowers generic structures, classes, instances, inductives, definitions, structural recursion, matches, Boolean validators, and closed proofs from semantic source data. | §17.11 |
 | `PF-01` | `proofs` | Assume and exact-style simple proof sentences create scoped introductions and exact proof nodes. | §16.2 |
 | `PF-02` | `proofs` | Simple Apply is accepted only when its declared signature yields exactly one residual premise. | §16.2 |
 | `PF-03` | `proofs` | Structured apply requires every numbered residual premise exactly once and in signature order. | §16.6 |
@@ -4102,12 +4223,14 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `CL-10` | `cli-api` | All, explicit-files, and entrypoint selections return sorted project result sets including import closure. | §23.3 |
 | `CL-11` | `cli-api` | Every command maps failures to the exact documented exit code. | §23.6 |
 | `CL-12` | `cli-api` | Human and canonical-JSON output modes obey exact stream, color, and cardinality rules. | §23.7 |
-| `CL-13` | `cli-api` | The public Engine exposes exactly the stable load, lock, check, build, verify, and format entry points. | §24.1 |
+| `CL-13` | `cli-api` | The public Engine exposes exactly the stable load, lock, check, snapshot, build, verify, and format entry points. | §24.1 |
 | `CL-14` | `cli-api` | Every public multi-module operation returns a ProjectResultSet or VerifiedProject rather than a singular unit. | §24.2, §24.4 |
 | `CL-15` | `cli-api` | Public requests cannot override backends, toolchain, verification stages, limits, policies, or fixed artifact sets. | §24.3 |
 | `CL-16` | `cli-api` | Every public failure is a LexLeanError and malformed user input cannot panic. | §24.5 |
 | `CL-17` | `cli-api` | Environment variables cannot alter semantic project configuration. | §23.1, §25.4 |
 | `CL-18` | `cli-api` | Version output reports compiler, language, semantics ID, and Lean toolchain exactly. | §30.3 |
+| `CL-19` | `cli-api` | Snapshot returns a stable owned canonical semantic envelope without writing artifacts or invoking a backend. | §24.1 |
+| `CL-20` | `cli-api` | Language-1.1 init creates and verifies a declarative Lake workspace containing no source Lean module. | §23.4 |
 | `SE-01` | `security` | Source, package, workspace, resource, and output paths are confined and symlinks are rejected. | §25.1 |
 | `SE-02` | `security` | Special files, duplicate filesystem identities, and case-fold collisions are rejected before processing. | §25.1 |
 | `SE-03` | `security` | All child processes use direct executable and argv invocation with no shell. | §25.2 |
@@ -4129,7 +4252,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `EX-07` | `examples` | The negative fixture suite covers every required rejection class and prescribed diagnostic family. | §28.5 |
 | `EX-08` | `examples` | Every example directory is discovered automatically and must satisfy the full example gate. | §28.6 |
 
-**Total required capability IDs:** 211.
+**Total required capability IDs:** 216.
 
 No row may be downgraded to `some-true` or `open`. Upstream Lean facts are ledger/authority rows, not substitutions for these build behaviors.
 

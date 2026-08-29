@@ -25,6 +25,7 @@ use crate::ir::core::CoreModule;
 use crate::ir::declaration::{AxiomPolicy, DeclBody, Declaration};
 use crate::ir::document::{Block, DocumentModule, Phrase, PhraseItem, Section};
 use crate::ir::proof::{CaseProof, Proof};
+use crate::ir::semantic::SemanticModule;
 use crate::ir::term::{Binder, ExternalConstRef, GlobalRef, LocalId, Term};
 use crate::lexicon::lse::QualifiedId;
 use crate::lexicon::package::{LexiconPackage, PackageRef};
@@ -302,7 +303,8 @@ fn check_project_inline(
     let limits = project.config.limits.within_compile_stack();
     let registry =
         crate::lexicon::load_token_registry().map_err(|diagnostic| err(vec![diagnostic]))?;
-    let bootstrap = crate::lexicon::load_bootstrap().map_err(|diagnostic| err(vec![diagnostic]))?;
+    let bootstrap = crate::lexicon::load_bootstrap_for(&project.config.language)
+        .map_err(|diagnostic| err(vec![diagnostic]))?;
     let closure =
         Closure::build(packages, registry, bootstrap, limits.max_import_depth).map_err(err)?;
 
@@ -574,6 +576,41 @@ fn check_project_inline(
         } else {
             None
         };
+        let semantic = if let Some(ast) = &load.ast.semantic {
+            if project.config.language != "1.1" {
+                return Err(err(vec![Diagnostic::new(
+                    code!("LLP2003"),
+                    "semanticmodule requires language 1.1",
+                )
+                .with_span(span_of_range(&load.path, &load.atoms, ast.data.range))]));
+            }
+            let imported_semantic: BTreeMap<String, &SemanticModule> = imports
+                .iter()
+                .filter_map(|import| {
+                    modules
+                        .get(import)
+                        .and_then(|module| module.document.semantic.as_ref())
+                        .map(|semantic| (import.clone(), semantic))
+                })
+                .collect();
+            Some(
+                SemanticModule::parse(&ast.data.text, &imports, &imported_semantic).map_err(
+                    |reason| {
+                        err(vec![Diagnostic::new(
+                            code!("LLT4001"),
+                            format!("phase link: {reason}"),
+                        )
+                        .with_span(span_of_range(
+                            &load.path,
+                            &load.atoms,
+                            ast.data.range,
+                        ))])
+                    },
+                )?,
+            )
+        } else {
+            None
+        };
         let document = DocumentModule {
             name: module_name.clone(),
             lean_module,
@@ -584,6 +621,7 @@ fn check_project_inline(
             title,
             blocks,
             core,
+            semantic,
         };
         ir_node_count = ir_node_count.saturating_add(count_ir_nodes(&document));
         if ir_node_count > limits.max_ir_nodes {
@@ -640,8 +678,9 @@ fn check_project_inline(
     let closure_json = closure
         .closure_json("", &visible_union)
         .to_canonical_string();
-    let semantic_id = content_id::semantic_id(
-        crate::compiler_semantics_id(),
+    let semantic_id = content_id::semantic_id_for(
+        crate::compiler_semantics_id_for(&project.config.language),
+        &project.config.language,
         &linked_ir_json,
         &closure_json,
     );
@@ -1538,7 +1577,11 @@ fn count_ir_nodes(document: &DocumentModule) -> u64 {
     let core = document.core.as_ref().map_or(0, |module| {
         module.nodes.len() as u64 + module.declarations.len() as u64
     });
-    prose.saturating_add(core)
+    let semantic = document
+        .semantic
+        .as_ref()
+        .map_or(0, |module| module.declarations.len() as u64);
+    prose.saturating_add(core).saturating_add(semantic)
 }
 
 /// Collect every external Lean entry a document references, keyed by

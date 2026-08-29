@@ -1,4 +1,4 @@
-//! The `declarations` suite: DF-01..DF-10.
+//! The `declarations` suite: DF-01..DF-11.
 
 use lexlean::ir::declaration::{DeclBody, DeclKind};
 
@@ -413,6 +413,213 @@ pub(crate) fn run(id: &str) {
                 positions, sorted,
                 "generated declarations preserve source order"
             );
+        }
+        // §17.11: generic semantic declarations are checked before either
+        // fixed backend and generate source that the kernel verifies.
+        "DF-11" => {
+            let project = support::semantic_project();
+            project.check_ok();
+            let checked = support::checked_project(&project);
+            let semantic = checked.modules["Main"]
+                .document
+                .semantic
+                .as_ref()
+                .expect("semantic module");
+            support::assert_schema(
+                "semantic-module",
+                "language-1.1 semantic fixture",
+                &serde_json::to_value(semantic).expect("semantic JSON"),
+            );
+            let rendered = support::rendered(&project);
+            let lean = support::lean_text(&rendered, "Main");
+            for expected in [
+                "public inductive ComponentKind",
+                "public structure Box (A : Type)",
+                "public structure Component",
+                "public class Validatable",
+                "public instance (priority := 1000) defaultValidatable",
+                "public def allConsecutive",
+                "| expected, List.cons value rest =>",
+                "public theorem allConsecutive_sound_complete",
+                "cases value with",
+                "induction values with",
+                "simp only [allConsecutive]",
+            ] {
+                assert!(
+                    lean.contains(expected),
+                    "generated Lean contains `{expected}`:\n{lean}"
+                );
+            }
+            assert!(!lean.contains("sorry") && !lean.contains("axiom"));
+            let tex_path = rendered
+                .files
+                .iter()
+                .find(|(path, _)| path.ends_with(".tex"))
+                .map(|(_, bytes)| String::from_utf8(bytes.clone()).expect("utf8"))
+                .expect("LaTeX");
+            for expected in ["ComponentKind", "Validatable", "allConsecutive"] {
+                assert!(tex_path.contains(expected), "LaTeX contains {expected}");
+            }
+            let verified = support::verify_ok_backed("DF-11", &project);
+            if let Some(attestation) = verified {
+                assert!(attestation.root.as_std_path().is_dir());
+                assert_ne!(attestation.attestation_id, lexlean::Sha256Digest([0; 32]));
+            }
+
+            let mutations = [
+                ("\"priority\":1000", "\"priority\":999"),
+                ("\"name\":\"sampleComponent\"", "\"name\":\"ComponentKind\""),
+                (
+                    "\"member\":{\"name\":\"Component\"}",
+                    "\"member\":{\"name\":\"MissingType\"}",
+                ),
+                (
+                    "{\"kind\":\"var\",\"name\":\"rest\"}]",
+                    "{\"kind\":\"var\",\"name\":\"values\"}]",
+                ),
+                (
+                    "\"spec\":\"lexlean/semantic-module/1\"",
+                    "\"lean\":\"def escaped := true\",\"spec\":\"lexlean/semantic-module/1\"",
+                ),
+                (
+                    "\"recursive_argument\":\"values\",\"result\":{\"kind\":\"bool\"}",
+                    "\"recursive_argument\":\"values\",\"result\":{\"kind\":\"nat\"}",
+                ),
+                (
+                    "\"field\":\"index\",\"value\":{\"kind\":\"nat\",\"value\":\"0\"}",
+                    "\"field\":\"index\",\"value\":{\"kind\":\"bool\",\"value\":true}",
+                ),
+                (
+                    "\"binders\":[],\"body\":{\"kind\":\"bool\",\"value\":true},\"constructor\":{\"name\":\"List.nil\"}",
+                    "\"binders\":[],\"body\":{\"kind\":\"nat\",\"value\":\"0\"},\"constructor\":{\"name\":\"List.nil\"}",
+                ),
+            ];
+            for (from, to) in mutations {
+                let invalid = support::semantic_project();
+                invalid.edit("src/Main.lex.tex", from, to);
+                let error = invalid.check_err();
+                support::expect_code(&error, "LLT4001");
+                assert!(
+                    !invalid.root.join(".lexlean/build").as_std_path().exists(),
+                    "semantic rejection occurs before a backend"
+                );
+            }
+
+            let nonexhaustive = support::semantic_project();
+            let source = nonexhaustive.read("src/Main.lex.tex");
+            let start = source.find("{\"binders\":[],\"body\":{\"kind\":\"bool\",\"value\":true},\"constructor\":{\"name\":\"List.nil\"}},")
+                .expect("nil branch");
+            let needle = "{\"binders\":[],\"body\":{\"kind\":\"bool\",\"value\":true},\"constructor\":{\"name\":\"List.nil\"}},";
+            let mut changed = source;
+            changed.replace_range(start..start + needle.len(), "");
+            nonexhaustive.write("src/Main.lex.tex", &changed);
+            nonexhaustive.check_fails_with("LLT4001");
+
+            // Imported semantic declarations participate in the same typed
+            // environment. A remote call cannot bypass arity or result-type
+            // checking merely because its declaration is in another module.
+            let remote_arity = support::P::semantic_example();
+            remote_arity.edit(
+                "src/Main.lex.tex",
+                r#""arguments":[],"function":{"module":"Support","name":"remoteEnabled"}"#,
+                r#""arguments":[{"kind":"nat","value":"0"}],"function":{"module":"Support","name":"remoteEnabled"}"#,
+            );
+            remote_arity.check_fails_with("LLT4001");
+
+            let remote_result = support::P::semantic_example();
+            remote_result.edit(
+                "src/Support.lex.tex",
+                r#""body":{"kind":"bool","value":true},"kind":"definition","name":"remoteEnabled","parameters":[],"result":{"kind":"bool"}"#,
+                r#""body":{"kind":"nat","value":"0"},"kind":"definition","name":"remoteEnabled","parameters":[],"result":{"kind":"nat"}"#,
+            );
+            remote_result.check_fails_with("LLT4001");
+
+            for (from, to) in [
+                (
+                    r#""value":{"arguments":[{"kind":"nat"}],"class":{"module":"VariantTypes","name":"DefaultValue"},"kind":"instance_value""#,
+                    r#""value":{"arguments":[{"kind":"unit"}],"class":{"module":"VariantTypes","name":"DefaultValue"},"kind":"instance_value""#,
+                ),
+                (
+                    r#""resolved":{"module":"VariantTypes","name":"natDefault"}"#,
+                    r#""resolved":{"name":"natUsesDefault"}"#,
+                ),
+                (
+                    r#""class":{"name":"UsesDefault"},"fields""#,
+                    r#""class":{"module":"VariantTypes","name":"DefaultValue"},"fields""#,
+                ),
+            ] {
+                let invalid = support::semantic_project();
+                invalid.edit("src/VariantInstances.lex.tex", from, to);
+                invalid.check_fails_with("LLT4001");
+            }
+
+            // Every conservative rejection promised by §17.11 occurs while
+            // linking semantic data, before either fixed backend is entered.
+            for (path, from, to) in [
+                (
+                    "src/VariantTypes.lex.tex",
+                    r#""name":"MaybeNat","parameters":[]"#,
+                    r#""name":"MaybeNat","parameters":[{"name":"index","type":{"kind":"nat"}}]"#,
+                ),
+                (
+                    "src/VariantTypes.lex.tex",
+                    r#"{"fields":[{"kind":"nat"}],"name":"some"}"#,
+                    r#"{"fields":[{"arguments":[],"kind":"named","member":{"name":"MaybeNat"}}],"name":"some"}"#,
+                ),
+                (
+                    "src/VariantTypes.lex.tex",
+                    r#"{"fields":[],"name":"none"},{"fields""#,
+                    r#"{"fields":[],"name":"some"},{"fields""#,
+                ),
+                (
+                    "src/VariantTerms.lex.tex",
+                    r#""kind":"definition","name":"chooseNat""#,
+                    r#""kind":"definition","name":"chooseNat","recursive_argument":"flag""#,
+                ),
+                (
+                    "src/VariantTerms.lex.tex",
+                    r#""binders":["prior"],"body""#,
+                    r#""binders":[],"body""#,
+                ),
+                (
+                    "src/Main.lex.tex",
+                    r#",{"binders":[],"constructor":"database","proof":{"kind":"reflexivity"}}"#,
+                    "",
+                ),
+                (
+                    "src/Main.lex.tex",
+                    r#""binders":["head","tail","ih"],"constructor":"cons""#,
+                    r#""binders":["head","tail"],"constructor":"cons""#,
+                ),
+                (
+                    "src/Main.lex.tex",
+                    r#""definitions":[{"name":"allConsecutive"}]"#,
+                    r#""definitions":[{"name":"missingDefinition"}]"#,
+                ),
+                (
+                    "src/Main.lex.tex",
+                    r#""kind":"induction","scrutinee":"values""#,
+                    r#""generalizing":["missing"],"kind":"induction","scrutinee":"values""#,
+                ),
+                (
+                    "src/VariantProofs.lex.tex",
+                    r#""kind":"apply","theorem":{"name":"conjunction_refl"}"#,
+                    r#""kind":"apply","theorem":{"name":"missingTheorem"}"#,
+                ),
+                (
+                    "src/VariantProofs.lex.tex",
+                    r#"{"expected":"0","field":"left"},{"expected":"1","field":"right"}"#,
+                    r#"{"expected":"0","field":"left"}"#,
+                ),
+            ] {
+                let invalid = support::semantic_project();
+                invalid.edit(path, from, to);
+                invalid.check_fails_with("LLT4001");
+                assert!(
+                    !invalid.root.join(".lexlean/build").as_std_path().exists(),
+                    "semantic rejection occurs before a backend"
+                );
+            }
         }
         other => panic!("no declarations case is wired for {other}"),
     }

@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "follows"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.follows"
+
+[[form]]
+id = "follows-l"
+channel = "text"
+surface = "follows"
+canonical_source = true
+features = ["lower-case"]

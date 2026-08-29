@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "not"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.not"
+
+[[form]]
+id = "not-l"
+channel = "text"
+surface = "not"
+canonical_source = true
+features = ["lower-case"]
+
+[[form]]
+id = "not-s"
+channel = "text"
+surface = "Not"
+canonical_source = false
+features = ["sentence-case"]

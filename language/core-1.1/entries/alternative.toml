@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "alternative"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.alternative"
+
+[[form]]
+id = "alternative-l"
+channel = "text"
+surface = "alternative"
+canonical_source = true
+features = ["lower-case"]

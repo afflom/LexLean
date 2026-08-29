@@ -1,4 +1,4 @@
-//! The `cli-api` suite: CL-01..CL-18.
+//! The `cli-api` suite: CL-01..CL-20.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -640,7 +640,7 @@ pub(crate) fn run(id: &str) {
             assert!(ok_err.is_empty(), "no diagnostics on success");
             assert!(ok_out.starts_with("checked 1 module ("), "{ok_out}");
         }
-        // §24.1: the Engine exposes exactly the six stable entry points, and
+        // §24.1: the Engine exposes exactly the seven stable entry points, and
         // the crate root re-exports the §24 types.
         "CL-13" => {
             let source = api_source();
@@ -662,8 +662,8 @@ pub(crate) fn run(id: &str) {
             public.sort_unstable();
             assert_eq!(
                 public,
-                vec!["build", "check", "format", "load", "lock", "verify"],
-                "§24.1: exactly the six stable entry points are public"
+                vec!["build", "check", "format", "load", "lock", "snapshot", "verify"],
+                "§24.1: exactly the seven stable entry points are public"
             );
             let lib = std::fs::read_to_string(
                 support::repo_root()
@@ -892,6 +892,90 @@ pub(crate) fn run(id: &str) {
                 lexlean::LEAN_TOOLCHAIN
             );
             assert_eq!(stdout, expected, "§30.3: the exact four-line report");
+        }
+        // §24.1: snapshot is a read-only, backend-free stable operation.
+        "CL-19" => {
+            let project = P::example();
+            let before = support::file_set(&project.root);
+            let engine = Engine::load(&project.root.join("lexlean.toml")).expect("loads");
+            let first = engine
+                .snapshot(CheckRequest {
+                    selection: Selection::Entrypoints,
+                })
+                .expect("snapshot");
+            let second = engine
+                .snapshot(CheckRequest {
+                    selection: Selection::Entrypoints,
+                })
+                .expect("snapshot repeats");
+            assert_eq!(first.canonical_bytes(), second.canonical_bytes());
+            assert_eq!(first.snapshot_id(), second.snapshot_id());
+            assert_eq!(first.spec(), "lexlean/semantic-snapshot/1");
+            assert_eq!(first.language(), lexlean::LANGUAGE_VERSION);
+            assert!(first.modules().iter().all(|module| {
+                !module.source().path().starts_with('/')
+                    && !module.source().path().contains(project.root.as_str())
+            }));
+            let value: serde_json::Value =
+                serde_json::from_slice(&first.canonical_bytes()).expect("canonical JSON");
+            support::assert_schema("semantic-snapshot", "stable Engine snapshot", &value);
+            let round_trip: lexlean::SemanticSnapshot =
+                serde_json::from_value(value).expect("public DTO round-trip");
+            assert_eq!(round_trip, first);
+            assert_eq!(
+                support::file_set(&project.root),
+                before,
+                "snapshot writes nothing"
+            );
+        }
+        // §23.4: a 1.1 project has no authored Lean module; verification
+        // stages only LexLean-generated modules under its build root.
+        "CL-20" => {
+            let target = tempfile::tempdir().expect("tempdir");
+            let root = camino::Utf8Path::from_path(target.path()).expect("utf8");
+            let (exit, _, stderr) = support::cli_in(
+                root,
+                &[
+                    "init",
+                    ".",
+                    "--name",
+                    "source-free",
+                    "--module-prefix",
+                    "SourceFree",
+                    "--language",
+                    "1.1",
+                ],
+            );
+            assert_eq!(exit, 0, "language 1.1 init succeeds: {stderr}");
+            let files = support::file_set(root);
+            assert!(files.contains("src/Main.lex.tex"));
+            assert!(files.contains("lakefile.toml"));
+            assert!(files.contains("lexlean.lock"));
+            assert!(
+                files.iter().all(|path| !path.ends_with(".lean")),
+                "authored tree contains no Lean module: {files:?}"
+            );
+            assert!(!files.contains("lakefile.lean"));
+            let lakefile = std::fs::read_to_string(root.join("lakefile.toml").as_std_path())
+                .expect("lakefile");
+            assert!(!lakefile.contains("lean_lib") && !lakefile.contains("defaultTargets"));
+            let engine = Engine::load(&root.join("lexlean.toml")).expect("loads");
+            let checked = engine
+                .check(CheckRequest {
+                    selection: Selection::Entrypoints,
+                })
+                .expect("checks");
+            assert_eq!(checked.units.len(), 1);
+            let snapshot = engine
+                .snapshot(CheckRequest {
+                    selection: Selection::Entrypoints,
+                })
+                .expect("snapshots");
+            assert_eq!(snapshot.language(), "1.1");
+            if support::lean_backed("CL-20") {
+                let (exit, _, stderr) = support::cli_in(root, &["verify"]);
+                assert_eq!(exit, 0, "source-free generated module verifies: {stderr}");
+            }
         }
         other => panic!("no cli-api case is wired for {other}"),
     }

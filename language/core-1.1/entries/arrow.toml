@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "arrow"
+category = "infix-function"
+signature = "(pi ((explicit p (sort prop)) (explicit q (sort prop))) (sort prop))"
+surface_arity = 2
+frame = "infix"
+precedence = 25
+associativity = "right"
+
+[denotation]
+kind = "core"
+constructor = "logic.arrow"
+
+[[form]]
+id = "arrow"
+channel = "math"
+surface = "→"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token implies) (space) (slot 1))"

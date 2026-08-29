@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "emod"
+category = "infix-function"
+signature = "(pi ((explicit a (const lexlean.std.int::int)) (explicit b (const lexlean.std.int::int))) (const lexlean.std.int::int))"
+surface_arity = 2
+frame = "infix"
+precedence = 70
+associativity = "left"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Int.emod"
+
+[[form]]
+id = "mod"
+channel = "math"
+surface = "intmod"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (operator-name mod) (space) (slot 1))"

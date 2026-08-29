@@ -24,6 +24,101 @@ pub fn repo_root() -> Utf8PathBuf {
         .to_path_buf()
 }
 
+/// Compile an independent crate that exhaustively reads the stable snapshot
+/// semantic DTOs. This prevents the repository test crate from accidentally
+/// relying on hidden `lexlean::ir` paths.
+pub fn check_downstream_snapshot_api() {
+    static CHECKED: OnceLock<()> = OnceLock::new();
+    CHECKED.get_or_init(|| {
+        let temp = tempfile::tempdir().expect("downstream snapshot crate");
+        std::fs::create_dir(temp.path().join("src")).expect("source directory");
+        let manifest = format!(
+            "[package]\nname = \"snapshot-consumer\"\nversion = \"0.0.0\"\nedition = \"2021\"\npublish = false\n\n[dependencies]\nlexlean = {{ path = {:?} }}\n",
+            repo_root().join("crates/lexlean").as_str()
+        );
+        std::fs::write(temp.path().join("Cargo.toml"), manifest).expect("manifest");
+        std::fs::write(
+            temp.path().join("src/lib.rs"),
+            r#"use lexlean::{
+    SnapshotProof, SnapshotSemanticDeclaration, SnapshotSemanticModule,
+    SnapshotTerm, SnapshotType,
+};
+
+pub fn inspect(module: &SnapshotSemanticModule) -> usize {
+    module.declarations.iter().map(declaration).sum()
+}
+
+fn declaration(value: &SnapshotSemanticDeclaration) -> usize {
+    match value {
+        SnapshotSemanticDeclaration::Structure { fields, .. }
+        | SnapshotSemanticDeclaration::Class { fields, .. } => fields.len(),
+        SnapshotSemanticDeclaration::Instance { fields, .. } => fields.len(),
+        SnapshotSemanticDeclaration::Inductive { constructors, .. } => constructors.len(),
+        SnapshotSemanticDeclaration::Definition { result, body, .. } => ty(result) + term(body),
+        SnapshotSemanticDeclaration::Theorem { statement, proof, .. } => term(statement) + prove(proof),
+    }
+}
+
+fn ty(value: &SnapshotType) -> usize {
+    match value {
+        SnapshotType::Type | SnapshotType::Nat | SnapshotType::Bool
+        | SnapshotType::Prop | SnapshotType::Unit => 1,
+        SnapshotType::Parameter { name } => name.len(),
+        SnapshotType::List { element } => ty(element),
+        SnapshotType::Named { arguments, .. } => arguments.iter().map(ty).sum(),
+    }
+}
+
+fn term(value: &SnapshotTerm) -> usize {
+    match value {
+        SnapshotTerm::Var { name } | SnapshotTerm::Nat { value: name } => name.len(),
+        SnapshotTerm::Bool { value } => usize::from(*value),
+        SnapshotTerm::Unit => 0,
+        SnapshotTerm::Nil { element } => ty(element),
+        SnapshotTerm::Cons { head, tail } => term(head) + term(tail),
+        SnapshotTerm::Record { fields, .. } => fields.iter().map(|v| term(&v.value)).sum(),
+        SnapshotTerm::Constructor { arguments, .. } | SnapshotTerm::Call { arguments, .. } => arguments.iter().map(term).sum(),
+        SnapshotTerm::InstanceValue { arguments, .. } => arguments.iter().map(ty).sum(),
+        SnapshotTerm::Project { value, .. } | SnapshotTerm::Not { value } => term(value),
+        SnapshotTerm::If { condition, then_value, else_value } => term(condition) + term(then_value) + term(else_value),
+        SnapshotTerm::Match { scrutinee, branches } => term(scrutinee) + branches.iter().map(|v| term(&v.body)).sum::<usize>(),
+        SnapshotTerm::Eq { left, right } | SnapshotTerm::Le { left, right }
+        | SnapshotTerm::Lt { left, right } | SnapshotTerm::Add { left, right }
+        | SnapshotTerm::Beq { left, right } | SnapshotTerm::Ble { left, right }
+        | SnapshotTerm::Blt { left, right } | SnapshotTerm::And { left, right }
+        | SnapshotTerm::PropAnd { left, right }
+        | SnapshotTerm::Or { left, right } | SnapshotTerm::Iff { left, right } => term(left) + term(right),
+        SnapshotTerm::Implies { premise, conclusion } => term(premise) + term(conclusion),
+        SnapshotTerm::Forall { binder, body } => ty(&binder.r#type) + term(body),
+    }
+}
+
+fn prove(value: &SnapshotProof) -> usize {
+    match value {
+        SnapshotProof::Reflexivity | SnapshotProof::Decide | SnapshotProof::Congruence => 1,
+        SnapshotProof::Simplify { definitions } => definitions.len(),
+        SnapshotProof::Constructor { branches } => branches.iter().map(prove).sum(),
+        SnapshotProof::Cases { branches, .. } | SnapshotProof::Induction { branches, .. } => branches.iter().map(|v| prove(&v.proof)).sum(),
+        SnapshotProof::BooleanReflection { reflection } => match reflection {
+            lexlean::SnapshotReflection::List { .. } => 1,
+            lexlean::SnapshotReflection::Record { fields, .. } => fields.len(),
+        },
+        SnapshotProof::Apply { arguments, .. } => arguments.iter().map(term).sum(),
+    }
+}
+"#,
+        )
+        .expect("downstream source");
+        let status = std::process::Command::new("cargo")
+            .args(["check", "--offline", "--quiet"])
+            .current_dir(temp.path())
+            .env("CARGO_TARGET_DIR", repo_root().join("target/downstream-snapshot-api"))
+            .status()
+            .expect("run downstream cargo check");
+        assert!(status.success(), "downstream snapshot API must compile");
+    });
+}
+
 /// The whole specification text, read once.
 pub fn spec_text() -> &'static str {
     static TEXT: OnceLock<String> = OnceLock::new();
@@ -68,6 +163,19 @@ impl P {
             .tempdir()
             .expect("tempdir");
         let source = repo_root().join("examples/nat-add-zero");
+        copy_tree(source.as_std_path(), temp.path(), &[".lexlean", "expected"]);
+        let root = Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).expect("utf8 tempdir");
+        Self { temp, root }
+    }
+
+    /// A fresh copy of the committed multi-module language-1.1 fixture.
+    #[must_use]
+    pub fn semantic_example() -> Self {
+        let temp = tempfile::Builder::new()
+            .prefix("lexlean-semantic-case-")
+            .tempdir()
+            .expect("tempdir");
+        let source = repo_root().join("examples/semantic-1.1");
         copy_tree(source.as_std_path(), temp.path(), &[".lexlean", "expected"]);
         let root = Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).expect("utf8 tempdir");
         Self { temp, root }
@@ -585,6 +693,16 @@ pub fn defs_project() -> P {
     project.write("src/Main.lex.tex", DEFS_MODULE);
     project.relock();
     project
+}
+
+/// A language-1.1 semantic-module fixture that exercises the generic type,
+/// declaration, recursion, term, match, instance, and proof variants without
+/// any authored Lean source.
+#[must_use]
+pub fn semantic_project() -> P {
+    // Keep one canonical committed source fixture as the oracle for the
+    // all-variant snapshot, backend, verification, and example gates.
+    P::semantic_example()
 }
 
 /// Relative paths of every file under a directory.

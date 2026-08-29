@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "div"
+category = "infix-function"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))"
+surface_arity = 2
+frame = "infix"
+precedence = 70
+associativity = "left"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.div"
+
+[[form]]
+id = "slash"
+channel = "math"
+surface = "/"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token slash) (space) (slot 1))"

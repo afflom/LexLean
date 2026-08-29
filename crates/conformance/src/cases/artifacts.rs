@@ -363,7 +363,7 @@ pub(crate) fn run(id: &str) {
                 .collect();
             assert_eq!(
                 lexlean::artifact::content_id::tree_digest(&disk_refs),
-                lexlean::compiler_semantics_id(),
+                lexlean::compiler_semantics_id_for(lexlean::LATEST_LANGUAGE_VERSION),
                 "the on-disk normative set reproduces the embedded ID"
             );
             let files: Vec<(&str, &[u8])> = lexlean::embedded::FILES.to_vec();
@@ -376,7 +376,7 @@ pub(crate) fn run(id: &str) {
             mutated[0].1 = flipped;
             assert_ne!(
                 lexlean::artifact::content_id::tree_digest(&mutated),
-                lexlean::compiler_semantics_id(),
+                lexlean::compiler_semantics_id_for(lexlean::LATEST_LANGUAGE_VERSION),
                 "one changed input changes the ID"
             );
         }

@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "bracket-open"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.bracket-open"
+
+[[form]]
+id = "bracket-open"
+channel = "both"
+surface = "["
+canonical_source = true
+features = []

@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "backward"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.backward"
+
+[[form]]
+id = "backward"
+channel = "both"
+surface = "\\backward"
+canonical_source = true
+features = []

@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "not"
+category = "function"
+signature = "(pi ((explicit a (const lexlean.std.bool::bool))) (const lexlean.std.bool::bool))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Bool.not"
+
+[[form]]
+id = "not"
+channel = "math"
+surface = "not"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name not) (paren (slot 0)))"

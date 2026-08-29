@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "parameters"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.parameters"
+
+[[form]]
+id = "parameters"
+channel = "both"
+surface = "\\parameters"
+canonical_source = true
+features = []

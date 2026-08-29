@@ -1,4 +1,4 @@
-//! The `semantic-ir` suite: SM-01..SM-15.
+//! The `semantic-ir` suite: SM-01..SM-16.
 
 use std::collections::BTreeSet;
 
@@ -674,6 +674,120 @@ pub(crate) fn run(id: &str) {
                 ),
             );
             invalid.check_fails_with("LLI9001");
+        }
+        // §17.11, §24.1: the public snapshot carries every high-level
+        // semantic variant as owned nested data and remains backend-free.
+        "SM-16" => {
+            let project = support::semantic_project();
+            let engine = project.engine();
+            let request = || lexlean::CheckRequest {
+                selection: lexlean::Selection::Entrypoints,
+            };
+            let first = engine.snapshot(request()).expect("snapshot");
+            let second = engine.snapshot(request()).expect("repeat snapshot");
+            let _built = project.build_ok();
+            let third = engine.snapshot(request()).expect("post-build snapshot");
+            assert_eq!(first.canonical_bytes(), second.canonical_bytes());
+            assert_eq!(first.canonical_bytes(), third.canonical_bytes());
+            assert_eq!(first.snapshot_id(), second.snapshot_id());
+            assert_eq!(first.snapshot_id(), third.snapshot_id());
+            assert_eq!(first.language(), "1.1");
+            let module = first.modules().first().expect("one module");
+            assert!(module.core().is_none());
+            let semantic = module.semantic().expect("typed semantic module");
+            let typed_kinds = semantic
+                .declarations
+                .iter()
+                .map(lexlean::SnapshotSemanticDeclaration::kind)
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                typed_kinds,
+                BTreeSet::from([
+                    "class",
+                    "definition",
+                    "inductive",
+                    "instance",
+                    "structure",
+                    "theorem",
+                ]),
+                "every declaration variant is readable through stable public snapshot types"
+            );
+            support::check_downstream_snapshot_api();
+            let value: serde_json::Value =
+                serde_json::from_slice(&first.canonical_bytes()).expect("JSON");
+            support::assert_schema("semantic-snapshot", "1.1 all-variant snapshot", &value);
+            let mut kinds = BTreeSet::new();
+            collect_tags(&value, "kind", &mut kinds);
+            for expected in [
+                "structure",
+                "class",
+                "instance",
+                "inductive",
+                "definition",
+                "theorem",
+                "var",
+                "nat",
+                "bool",
+                "unit",
+                "nil",
+                "cons",
+                "record",
+                "constructor",
+                "instance_value",
+                "project",
+                "call",
+                "if",
+                "match",
+                "eq",
+                "le",
+                "lt",
+                "add",
+                "beq",
+                "ble",
+                "blt",
+                "and",
+                "prop_and",
+                "or",
+                "not",
+                "implies",
+                "iff",
+                "forall",
+                "cases",
+                "induction",
+                "simplify",
+                "reflexivity",
+                "decide",
+                "congruence",
+                "boolean_reflection",
+                "apply",
+            ] {
+                assert!(
+                    kinds.contains(expected),
+                    "snapshot exercises `{expected}`: {kinds:?}"
+                );
+            }
+            let bytes = String::from_utf8(first.canonical_bytes()).expect("utf8");
+            assert!(
+                bytes.contains("\"axiom_policy\":{\"axioms\":[\"propext\"],\"kind\":\"exact\"}"),
+                "snapshot retains a nonempty exact semantic theorem policy"
+            );
+            if let Some(verified) = support::verify_ok_backed("SM-16", &project) {
+                let attestation: serde_json::Value = serde_json::from_slice(
+                    &std::fs::read(verified.root.join("attestation.json").as_std_path())
+                        .expect("language-1.1 attestation"),
+                )
+                .expect("attestation JSON");
+                let expected =
+                    lexlean::compiler_semantics_id_for(lexlean::LATEST_LANGUAGE_VERSION).to_hex();
+                assert_eq!(
+                    attestation["lexlean"]["compiler_semantics"].as_str(),
+                    Some(expected.as_str()),
+                    "language-1.1 attestation binds the selected compiler semantics"
+                );
+            }
+            assert!(!bytes.contains(project.root.as_str()));
+            assert!(!bytes.contains("public structure"));
+            assert!(!bytes.contains("namespace SemanticFixture"));
         }
         other => panic!("no semantic-ir case is wired for {other}"),
     }

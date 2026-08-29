@@ -407,7 +407,7 @@ pub(crate) fn run(id: &str) {
             let model = repo_model::Model::load(&root.join("model").into_std_path_buf())
                 .expect("the model loads");
             let table = spec_table();
-            assert_eq!(table.len(), 211, "§31 has 211 rows");
+            assert_eq!(table.len(), 216, "§31 has 216 rows");
             assert_eq!(model.ids.id.len(), table.len(), "register row count");
             for ((spec_id, spec_suite, spec_statement), row) in
                 table.iter().zip(model.ids.id.iter())
@@ -557,7 +557,7 @@ pub(crate) fn run(id: &str) {
             let recomputed = lexlean::artifact::content_id::tree_digest(&borrowed);
             assert_eq!(
                 recomputed,
-                lexlean::compiler_semantics_id(),
+                lexlean::compiler_semantics_id_for(lexlean::LATEST_LANGUAGE_VERSION),
                 "RP-10: the embedded semantics ID differs from the disk recomputation"
             );
         }

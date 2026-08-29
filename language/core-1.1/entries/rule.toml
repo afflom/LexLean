@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "rule"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.rule"
+
+[[form]]
+id = "rule"
+channel = "both"
+surface = "\\rule"
+canonical_source = true
+features = []

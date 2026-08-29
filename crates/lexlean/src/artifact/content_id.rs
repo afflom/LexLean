@@ -151,18 +151,34 @@ pub fn source_id(
 
 /// The semantic ID (§21.4).
 #[must_use]
-pub fn semantic_id(
+pub fn semantic_id_for(
     compiler_semantics: Sha256Digest,
+    language: &str,
     linked_ir_json: &str,
     lexicon_closure_json: &str,
 ) -> Sha256Digest {
     let mut hasher = FramedHasher::new("lexlean-semantic-v1");
     hasher.frame("compiler-semantics", &compiler_semantics.0);
-    hasher.frame("language", crate::LANGUAGE_VERSION.as_bytes());
+    hasher.frame("language", language.as_bytes());
     hasher.frame("toolchain", crate::LEAN_TOOLCHAIN.as_bytes());
     hasher.frame("linked-ir", linked_ir_json.as_bytes());
     hasher.frame("lexicon-closure", lexicon_closure_json.as_bytes());
     hasher.finish()
+}
+
+/// The language-1.0 semantic ID recipe retained for API compatibility.
+#[must_use]
+pub fn semantic_id(
+    compiler_semantics: Sha256Digest,
+    linked_ir_json: &str,
+    lexicon_closure_json: &str,
+) -> Sha256Digest {
+    semantic_id_for(
+        compiler_semantics,
+        crate::LANGUAGE_VERSION,
+        linked_ir_json,
+        lexicon_closure_json,
+    )
 }
 
 /// The build ID (§21.5).

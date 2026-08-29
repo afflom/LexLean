@@ -90,33 +90,33 @@ The initial implementation of `LEXLEAN-SPEC-1`.
 
 ### Implemented
 
-All 209 conformance IDs of SPEC.md §31 are implemented at honesty level
+All 216 conformance IDs of SPEC.md §31 are implemented at honesty level
 `build`: constructed in this repository and validated against an oracle by the
 test named `conformance_<id>`. [CONFORMANCE.md](CONFORMANCE.md) is the
 generated register, [ERRORS.md](ERRORS.md) the closed diagnostic registry, and
 [VERIFICATION.md](VERIFICATION.md) the falsifiability record for every gate.
 
 - Closed project configuration, canonical lock file, and offline dependency
-  policy (`CF-01`..`CF-15`).
+  policy (`CF-01`..`CF-16`).
 - Total lexical closure over every accepted atom (`LX-01`..`LX-14`) and
   versioned lexicon packages with closed schemas, denotations, and renderer
   tokens (`GL-01`..`GL-16`).
 - The fixed structural, mathematical, and proposition grammar with closed
   ambiguity handling (`GR-01`..`GR-16`), the typed closed IR with canonical
-  serialization and content identities (`SM-01`..`SM-14`), and document
-  definitions with exact self-application and acyclicity rules
-  (`DF-01`..`DF-10`).
+  serialization, native modules, and language-1.1 snapshots (`SM-01`..`SM-16`),
+  and generic semantic declarations plus document definitions with exact
+  self-application and acyclicity rules (`DF-01`..`DF-11`).
 - The structured proof language with pinned Lean lowerings (`PF-01`..`PF-18`),
   prose-free deterministic generated Lean with complete token traceability
   (`LN-01`..`LN-12`), and canonical LaTeX regeneration with the optional
   hash-checked PDF provider (`TX-01`..`TX-12`).
 - Canonical diagnostics, source maps, coverage, manifests, and reproducible
   builds (`AR-01`..`AR-14`); fifteen-stage verification with `leanchecker`
-  replay and exact axiom audit (`VR-01`..`VR-18`); the exact CLI contract and
-  the stable six-method Rust `Engine` API (`CL-01`..`CL-18`); filesystem
+  replay and exact axiom audit (`VR-01`..`VR-19`); the exact CLI contract and
+  the stable seven-method Rust `Engine` API (`CL-01`..`CL-20`); filesystem
   confinement, no shell, no hidden network, and the closed failure model
   (`SE-01`..`SE-12`).
-- Four example projects that verify under the pinned `leanprover/lean4:v4.32.1`
+- Six example projects that verify under the pinned `leanprover/lean4:v4.32.1`
   toolchain, and the complete negative fixture suite (`EX-01`..`EX-08`).
 
 ### Not claimed

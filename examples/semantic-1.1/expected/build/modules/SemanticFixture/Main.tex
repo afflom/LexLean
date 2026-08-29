@@ -1,0 +1,52 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\begin{document}
+\section*{Semantic declarations}
+\subsection*{\texttt{ComponentKind}}
+\noindent Kind: \texttt{inductive}.\par
+\subsection*{\texttt{Box}}
+\noindent Kind: \texttt{structure}.\par
+\subsection*{\texttt{Component}}
+\noindent Kind: \texttt{structure}.\par
+\subsection*{\texttt{Validatable}}
+\noindent Kind: \texttt{class}.\par
+\subsection*{\texttt{defaultValidatable}}
+\noindent Kind: \texttt{instance}.\par
+\subsection*{\texttt{sampleComponent}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Component}.\par
+\noindent Definition: \texttt{(\{ index := 0, kind := ComponentKind.service \} : Component)}.\par
+\subsection*{\texttt{allConsecutive}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Bool}.\par
+\noindent Definition: \texttt{(match values with | List.nil => true | List.cons value rest => ((Nat.beq (expected) (value)) \&\& allConsecutive ((expected + 1)) (rest)))}.\par
+\subsection*{\texttt{supportIsEnabled}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Bool}.\par
+\noindent Definition: \texttt{SemanticFixture.Support.remoteEnabled}.\par
+\subsection*{\texttt{Consecutive}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Prop}.\par
+\noindent Definition: \texttt{(allConsecutive (0) (values) = true)}.\par
+\subsection*{\texttt{allConsecutive\_sound\_complete}}
+\noindent Kind: \texttt{theorem}.\par
+\noindent Statement: \texttt{((allConsecutive (0) (values) = true) <-> Consecutive (values))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{componentKind\_refl}}
+\noindent Kind: \texttt{theorem}.\par
+\noindent Statement: \texttt{(value = value)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{list\_refl}}
+\noindent Kind: \texttt{theorem}.\par
+\noindent Statement: \texttt{(values = values)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{boolean\_bridge}}
+\noindent Kind: \texttt{theorem}.\par
+\noindent Statement: \texttt{((Nat.beq (0) (0)) = true)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{empty\_consecutive}}
+\noindent Kind: \texttt{theorem}.\par
+\noindent Statement: \texttt{(allConsecutive (0) (([] : List (Nat))) = true)}.\par
+\noindent Axiom policy: \texttt{exact [propext]}.\par
+\end{document}

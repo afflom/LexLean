@@ -44,6 +44,8 @@ pub struct ModuleRow {
 /// The build manifest (§21.6). It never contains its own hash.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildManifest {
+    /// The project-selected language version.
+    pub language: String,
     /// Compiler crate version.
     pub compiler_version: String,
     /// The embedded compiler-semantics ID.
@@ -87,10 +89,7 @@ impl BuildManifest {
                 ("semantics_id", Json::Str(self.semantics_id.to_hex())),
             ]),
         );
-        o.insert(
-            "language".to_owned(),
-            Json::Str(crate::LANGUAGE_VERSION.to_owned()),
-        );
+        o.insert("language".to_owned(), Json::Str(self.language.clone()));
         o.insert("project".to_owned(), Json::Str(self.project.clone()));
         o.insert("source_id".to_owned(), Json::Str(self.source_id.to_hex()));
         o.insert(

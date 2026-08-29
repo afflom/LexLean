@@ -70,3 +70,10 @@ Feature: declarations
     Given the `test.defs` project declaring `count`, `double`, `good`, then `add-zero`
     When the Lean for `Main` is rendered
     Then `def count`, `def double`, `def good`, and `theorem add_zero` appear in that source order
+
+  @DF-11 @build
+  Scenario: Language 1.1 checks and lowers generic structures, classes, instances, inductives, definitions, structural recursion, matches, Boolean validators, and closed proofs from semantic source data.
+    Given the source-free language-1.1 semantic-module fixture
+    When it is checked, built, and verified through the fixed Lean and LaTeX backends
+    Then every generic declaration and proof form is present in both linked semantic data and deterministic generated artifacts with an empty axiom policy
+    And forward references, duplicate names, bad instance priority, nonstructural recursion, nonexhaustive matches, and raw backend fields each fail before a backend runs

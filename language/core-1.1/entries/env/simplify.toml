@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.simplify"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-simplify"
+
+[[form]]
+id = "simplify"
+channel = "both"
+surface = "simplify"
+canonical_source = true
+features = []

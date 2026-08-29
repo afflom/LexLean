@@ -171,6 +171,12 @@ suite = "configuration-lock"
 statement = "Duplicate logical modules and case-folded path or module collisions are rejected."
 
 [[id]]
+id = "CF-16"
+level = "build"
+suite = "configuration-lock"
+statement = "Language 1.1 has a parallel exact builtin closure and rejects a language-1.0 lock or package without altering language-1.0 identities."
+
+[[id]]
 id = "LX-01"
 level = "build"
 suite = "lexical-closure"
@@ -537,6 +543,12 @@ suite = "semantic-ir"
 statement = "A native core module is closed typed DAG data shared by both backends, carries explicit declaration policies, and accepts no backend source text."
 
 [[id]]
+id = "SM-16"
+level = "build"
+suite = "semantic-ir"
+statement = "The language-1.1 semantic snapshot contains every closed declaration, term, recursion, match, instance, proof variant, and exact theorem axiom policy without paths or backend text."
+
+[[id]]
 id = "DF-01"
 level = "build"
 suite = "declarations"
@@ -595,6 +607,12 @@ id = "DF-10"
 level = "build"
 suite = "declarations"
 statement = "Generated declarations preserve source order and every document reference respects that order."
+
+[[id]]
+id = "DF-11"
+level = "build"
+suite = "declarations"
+statement = "Language 1.1 checks and lowers generic structures, classes, instances, inductives, definitions, structural recursion, matches, Boolean validators, and closed proofs from semantic source data."
 
 [[id]]
 id = "PF-01"
@@ -1122,7 +1140,7 @@ statement = "Human and canonical-JSON output modes obey exact stream, color, and
 id = "CL-13"
 level = "build"
 suite = "cli-api"
-statement = "The public Engine exposes exactly the stable load, lock, check, build, verify, and format entry points."
+statement = "The public Engine exposes exactly the stable load, lock, check, snapshot, build, verify, and format entry points."
 
 [[id]]
 id = "CL-14"
@@ -1153,6 +1171,18 @@ id = "CL-18"
 level = "build"
 suite = "cli-api"
 statement = "Version output reports compiler, language, semantics ID, and Lean toolchain exactly."
+
+[[id]]
+id = "CL-19"
+level = "build"
+suite = "cli-api"
+statement = "Snapshot returns a stable owned canonical semantic envelope without writing artifacts or invoking a backend."
+
+[[id]]
+id = "CL-20"
+level = "build"
+suite = "cli-api"
+statement = "Language-1.1 init creates and verifies a declarative Lake workspace containing no source Lean module."
 
 [[id]]
 id = "SE-01"

@@ -1026,7 +1026,7 @@ impl Fmt<'_> {
 /// Render the canonical source of one checked module (§23.5).
 pub fn canonical_source(checked: &CheckedModule, closure: &Closure) -> Result<String, Diagnostic> {
     let document: &DocumentModule = &checked.document;
-    if document.core.is_some() {
+    if document.core.is_some() || document.semantic.is_some() {
         // Core-module payloads are produced in canonical JSON form and fully
         // validated while linking.  Re-serializing their millions of shared
         // edges through the prose formatter would erase that DAG spelling.

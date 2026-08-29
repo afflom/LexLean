@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "neg"
+category = "prefix-function"
+signature = "(pi ((explicit a (const lexlean.std.int::int))) (const lexlean.std.int::int))"
+surface_arity = 1
+frame = "prefix"
+precedence = 75
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Int.neg"
+
+[[form]]
+id = "neg"
+channel = "math"
+surface = "intneg"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (token minus) (slot 0))"

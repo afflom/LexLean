@@ -162,6 +162,8 @@ pub fn entry_path(local_id: &str) -> String {
 /// explicit resource policy.
 #[derive(Debug, Clone, Copy)]
 pub struct LoadContext<'a> {
+    /// The project-selected language version.
+    pub language: &'a str,
     /// The §12.4 always-forbidden controls (`language/bootstrap.toml`).
     pub forbidden_controls: &'a [String],
     /// The configured `max_scope_depth`, bounding LSE/LRE nesting (§25.5).
@@ -228,11 +230,14 @@ pub fn load_package(
             .with_span(Span::whole_file(&manifest_path)),
         );
     }
-    if manifest.language != crate::LANGUAGE_VERSION {
+    if manifest.language != ctx.language {
         diagnostics.push(
             Diagnostic::new(
                 code!("LLC0103"),
-                format!("unsupported lexicon language `{}`", manifest.language),
+                format!(
+                    "lexicon language `{}` does not match project language `{}`",
+                    manifest.language, ctx.language
+                ),
             )
             .with_span(Span::whole_file(&manifest_path)),
         );

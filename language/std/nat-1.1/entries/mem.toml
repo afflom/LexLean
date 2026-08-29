@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "mem"
+category = "infix-predicate"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit l (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))) (sort prop))"
+surface_arity = 2
+frame = "infix"
+precedence = 50
+associativity = "none"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List.Mem"
+
+[[form]]
+id = "mem"
+channel = "math"
+surface = "∈"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token member) (space) (slot 1))"

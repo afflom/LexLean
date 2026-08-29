@@ -73,6 +73,10 @@ enum CommandKind {
         /// The Lean module prefix.
         #[arg(long)]
         module_prefix: String,
+        /// Fixed source-language version. Language 1.1 creates a source-free
+        /// Lake workspace; 1.0 retains the historical host-module skeleton.
+        #[arg(long, default_value = "1.0", value_parser = ["1.0", "1.1"])]
+        language: String,
     },
     /// Update or check the lock file.
     Lock {
@@ -494,6 +498,7 @@ pub fn run(
             path,
             name,
             module_prefix,
+            language,
         } => {
             let (destination, shown) = match path {
                 Some(given) if given.is_relative() => {
@@ -502,7 +507,7 @@ pub fn run(
                 Some(given) => (given.clone(), given.to_string()),
                 None => (working_directory.to_path_buf(), ".".to_owned()),
             };
-            init_project(&destination, &name, &module_prefix)?;
+            init_project(&destination, &name, &module_prefix, &language)?;
             outcome.summary = format!("initialized {shown}\n");
             Ok(())
         }
@@ -642,6 +647,7 @@ fn init_project(
     destination: &Utf8Path,
     name: &str,
     module_prefix: &str,
+    language: &str,
 ) -> Result<(), LexLeanError> {
     if !is_project_name(name) {
         return Err(usage_error(format!(
@@ -657,6 +663,7 @@ fn init_project(
     let lake_name = format!("{}_host", name.replace('-', "_"));
     let config = ProjectConfig {
         name: name.to_owned(),
+        language: language.to_owned(),
         module_prefix: module_prefix.to_owned(),
         source_roots: vec!["src".to_owned()],
         entrypoints: vec!["src/Main.lex.tex".to_owned()],
@@ -669,31 +676,40 @@ fn init_project(
         limits: INIT_LIMITS,
         pdf: None,
     };
-    let files: Vec<(String, Vec<u8>)> = vec![
+    let builtin_version = if language == "1.1" { "1.1.0" } else { "1.0.0" };
+    let lakefile = if language == "1.1" {
+        format!("name = \"{lake_name}\"\nversion = \"0.1.0\"\n")
+    } else {
+        format!(
+            "name = \"{lake_name}\"\nversion = \"0.1.0\"\ndefaultTargets = [\"{host_lib}\"]\n\n[[lean_lib]]\nname = \"{host_lib}\"\n"
+        )
+    };
+    let mut files: Vec<(String, Vec<u8>)> = vec![
         ("lexlean.toml".to_owned(), config.canonical_toml().into_bytes()),
         (
             "lean-toolchain".to_owned(),
             format!("{}\n", crate::LEAN_TOOLCHAIN).into_bytes(),
         ),
-        (
-            "lakefile.toml".to_owned(),
-            format!(
-                "name = \"{lake_name}\"\nversion = \"0.1.0\"\ndefaultTargets = [\"{host_lib}\"]\n\n[[lean_lib]]\nname = \"{host_lib}\"\n"
-            )
-            .into_bytes(),
-        ),
+        ("lakefile.toml".to_owned(), lakefile.into_bytes()),
         (
             "lake-manifest.json".to_owned(),
             lake_manifest_text(&lake_name).into_bytes(),
         ),
-        (format!("{host_lib}.lean"), b"module\nimport Init\n".to_vec()),
         (
             "src/Main.lex.tex".to_owned(),
-            b"\\begin{lexlean}{Main}\n\\useglossary{lexlean.std.nat@1.0.0}\n\\title{addition}\n\\end{lexlean}\n"
-                .to_vec(),
+            format!(
+                "\\begin{{lexlean}}{{Main}}\n\\useglossary{{lexlean.std.nat@{builtin_version}}}\n\\title{{addition}}\n\\end{{lexlean}}\n"
+            )
+            .into_bytes(),
         ),
         (".gitignore".to_owned(), b"/.lexlean/\n/.lake/\n".to_vec()),
     ];
+    if language == "1.0" {
+        files.push((
+            format!("{host_lib}.lean"),
+            b"module\nimport Init\n".to_vec(),
+        ));
+    }
 
     let created_destination = match std::fs::symlink_metadata(destination.as_std_path()) {
         Ok(metadata) => {

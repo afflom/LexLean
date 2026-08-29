@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "select"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.select"
+
+[[form]]
+id = "select-s"
+channel = "text"
+surface = "Select"
+canonical_source = true
+features = ["sentence-case"]

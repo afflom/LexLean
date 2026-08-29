@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "from"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.from"
+
+[[form]]
+id = "from-l"
+channel = "text"
+surface = "from"
+canonical_source = true
+features = ["lower-case"]

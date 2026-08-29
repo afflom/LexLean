@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "math-close"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.math-close"
+
+[[form]]
+id = "math-close"
+channel = "both"
+surface = "\\)"
+canonical_source = true
+features = []

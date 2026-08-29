@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "succ"
+category = "function"
+signature = "(pi ((explicit n (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.succ"
+
+[[form]]
+id = "succ"
+channel = "math"
+surface = "succ"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name succ) (paren (slot 0)))"

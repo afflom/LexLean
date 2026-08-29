@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "add"
+category = "infix-function"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (const lexlean.std.nat::nat))"
+surface_arity = 2
+frame = "infix"
+precedence = 65
+associativity = "left"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.add"
+
+[[form]]
+id = "plus"
+channel = "math"
+surface = "+"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token plus) (space) (slot 1))"

@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "not-mem"
+category = "infix-predicate"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit l (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))) (sort prop))"
+surface_arity = 2
+frame = "infix"
+precedence = 50
+associativity = "none"
+
+[denotation]
+kind = "defined"
+value = "(lam ((explicit a (const lexlean.std.nat::nat)) (explicit l (app (const lexlean.std.nat::list) (const lexlean.std.nat::nat)))) (app (const lexlean.core::lnot) (app (const lexlean.std.nat::mem) (local a) (local l))))"
+
+[[form]]
+id = "not-mem"
+channel = "math"
+surface = "∉"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token not-member) (space) (slot 1))"

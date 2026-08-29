@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "beq"
+category = "infix-function"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (const lexlean.std.bool::bool))"
+surface_arity = 2
+frame = "infix"
+precedence = 50
+associativity = "none"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat.beq"
+
+[[form]]
+id = "beq"
+channel = "math"
+surface = "beq"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (operator-name beq) (space) (slot 1))"

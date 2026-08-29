@@ -191,71 +191,72 @@ fn outside_code_spans(line: &str, marker: &str) -> bool {
 pub fn audit_surface_disjointness(_root: &Path) -> Result<(), Fail> {
     use lexlean::lexicon::entry::{Category, Channel};
 
-    let bootstrap = lexlean::lexicon::load_bootstrap()
-        .map_err(|diagnostic| Fail::from(diagnostic.message.clone()))?;
-    let ctx = lexlean::lexicon::package::LoadContext {
-        forbidden_controls: &bootstrap.structural.forbidden_controls,
-        max_scope_depth: 1024,
-    };
-    let mut spellable: std::collections::BTreeMap<(Channel, String), BTreeSet<String>> =
-        std::collections::BTreeMap::new();
-    let mut parser_layer: std::collections::BTreeMap<(Channel, String), BTreeSet<String>> =
-        std::collections::BTreeMap::new();
-    for row in &bootstrap.builtin_packages {
-        let package = lexlean::lexicon::load_builtin_package(row, &ctx).map_err(|diagnostics| {
-            Fail::from(
-                diagnostics
-                    .iter()
-                    .map(|diagnostic| diagnostic.message.clone())
-                    .collect::<Vec<String>>()
-                    .join("; "),
-            )
-        })?;
-        for (entry_id, entry) in &package.entries {
-            let qualified = format!("{}::{entry_id}", package.id);
-            let parser_own = matches!(entry.category, Category::Structural | Category::Grammar);
-            for form in &entry.forms {
-                for channel in [Channel::Text, Channel::Math] {
-                    if !form.channel.covers(channel) {
-                        continue;
-                    }
-                    let key = (channel, form.surface.clone());
-                    if parser_own {
-                        parser_layer
-                            .entry(key)
-                            .or_default()
-                            .insert(qualified.clone());
-                    } else {
-                        spellable.entry(key).or_default().insert(qualified.clone());
+    for language in lexlean::LANGUAGE_VERSIONS {
+        let bootstrap = lexlean::lexicon::load_bootstrap_for(language)
+            .map_err(|diagnostic| Fail::from(diagnostic.message.clone()))?;
+        let ctx = lexlean::lexicon::package::LoadContext {
+            language,
+            forbidden_controls: &bootstrap.structural.forbidden_controls,
+            max_scope_depth: 1024,
+        };
+        let mut spellable: std::collections::BTreeMap<(Channel, String), BTreeSet<String>> =
+            std::collections::BTreeMap::new();
+        let mut parser_layer: std::collections::BTreeMap<(Channel, String), BTreeSet<String>> =
+            std::collections::BTreeMap::new();
+        for row in &bootstrap.builtin_packages {
+            let package =
+                lexlean::lexicon::load_builtin_package(row, &ctx).map_err(|diagnostics| {
+                    Fail::from(
+                        diagnostics
+                            .iter()
+                            .map(|diagnostic| diagnostic.message.clone())
+                            .collect::<Vec<String>>()
+                            .join("; "),
+                    )
+                })?;
+            for (entry_id, entry) in &package.entries {
+                let qualified = format!("{}::{entry_id}", package.id);
+                let parser_own = matches!(entry.category, Category::Structural | Category::Grammar);
+                for form in &entry.forms {
+                    for channel in [Channel::Text, Channel::Math] {
+                        if !form.channel.covers(channel) {
+                            continue;
+                        }
+                        let key = (channel, form.surface.clone());
+                        if parser_own {
+                            parser_layer
+                                .entry(key)
+                                .or_default()
+                                .insert(qualified.clone());
+                        } else {
+                            spellable.entry(key).or_default().insert(qualified.clone());
+                        }
                     }
                 }
             }
         }
-    }
-    if spellable.is_empty() {
+        if spellable.is_empty() {
+            return Err(format!("R7: language {language} has no spellable builtin entry").into());
+        }
+        if let Some(((channel, surface), owners)) =
+            spellable.iter().find(|(_, owners)| owners.len() > 1)
+        {
+            return Err(Fail::from(format!(
+                "R7: language {language} surface `{surface}` is owned by {} entries in the {channel:?} channel ({}); `fmt` spells a surface bare only when one visible entry owns it, so a second owner changes canonical output and breaks §30.2 byte-compatibility",
+                owners.len(),
+                owners.iter().cloned().collect::<Vec<String>>().join(", ")
+            )));
+        }
+        let overlaps = parser_layer
+            .iter()
+            .filter(|(key, _)| spellable.contains_key(key) || parser_layer[key].len() > 1)
+            .count();
         println!(
-            "audit-surface-disjointness: no package carries a spellable form; the gate is armed by the first one"
+            "audit-surface-disjointness: language {language}: {} spellable surfaces across {} builtin packages, no two entries share one in a channel; {overlaps} parser-layer overlap(s) recorded (R7)",
+            spellable.len(),
+            bootstrap.builtin_packages.len()
         );
-        return Ok(());
     }
-    if let Some(((channel, surface), owners)) =
-        spellable.iter().find(|(_, owners)| owners.len() > 1)
-    {
-        return Err(Fail::from(format!(
-            "R7: the surface `{surface}` is owned by {} entries in the {channel:?} channel ({}); `fmt` spells a surface bare only when one visible entry owns it, so a second owner changes canonical output and breaks §30.2 byte-compatibility",
-            owners.len(),
-            owners.iter().cloned().collect::<Vec<String>>().join(", ")
-        )));
-    }
-    let overlaps = parser_layer
-        .iter()
-        .filter(|(key, _)| spellable.contains_key(key) || parser_layer[key].len() > 1)
-        .count();
-    println!(
-        "audit-surface-disjointness: {} spellable surfaces across {} builtin packages, no two entries share one in a channel; {overlaps} parser-layer overlap(s) recorded (R7)",
-        spellable.len(),
-        bootstrap.builtin_packages.len()
-    );
     Ok(())
 }
 
@@ -1200,8 +1201,8 @@ pub fn audit_generated(root: &Path) -> Result<(), Fail> {
             return Err(format!("{}: missing its $id `{identity}`", path.display()).into());
         }
     }
-    if count != 10 {
-        return Err(format!("§7 commits exactly 10 schemas, found {count}").into());
+    if count != 12 {
+        return Err(format!("§7 commits exactly 12 schemas, found {count}").into());
     }
     println!("audit-generated: {count} schemas canonical and identified");
     Ok(())
@@ -1378,20 +1379,27 @@ pub fn audit_language_closure(root: &Path) -> Result<(), Fail> {
         })
         .unwrap_or_default();
 
-    let bootstrap_text = std::fs::read_to_string(root.join("language/bootstrap.toml"))?;
-    let bootstrap: toml::Value = bootstrap_text.parse()?;
-    let declared: BTreeSet<String> = bootstrap
-        .get("backend")
-        .and_then(|backend| backend.get("tokens"))
-        .and_then(|tokens| tokens.as_array())
-        .map(|tokens| {
-            tokens
-                .iter()
-                .filter_map(|token| token.as_str())
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut declared: BTreeSet<String> = BTreeSet::new();
+    for path in ["language/bootstrap.toml", "language/bootstrap-1.1.toml"] {
+        let bootstrap_text = std::fs::read_to_string(root.join(path))?;
+        let bootstrap: toml::Value = bootstrap_text.parse()?;
+        let current: BTreeSet<String> = bootstrap
+            .get("backend")
+            .and_then(|backend| backend.get("tokens"))
+            .and_then(|tokens| tokens.as_array())
+            .map(|tokens| {
+                tokens
+                    .iter()
+                    .filter_map(|token| token.as_str())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !declared.is_empty() && declared != current {
+            return Err(format!("R8: {path} declares a different fixed backend token set").into());
+        }
+        declared = current;
+    }
 
     // The backend source: direct `sink.tok("...")` literals and every string
     // literal (for variable-selected tokens).

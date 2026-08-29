@@ -1345,6 +1345,54 @@ pub fn run(
                 ]));
             }
         }
+        if let Some(semantic) = &document.semantic {
+            for declaration in &semantic.declarations {
+                let full_name = format!("{}.{}", module.lean_module, declaration.name());
+                let observed_set = observed.get(&full_name).cloned().ok_or_else(|| {
+                    fail(internal(format!(
+                        "semantic declaration `{full_name}` is absent from the axiom audit"
+                    )))
+                })?;
+                if observed_set != declaration.axioms() {
+                    return Err(fail(Diagnostic::new(
+                        code!("LLV7005"),
+                        format!(
+                            "`{full_name}` violates its {} axiom policy: observed [{}]",
+                            declaration.axiom_policy_kind(),
+                            observed_set.join(", ")
+                        ),
+                    )));
+                }
+                declaration_rows.push(Json::object(vec![
+                    ("name", Json::Str(full_name)),
+                    (
+                        "policy",
+                        Json::object(vec![
+                            (
+                                "kind",
+                                Json::Str(declaration.axiom_policy_kind().to_owned()),
+                            ),
+                            (
+                                "axioms",
+                                Json::Arr(
+                                    declaration
+                                        .axioms()
+                                        .iter()
+                                        .cloned()
+                                        .map(Json::Str)
+                                        .collect(),
+                                ),
+                            ),
+                        ]),
+                    ),
+                    (
+                        "observed",
+                        Json::Arr(observed_set.into_iter().map(Json::Str).collect()),
+                    ),
+                    ("result", Json::Str("ok".to_owned())),
+                ]));
+            }
+        }
     }
 
     // Stage 12: optional configured PDF rendering (§19.7): one row and two
@@ -1497,7 +1545,7 @@ pub fn run(
                 ("version", Json::Str(crate::COMPILER_VERSION.to_owned())),
                 (
                     "compiler_semantics",
-                    Json::Str(crate::compiler_semantics_id().to_hex()),
+                    Json::Str(crate::compiler_semantics_id_for(&project.config.language).to_hex()),
                 ),
                 (
                     "executable_sha256",

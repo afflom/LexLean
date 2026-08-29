@@ -1,0 +1,32 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\begin{document}
+\section*{Semantic declarations}
+\subsection*{\texttt{ReflectionPair}}
+\noindent Kind: \texttt{structure}.\par
+\subsection*{\texttt{validatePair}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Bool}.\par
+\noindent Definition: \texttt{((Nat.beq ((pair).left) (0)) \&\& (Nat.beq ((pair).right) (1)))}.\par
+\subsection*{\texttt{pairValid}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Prop}.\par
+\noindent Definition: \texttt{(((pair).left = 0) /\textbackslash{} ((pair).right = 1))}.\par
+\subsection*{\texttt{pair\_sound\_complete}}
+\noindent Kind: \texttt{theorem}.\par
+\noindent Statement: \texttt{((validatePair (pair) = true) <-> pairValid (pair))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{conjunction\_refl}}
+\noindent Kind: \texttt{theorem}.\par
+\noindent Statement: \texttt{((0 = 0) <-> (0 = 0))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{congruence\_refl}}
+\noindent Kind: \texttt{theorem}.\par
+\noindent Statement: \texttt{((value + 0) = (value + 0))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{conjunction\_reused}}
+\noindent Kind: \texttt{theorem}.\par
+\noindent Statement: \texttt{((0 = 0) <-> (0 = 0))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\end{document}

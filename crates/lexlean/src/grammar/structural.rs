@@ -242,6 +242,9 @@ pub struct ModuleAst {
     /// A lossless closed core module.  This alternative to prose blocks is
     /// exclusive: one source module never mixes the two declaration forms.
     pub core: Option<CoreModuleAst>,
+    /// A closed high-level language-1.1 semantic module, exclusive with
+    /// ordinary blocks and `core`.
+    pub semantic: Option<SemanticModuleAst>,
 }
 
 /// The structurally parsed `coremodule` environment.
@@ -250,6 +253,15 @@ pub struct CoreModuleAst {
     /// The canonical JSON payload.
     pub data: BraceArg,
     /// The `\begin{coremodule}` atom.
+    pub begin: usize,
+}
+
+/// The structurally parsed `semanticmodule` environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticModuleAst {
+    /// Canonical `lexlean/semantic-module/1` JSON.
+    pub data: BraceArg,
+    /// The `\begin{semanticmodule}` atom.
     pub begin: usize,
 }
 
@@ -283,6 +295,7 @@ fn control_entry(name: &str) -> &'static str {
         "\\step" => "step",
         "\\bind" => "bind",
         "\\coredata" => "coredata",
+        "\\semanticdata" => "semanticdata",
         "\\(" => "math-open",
         "\\)" => "math-close",
         "\\[" => "display-open",
@@ -1063,7 +1076,7 @@ pub fn parse_module(
         ));
     }
 
-    let (blocks, core) = if parser.at_begin_of("coremodule") {
+    let (blocks, core, semantic) = if parser.at_begin_of("coremodule") {
         let (begin, name) = parser.begin_env()?;
         debug_assert_eq!(name, "coremodule");
         parser.expect_control("\\coredata")?;
@@ -1071,9 +1084,18 @@ pub fn parse_module(
         parser.cover_payload(data.range, "coredata");
         parser.expect_end("coremodule")?;
         parser.expect_end("lexlean")?;
-        (Vec::new(), Some(CoreModuleAst { data, begin }))
+        (Vec::new(), Some(CoreModuleAst { data, begin }), None)
+    } else if parser.at_begin_of("semanticmodule") {
+        let (begin, name) = parser.begin_env()?;
+        debug_assert_eq!(name, "semanticmodule");
+        parser.expect_control("\\semanticdata")?;
+        let data = parser.brace_arg()?;
+        parser.cover_payload(data.range, "semanticdata");
+        parser.expect_end("semanticmodule")?;
+        parser.expect_end("lexlean")?;
+        (Vec::new(), None, Some(SemanticModuleAst { data, begin }))
     } else {
-        (parser.blocks("lexlean", 0)?, None)
+        (parser.blocks("lexlean", 0)?, None, None)
     };
     parser.skip_ws();
     if let Some(atom) = parser.peek() {
@@ -1091,5 +1113,6 @@ pub fn parse_module(
         title: title.range,
         blocks,
         core,
+        semantic,
     })
 }

@@ -7,6 +7,7 @@ use crate::artifact::canonical_json::Json;
 use crate::artifact::content_id::Sha256Digest;
 use crate::ir::core::CoreModule;
 use crate::ir::declaration::Declaration;
+use crate::ir::semantic::SemanticModule;
 use crate::ir::term::{Binder, Renumber, Term};
 use crate::lexicon::lse::QualifiedId;
 
@@ -104,6 +105,9 @@ pub struct DocumentModule {
     pub blocks: Vec<Block>,
     /// A closed kernel module, exclusively present when `blocks` is empty.
     pub core: Option<CoreModule>,
+    /// A high-level language-1.1 semantic module, exclusively present when
+    /// `blocks` is empty and `core` is absent.
+    pub semantic: Option<SemanticModule>,
 }
 
 impl DocumentModule {
@@ -195,6 +199,16 @@ impl DocumentModule {
             fields.push((
                 "core",
                 Json::Str(serde_json::to_string(core).unwrap_or_default()),
+            ));
+        }
+        if let Some(semantic) = &self.semantic {
+            fields.push((
+                "semantic",
+                Json::parse(
+                    &serde_json::to_vec(semantic)
+                        .expect("semantic module serializes to canonical JSON domain"),
+                )
+                .expect("semantic module uses canonical JSON values"),
             ));
         }
         Json::object(fields)

@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "colon"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.colon"
+
+[[form]]
+id = "colon"
+channel = "both"
+surface = ":"
+canonical_source = true
+features = []

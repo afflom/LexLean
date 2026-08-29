@@ -2,7 +2,7 @@
 //! `schemas/*.schema.json` use (SPEC.md §30.4 "all schemas are committed and
 //! exercised"): `type`, `properties`, `required`, `additionalProperties`,
 //! `items`, `minItems`, `enum`, `const`, `pattern`, `minimum`, `maximum`,
-//! `minLength`, `oneOf`, and `$ref` into the same document's `$defs`.
+//! `minLength`, `uniqueItems`, `oneOf`, and `$ref` into the same document's `$defs`.
 //! Any other keyword in a schema is a validation failure, so a schema cannot
 //! silently rely on a constraint this validator does not check.
 
@@ -23,7 +23,7 @@ impl std::fmt::Display for Violation {
     }
 }
 
-const KNOWN_KEYWORDS: [&str; 19] = [
+const KNOWN_KEYWORDS: [&str; 20] = [
     "$defs",
     "$id",
     "$ref",
@@ -43,6 +43,7 @@ const KNOWN_KEYWORDS: [&str; 19] = [
     "required",
     "title",
     "type",
+    "uniqueItems",
 ];
 
 /// Validate `instance` against `schema` (the whole schema document, so
@@ -100,11 +101,11 @@ fn check(
     out: &mut Vec<Violation>,
     depth: usize,
 ) {
-    if depth > 64 {
+    if depth > 512 {
         push(
             out,
             at,
-            "schema nesting exceeds 64; refusing to recurse further",
+            "schema nesting exceeds 512; refusing to recurse further",
         );
         return;
     }
@@ -160,21 +161,37 @@ fn check(
         }
     }
     if let Some(Value::Array(alternatives)) = schema_object.get("oneOf") {
-        let matching = alternatives
+        let attempts: Vec<Vec<Violation>> = alternatives
             .iter()
-            .filter(|alternative| {
+            .map(|alternative| {
                 let mut inner = Vec::new();
                 check(root, alternative, instance, at, &mut inner, depth + 1);
-                inner.is_empty()
+                inner
             })
-            .count();
+            .collect();
+        let matching = attempts.iter().filter(|inner| inner.is_empty()).count();
         if matching != 1 {
+            let closest = attempts
+                .iter()
+                .filter(|inner| !inner.is_empty())
+                .min_by_key(|inner| inner.len());
+            let detail = closest.map_or_else(String::new, |inner| {
+                format!(
+                    "; closest alternative: {}",
+                    inner
+                        .iter()
+                        .take(3)
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )
+            });
             push(
                 out,
                 at,
                 format!(
-                    "oneOf: {matching} of {} alternatives match, exactly one must",
-                    alternatives.len()
+                    "oneOf: {matching} of {} alternatives match, exactly one must{detail}",
+                    alternatives.len(),
                 ),
             );
         }
@@ -228,6 +245,13 @@ fn check(
                         out,
                         depth + 1,
                     );
+                }
+            }
+            if schema_object.get("uniqueItems") == Some(&Value::Bool(true)) {
+                for (index, item) in items.iter().enumerate() {
+                    if items[..index].contains(item) {
+                        push(out, &format!("{at}/{index}"), "array item is not unique");
+                    }
                 }
             }
         }

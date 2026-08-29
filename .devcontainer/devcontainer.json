@@ -1,12 +1,9 @@
 {
   "name": "LexLean",
-  "features": {
-    "ghcr.io/devcontainers/features/rust:1": {
-      "version": "1.97.1",
-      "profile": "minimal"
-    },
-    "ghcr.io/guiyomh/features/just:0": {}
+  "build": {
+    "dockerfile": "Dockerfile"
   },
+  "remoteUser": "vscode",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -31,7 +28,6 @@
     }
   },
   "remoteEnv": {
-    "PATH": "/home/codespace/.elan/bin:/home/codespace/.cargo/bin:${containerEnv:PATH}"
-  },
-  "postCreateCommand": "rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy && cargo install cargo-deny --locked && curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y --default-toolchain none && ~/.elan/bin/elan toolchain install leanprover/lean4:v4.32.1"
+    "PATH": "/usr/local/elan/bin:/home/vscode/.cargo/bin:${containerEnv:PATH}"
+  }
 }

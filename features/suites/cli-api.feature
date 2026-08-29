@@ -94,10 +94,10 @@ Feature: cli-api
     And neither human stream contains an ANSI escape byte
 
   @CL-13 @build
-  Scenario: The public Engine exposes exactly the stable load, lock, check, build, verify, and format entry points.
+  Scenario: The public Engine exposes exactly the stable load, lock, check, snapshot, build, verify, and format entry points.
     Given the source of `crates/lexlean/src/api.rs`
     When the `pub fn` names inside `impl Engine` are collected and sorted
-    Then the list is exactly `build`, `check`, `format`, `load`, `lock`, and `verify`
+    Then the list is exactly `build`, `check`, `format`, `load`, `lock`, `snapshot`, and `verify`
 
   @CL-14 @build
   Scenario: Every public multi-module operation returns a ProjectResultSet or VerifiedProject rather than a singular unit.
@@ -135,3 +135,17 @@ Feature: cli-api
     When `lexlean --version` runs
     Then the exit code is 0
     And stdout is exactly four lines `lexlean`, `language`, `compiler-semantics`, and `lean-toolchain` each followed by the compiled-in value
+
+  @CL-19 @build
+  Scenario: Snapshot returns a stable owned canonical semantic envelope without writing artifacts or invoking a backend.
+    Given the nat-add-zero example project with its complete file set recorded
+    When the Engine snapshots the entrypoint selection twice
+    Then both canonical snapshots and snapshot IDs are byte-identical and validate against `semantic-snapshot.schema.json`
+    And the snapshot round-trips through its public owned DTO and the project file set remains unchanged
+
+  @CL-20 @build
+  Scenario: Language-1.1 init creates and verifies a declarative Lake workspace containing no source Lean module.
+    Given an empty temporary directory
+    When `lexlean init . --language 1.1` creates a project and its entrypoint is checked
+    Then the project contains `.lex.tex`, canonical TOML, and an exact lock but no `.lean` or `lakefile.lean`
+    And its generated module verifies in the confined content-addressed workspace when the pinned Lean tools are available

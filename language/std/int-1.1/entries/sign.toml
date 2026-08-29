@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "sign"
+category = "function"
+signature = "(pi ((explicit a (const lexlean.std.int::int))) (const lexlean.std.int::int))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Int.sign"
+
+[[form]]
+id = "sign"
+channel = "math"
+surface = "intsign"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name sign) (paren (slot 0)))"

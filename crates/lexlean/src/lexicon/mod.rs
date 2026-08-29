@@ -167,14 +167,29 @@ fn embedded_text(path: &str) -> Result<&'static str, Diagnostic> {
 
 /// Load the embedded bootstrap data.
 pub fn load_bootstrap() -> Result<Bootstrap, Diagnostic> {
-    let text = embedded_text("language/bootstrap.toml")?;
+    load_bootstrap_for(crate::LANGUAGE_VERSION)
+}
+
+/// Load the embedded bootstrap data for an explicitly selected language.
+pub fn load_bootstrap_for(language: &str) -> Result<Bootstrap, Diagnostic> {
+    let path = match language {
+        "1.0" => "language/bootstrap.toml",
+        "1.1" => "language/bootstrap-1.1.toml",
+        other => {
+            return Err(Diagnostic::new(
+                code!("LLC0103"),
+                format!("unsupported language version `{other}`"),
+            ));
+        }
+    };
+    let text = embedded_text(path)?;
     let bootstrap: Bootstrap = toml::from_str(text).map_err(|error| {
         Diagnostic::new(
             code!("LLI9001"),
             format!("phase language-load: invalid bootstrap data: {error}"),
         )
     })?;
-    if bootstrap.spec != "lexlean/bootstrap/1" || bootstrap.language != crate::LANGUAGE_VERSION {
+    if bootstrap.spec != "lexlean/bootstrap/1" || bootstrap.language != language {
         return Err(Diagnostic::new(
             code!("LLI9001"),
             "phase language-load: bootstrap schema drift",
@@ -316,6 +331,7 @@ mod tests {
     fn builtins() -> (Bootstrap, Vec<LexiconPackage>) {
         let bootstrap = load_bootstrap().expect("bootstrap loads");
         let ctx = LoadContext {
+            language: crate::LANGUAGE_VERSION,
             forbidden_controls: &bootstrap.structural.forbidden_controls,
             max_scope_depth: 1024,
         };

@@ -6,4 +6,5 @@ pub mod core;
 pub mod declaration;
 pub mod document;
 pub mod proof;
+pub mod semantic;
 pub mod term;

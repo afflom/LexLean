@@ -54,12 +54,14 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `CL-10` | `build` | All, explicit-files, and entrypoint selections return sorted project result sets including import closure. |
 | `CL-11` | `build` | Every command maps failures to the exact documented exit code. |
 | `CL-12` | `build` | Human and canonical-JSON output modes obey exact stream, color, and cardinality rules. |
-| `CL-13` | `build` | The public Engine exposes exactly the stable load, lock, check, build, verify, and format entry points. |
+| `CL-13` | `build` | The public Engine exposes exactly the stable load, lock, check, snapshot, build, verify, and format entry points. |
 | `CL-14` | `build` | Every public multi-module operation returns a ProjectResultSet or VerifiedProject rather than a singular unit. |
 | `CL-15` | `build` | Public requests cannot override backends, toolchain, verification stages, limits, policies, or fixed artifact sets. |
 | `CL-16` | `build` | Every public failure is a LexLeanError and malformed user input cannot panic. |
 | `CL-17` | `build` | Environment variables cannot alter semantic project configuration. |
 | `CL-18` | `build` | Version output reports compiler, language, semantics ID, and Lean toolchain exactly. |
+| `CL-19` | `build` | Snapshot returns a stable owned canonical semantic envelope without writing artifacts or invoking a backend. |
+| `CL-20` | `build` | Language-1.1 init creates and verifies a declarative Lake workspace containing no source Lean module. |
 
 ## configuration-lock
 
@@ -80,6 +82,7 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `CF-13` | `build` | The Lake workspace contains exactly one supported Lake configuration and the recorded workspace files match. |
 | `CF-14` | `build` | Language 1.0 accepts only leanprover/lean4:v4.32.1 for verification. |
 | `CF-15` | `build` | Duplicate logical modules and case-folded path or module collisions are rejected. |
+| `CF-16` | `build` | Language 1.1 has a parallel exact builtin closure and rejects a language-1.0 lock or package without altering language-1.0 identities. |
 
 ## declarations
 
@@ -95,6 +98,7 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `DF-08` | `build` | Author-defined axioms, opaque declarations, and proofless theorem-like components are rejected. |
 | `DF-09` | `build` | Every theorem-like component contains exactly one nonempty structured proof. |
 | `DF-10` | `build` | Generated declarations preserve source order and every document reference respects that order. |
+| `DF-11` | `build` | Language 1.1 checks and lowers generic structures, classes, instances, inductives, definitions, structural recursion, matches, Boolean validators, and closed proofs from semantic source data. |
 
 ## examples
 
@@ -280,6 +284,7 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `SM-13` | `build` | Inherited section parameters are represented explicitly and emitted only on declarations that use them. |
 | `SM-14` | `build` | A numeral without a unique expected type is rejected rather than defaulted. |
 | `SM-15` | `build` | A native core module is closed typed DAG data shared by both backends, carries explicit declaration policies, and accepts no backend source text. |
+| `SM-16` | `build` | The language-1.1 semantic snapshot contains every closed declaration, term, recursion, match, instance, proof variant, and exact theorem axiom policy without paths or backend text. |
 
 ## verification
 

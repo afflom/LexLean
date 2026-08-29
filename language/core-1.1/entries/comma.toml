@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "comma"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.comma"
+
+[[form]]
+id = "comma"
+channel = "both"
+surface = ","
+canonical_source = true
+features = []

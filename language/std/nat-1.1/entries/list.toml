@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "list"
+category = "function"
+signature = "(pi ((explicit a (sort (type 0)))) (sort (type 0)))"
+surface_arity = 1
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "List"
+
+[[form]]
+id = "list"
+channel = "math"
+surface = "List"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name List) (paren (slot 0)))"

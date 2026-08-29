@@ -109,3 +109,10 @@ Feature: configuration-lock
     Given the example project with src/Main.lex.tex copied to src/MAin.lex.tex and both listed as entrypoints
     When the project is relocked and `lexlean check` runs
     Then check fails with LLC0104
+
+  @CF-16 @build
+  Scenario: Language 1.1 has a parallel exact builtin closure and rejects a language-1.0 lock or package without altering language-1.0 identities.
+    Given fresh language-1.0 and language-1.1 projects created by the same compiler
+    When both locks are parsed and a language-1.1 lock is changed to language 1.0
+    Then each lock contains only builtin package versions matching its selected language
+    And the changed lock is rejected as stale and the committed language-1.0 example still has its recorded source and semantic identities

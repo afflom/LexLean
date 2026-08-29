@@ -1819,6 +1819,13 @@ pub fn render_module(checked: &CheckedModule, closure: &Closure) -> Result<Emitt
     if let Some(core) = &document.core {
         return crate::backend::core::render_latex(checked, core);
     }
+    if let Some(semantic) = &document.semantic {
+        let prefix = document
+            .lean_module
+            .strip_suffix(&format!(".{}", document.name))
+            .unwrap_or(&document.lean_module);
+        return crate::backend::semantic::render_latex(checked, semantic, prefix);
+    }
     let mut spellings = BTreeMap::new();
     collect_spellings_document(document, &mut spellings);
     for (id, spelling) in &checked.proof_spellings {
@@ -2398,6 +2405,7 @@ mod tests {
     fn closure() -> Closure {
         let bootstrap = load_bootstrap().expect("bootstrap loads");
         let ctx = LoadContext {
+            language: crate::LANGUAGE_VERSION,
             forbidden_controls: &bootstrap.structural.forbidden_controls,
             max_scope_depth: 1024,
         };

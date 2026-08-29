@@ -60,6 +60,8 @@ pub struct LockPdf {
 /// The complete lock (§11.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lock {
+    /// The project-selected language version.
+    pub language: String,
     /// The compiler-semantics ID at lock time.
     pub compiler_semantics: Sha256Digest,
     /// SHA-256 of the canonical project configuration.
@@ -84,10 +86,7 @@ impl Lock {
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut out = String::new();
         out.push_str(&format!("spec = {}\n", toml_string("lexlean/lock/1")));
-        out.push_str(&format!(
-            "language = {}\n",
-            toml_string(crate::LANGUAGE_VERSION)
-        ));
+        out.push_str(&format!("language = {}\n", toml_string(&self.language)));
         out.push_str(&format!(
             "compiler_semantics = {}\n",
             toml_string(&self.compiler_semantics.to_hex())
@@ -231,7 +230,7 @@ pub fn parse_lock(path: &str, bytes: &[u8]) -> Result<Lock, Vec<Diagnostic>> {
             format!("{path}: unsupported lock schema `{}`", raw.spec),
         ));
     }
-    if raw.language != crate::LANGUAGE_VERSION {
+    if !crate::supports_language(&raw.language) {
         diagnostics.push(Diagnostic::new(
             code!("LLC0103"),
             format!("{path}: unsupported lock language `{}`", raw.language),
@@ -337,6 +336,7 @@ pub fn parse_lock(path: &str, bytes: &[u8]) -> Result<Lock, Vec<Diagnostic>> {
             .collect(),
     });
     let lock = Lock {
+        language: raw.language,
         compiler_semantics,
         project_config_sha256,
         workspace_files,
@@ -512,8 +512,10 @@ pub fn resolve_packages(
     let mut packages = Vec::new();
     let mut rows = Vec::new();
 
-    let bootstrap = crate::lexicon::load_bootstrap().map_err(|d| vec![d])?;
+    let bootstrap =
+        crate::lexicon::load_bootstrap_for(&project.config.language).map_err(|d| vec![d])?;
     let load_ctx = LoadContext {
+        language: &project.config.language,
         forbidden_controls: &bootstrap.structural.forbidden_controls,
         max_scope_depth: project.config.limits.max_scope_depth,
     };
@@ -1163,7 +1165,8 @@ pub fn compute_lock(
     }
     Ok((
         Lock {
-            compiler_semantics: crate::compiler_semantics_id(),
+            language: project.config.language.clone(),
+            compiler_semantics: crate::compiler_semantics_id_for(&project.config.language),
             project_config_sha256: project.config.config_sha256(),
             workspace_files,
             packages: resolved.rows,

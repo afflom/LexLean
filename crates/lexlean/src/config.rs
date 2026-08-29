@@ -173,6 +173,8 @@ pub struct PdfProvider {
 pub struct ProjectConfig {
     /// The project name.
     pub name: String,
+    /// The explicitly selected fixed language version.
+    pub language: String,
     /// The Lean module prefix.
     pub module_prefix: String,
     /// Sorted unique source roots.
@@ -343,7 +345,7 @@ pub fn parse_project(path: &str, bytes: &[u8]) -> Result<ProjectConfig, Vec<Diag
             .with_span(Span::whole_file(path)),
         );
     }
-    if raw.language != crate::LANGUAGE_VERSION {
+    if !crate::supports_language(&raw.language) {
         diagnostics.push(
             Diagnostic::new(
                 code!("LLC0103"),
@@ -745,6 +747,7 @@ pub fn parse_project(path: &str, bytes: &[u8]) -> Result<ProjectConfig, Vec<Diag
     if diagnostics.is_empty() {
         Ok(ProjectConfig {
             name: raw.name,
+            language: raw.language,
             module_prefix: raw.module_prefix,
             source_roots: raw.source_roots,
             entrypoints: raw.entrypoints,
@@ -793,10 +796,7 @@ impl ProjectConfig {
         let mut out = String::new();
         out.push_str(&format!("spec = {}\n", toml_string("lexlean/project/1")));
         out.push_str(&format!("name = {}\n", toml_string(&self.name)));
-        out.push_str(&format!(
-            "language = {}\n",
-            toml_string(crate::LANGUAGE_VERSION)
-        ));
+        out.push_str(&format!("language = {}\n", toml_string(&self.language)));
         out.push_str(&format!(
             "module_prefix = {}\n",
             toml_string(&self.module_prefix)

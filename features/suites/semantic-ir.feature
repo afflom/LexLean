@@ -103,3 +103,10 @@ Feature: semantic-ir
     When lexlean check and build run
     Then the linked IR carries its typed DAG and explicit axiom policy into generated Lean and LaTeX
     And adding a raw Lean field fails closed-schema validation
+
+  @SM-16 @build
+  Scenario: The language-1.1 semantic snapshot contains every closed declaration, term, recursion, match, instance, proof variant, and exact theorem axiom policy without paths or backend text.
+    Given the source-free language-1.1 semantic-module fixture
+    When the public Engine snapshots it twice before and after a build
+    Then the snapshot schema validates and contains structure, class, instance, inductive, recursive definition, match, cases, induction, simplify, Boolean term data, and the exact nonempty theorem axiom policy
+    And all three snapshot byte strings and IDs are identical and contain no absolute path or generated Lean text

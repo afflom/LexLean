@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "sub"
+category = "infix-function"
+signature = "(pi ((explicit a (const lexlean.std.int::int)) (explicit b (const lexlean.std.int::int))) (const lexlean.std.int::int))"
+surface_arity = 2
+frame = "infix"
+precedence = 65
+associativity = "left"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Int.sub"
+
+[[form]]
+id = "minus"
+channel = "math"
+surface = "intminus"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token minus) (space) (slot 1))"

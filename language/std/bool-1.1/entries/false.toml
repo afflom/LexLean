@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "false"
+category = "term-constant"
+signature = "(const lexlean.std.bool::bool)"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Bool.false"
+
+[[form]]
+id = "false"
+channel = "math"
+surface = "false"
+canonical_source = true
+features = []
+
+[render]
+math = "(operator-name false)"

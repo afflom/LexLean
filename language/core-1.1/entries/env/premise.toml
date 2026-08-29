@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.premise"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-premise"
+
+[[form]]
+id = "premise"
+channel = "both"
+surface = "premise"
+canonical_source = true
+features = []

@@ -1,0 +1,21 @@
+spec = "lexlean/entry/1"
+id = "and-intro"
+category = "proof-constant"
+signature = "(pi ((implicit a (sort prop)) (implicit b (sort prop)) (explicit left (local a)) (explicit right (local b))) (app (const lexlean.core::land) (local a) (local b)))"
+surface_arity = 2
+frame = "call"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "And.intro"
+
+[[form]]
+id = "andintro"
+channel = "math"
+surface = "andintro"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (operator-name andintro) (paren (seq (slot 0) (token comma) (space) (slot 1))))"

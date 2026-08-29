@@ -957,6 +957,76 @@ pub(crate) fn run(id: &str) {
             let error = project.check_err();
             support::expect_code(&error, "LLC0104");
         }
+        // §10.1, §11: the selected language owns an exact, disjoint lock
+        // universe; 1.0 identities remain current while 1.1 is added.
+        "CF-16" => {
+            let one = tempfile::tempdir().expect("tempdir");
+            let one_root = camino::Utf8Path::from_path(one.path()).expect("utf8");
+            let (exit, _, stderr) = support::cli_in(
+                one_root,
+                &[
+                    "init",
+                    ".",
+                    "--name",
+                    "language-one",
+                    "--module-prefix",
+                    "LanguageOne",
+                    "--language",
+                    "1.1",
+                ],
+            );
+            assert_eq!(exit, 0, "language 1.1 init: {stderr}");
+            let bytes = std::fs::read(one_root.join("lexlean.lock").as_std_path()).expect("lock");
+            let lock = lexlean::api::parse_lock_bytes("lexlean.lock", &bytes).expect("parses");
+            assert_eq!(lock.language, "1.1");
+            assert_eq!(
+                lock.compiler_semantics,
+                lexlean::compiler_semantics_id_for("1.1")
+            );
+            assert!(lock
+                .packages
+                .iter()
+                .all(|package| package.version == "1.1.0"));
+            for expected in ["lexlean.core", "lexlean.std.bool", "lexlean.std.nat"] {
+                assert!(
+                    lock.packages.iter().any(|package| package.id == expected),
+                    "1.1 lock closes over {expected}"
+                );
+            }
+
+            let example = P::example();
+            let committed = lexlean::api::parse_lock_bytes(
+                "lexlean.lock",
+                example.read("lexlean.lock").as_bytes(),
+            )
+            .expect("1.0 lock parses");
+            assert_eq!(committed.language, "1.0");
+            assert_eq!(
+                committed.compiler_semantics,
+                lexlean::compiler_semantics_id(),
+                "the 1.0 compiler identity is byte-compatible"
+            );
+            assert!(committed
+                .packages
+                .iter()
+                .all(|package| package.version == "1.0.0"));
+            example.check_ok();
+
+            let changed = String::from_utf8(bytes).expect("utf8 lock").replacen(
+                "language = \"1.1\"",
+                "language = \"1.0\"",
+                1,
+            );
+            std::fs::write(one_root.join("lexlean.lock").as_std_path(), changed).expect("tamper");
+            let engine = Engine::load(&one_root.join("lexlean.toml")).expect("loads");
+            let error = engine
+                .check(CheckRequest {
+                    selection: Selection::Entrypoints,
+                })
+                .err()
+                .expect("a cross-language lock is stale");
+            support::expect_code(&error, "LLC0102");
+        }
         other => panic!("no configuration-lock case is wired for {other}"),
     }
 }

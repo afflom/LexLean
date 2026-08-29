@@ -274,6 +274,14 @@ pub fn render_build(
                     .map(|declaration| declaration.name.clone()),
             );
         }
+        if let Some(semantic) = &checked_module.document.semantic {
+            declaration_names.extend(
+                semantic
+                    .declarations
+                    .iter()
+                    .map(|declaration| format!("{lean_module}.{}", declaration.name())),
+            );
+        }
         // Output coverage closure is checked mechanically before anything
         // is published (§19.6, §20.5).
         if let Err(reason) =
@@ -383,8 +391,9 @@ pub fn render_build(
 
     let this_build_id = build_id(checked.source_id, checked.semantic_id);
     let manifest = BuildManifest {
+        language: project.config.language.clone(),
         compiler_version: crate::COMPILER_VERSION.to_owned(),
-        semantics_id: crate::compiler_semantics_id(),
+        semantics_id: crate::compiler_semantics_id_for(&project.config.language),
         project: project.config.name.clone(),
         source_id: checked.source_id,
         semantic_id: checked.semantic_id,
@@ -774,7 +783,8 @@ impl Engine {
         let (checked, _lock) = self.checked(&request.selection)?;
         Ok(crate::artifact::snapshot::SemanticSnapshot::from_checked(
             &checked,
-            crate::compiler_semantics_id(),
+            &self.project.config.language,
+            crate::compiler_semantics_id_for(&self.project.config.language),
         ))
     }
 
@@ -802,7 +812,12 @@ impl Engine {
                                         .document
                                         .core
                                         .as_ref()
-                                        .map_or(0, |core| core.declarations.len()),
+                                        .map_or(0, |core| core.declarations.len())
+                                    + module
+                                        .document
+                                        .semantic
+                                        .as_ref()
+                                        .map_or(0, |semantic| semantic.declarations.len()),
                             },
                         },
                     )

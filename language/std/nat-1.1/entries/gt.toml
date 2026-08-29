@@ -1,0 +1,22 @@
+spec = "lexlean/entry/1"
+id = "gt"
+category = "infix-predicate"
+signature = "(pi ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (sort prop))"
+surface_arity = 2
+frame = "infix"
+precedence = 50
+associativity = "none"
+
+[denotation]
+kind = "defined"
+value = "(lam ((explicit a (const lexlean.std.nat::nat)) (explicit b (const lexlean.std.nat::nat))) (app (const lexlean.std.nat::lt) (local b) (local a)))"
+
+[[form]]
+id = "gt"
+channel = "math"
+surface = ">"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (token greater) (space) (slot 1))"

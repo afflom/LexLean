@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "consider"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.consider"
+
+[[form]]
+id = "consider-s"
+channel = "text"
+surface = "Consider"
+canonical_source = true
+features = ["sentence-case"]

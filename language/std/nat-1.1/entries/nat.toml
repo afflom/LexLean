@@ -1,0 +1,65 @@
+spec = "lexlean/entry/1"
+id = "nat"
+category = "type-noun"
+signature = "(sort (type 0))"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Nat"
+
+[[form]]
+id = "natural-number"
+channel = "text"
+surface = "natural number"
+canonical_source = true
+features = ["article-a", "lower-case", "singular"]
+
+[[form]]
+id = "natural-number-sc"
+channel = "text"
+surface = "Natural number"
+canonical_source = false
+features = ["article-a", "sentence-case", "singular"]
+
+[[form]]
+id = "natural-numbers"
+channel = "text"
+surface = "natural numbers"
+canonical_source = false
+features = ["lower-case", "plural"]
+
+[[form]]
+id = "natural-numbers-sc"
+channel = "text"
+surface = "Natural numbers"
+canonical_source = false
+features = ["plural", "sentence-case"]
+
+[[form]]
+id = "blackboard"
+channel = "math"
+surface = "ℕ"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (token mathbb) (group (token blackboard-n)))"
+
+[eliminator]
+cases_lean_name = "Nat.casesOn"
+induction_lean_name = "Nat.rec"
+
+[[eliminator.constructor]]
+entry = "lexlean.std.nat::zero"
+lean_name = "Nat.zero"
+fields = []
+induction_hypotheses = []
+
+[[eliminator.constructor]]
+entry = "lexlean.std.nat::succ"
+lean_name = "Nat.succ"
+fields = ["n"]
+induction_hypotheses = ["ih"]

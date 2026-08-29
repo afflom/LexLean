@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "and"
+category = "infix-function"
+signature = "(pi ((explicit a (const lexlean.std.bool::bool)) (explicit b (const lexlean.std.bool::bool))) (const lexlean.std.bool::bool))"
+surface_arity = 2
+frame = "infix"
+precedence = 55
+associativity = "right"
+
+[denotation]
+kind = "lean"
+module = "Init"
+name = "Bool.and"
+
+[[form]]
+id = "and"
+channel = "math"
+surface = "band"
+canonical_source = true
+features = []
+
+[render]
+math = "(seq (slot 0) (space) (operator-name and) (space) (slot 1))"

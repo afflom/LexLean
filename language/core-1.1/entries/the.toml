@@ -1,0 +1,23 @@
+spec = "lexlean/entry/1"
+id = "the"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.the"
+
+[[form]]
+id = "the-l"
+channel = "text"
+surface = "the"
+canonical_source = true
+features = ["lower-case"]
+
+[[form]]
+id = "the-s"
+channel = "text"
+surface = "The"
+canonical_source = false
+features = ["sentence-case"]

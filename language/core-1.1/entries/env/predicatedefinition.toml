@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "env.predicatedefinition"
+category = "structural"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "structure.env-predicatedefinition"
+
+[[form]]
+id = "predicatedefinition"
+channel = "both"
+surface = "predicatedefinition"
+canonical_source = true
+features = []

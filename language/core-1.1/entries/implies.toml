@@ -1,0 +1,16 @@
+spec = "lexlean/entry/1"
+id = "implies"
+category = "grammar"
+surface_arity = 0
+frame = "atom"
+
+[denotation]
+kind = "core"
+constructor = "grammar.implies"
+
+[[form]]
+id = "implies-l"
+channel = "text"
+surface = "implies"
+canonical_source = true
+features = ["lower-case"]

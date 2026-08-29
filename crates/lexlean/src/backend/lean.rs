@@ -2090,6 +2090,9 @@ pub fn render_module(
     if let Some(core) = &document.core {
         return crate::backend::core::render_lean(checked, core);
     }
+    if let Some(semantic) = &document.semantic {
+        return crate::backend::semantic::render_lean(checked, semantic, module_prefix);
+    }
     let mut emitter = Emitter::new();
     let preamble_node = emitter.node("lean-preamble");
     {
