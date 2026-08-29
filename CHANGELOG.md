@@ -2,9 +2,9 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the version axes are the ones SPEC.md §30.1 separates: the compiler crate and
-binary carry the SemVer below, the language identifier is `1.0`, and the
-compiler-semantics ID is a digest over the normative language data, schemas,
-and pinned golden fixtures that `lexlean --version` prints.
+binary carry the SemVer below, each project selects the supported language
+identifier (`1.0` or `1.1`), and each language's compiler-semantics ID is a
+digest over its normative language data, schemas, and pinned golden fixtures.
 
 SPEC.md §2.3 fixes `0.1.0` as the initial implementation version and `1.0.0` as
 the first release satisfying the complete specification. No tag before `1.0.0`
@@ -58,6 +58,18 @@ the repository.
   `S43` is authoritatively the proved integer-uniqueness statement.
   `SM-15` and `VR-19` bring the register to 211 IDs, all implemented at level
   `build`.
+- Language `1.1` adds a closed generic semantic declaration, term, and proof
+  language for structures, classes, instances, finite inductives, total
+  structural recursion, exhaustive matches, Boolean validators, exact theorem
+  application, and axiom-free Boolean reflection. Its seven-module
+  `semantic-1.1` fixture contains no handwritten Lean and exercises every
+  closed variant through elaboration, `leanchecker`, and exact axiom audit.
+- The stable seventh `Engine` operation returns an owned, read-only,
+  path-independent `lexlean/semantic-snapshot/1` DTO. The public DTOs and
+  complete closed JSON Schema expose every legal semantic module variant while
+  keeping mutable compiler internals and both fixed backends private. `SM-16`,
+  `DF-11`, `CF-16`, `CL-19`, and `CL-20` bring the register to 216 IDs, all
+  implemented at level `build`.
 
 ### Changed
 
@@ -66,6 +78,9 @@ the repository.
   `95deb33a8d416d7bf60f02a36e251a71c3ee6f046b7e475d7bae2fc5ddc3767d`:
   the accepted language changed, so §30.1 requires a new ID. Every committed
   lock and verification record is regenerated against it.
+- Language `1.1` has its independent compiler-semantics ID
+  `0accaf7b80d572e21451d5fa650d92a1a28dae799823931b2f756e448fe89996`;
+  language-1.0 locks and generated artifacts remain byte-identical.
 - The four 0.1.0 examples still format byte-identically and generate
   byte-identical Lean and LaTeX modules; their source maps and manifests
   differ only in the source and semantic digests those artifacts embed. No

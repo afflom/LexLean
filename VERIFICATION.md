@@ -39,6 +39,30 @@ Outside `vv`:
 
 Each gate below was made to fail by planting a defect, running the gate's command, recording the failure, and removing the defect. The observed lines are verbatim gate output (paths abbreviated to the repository root). `cargo xtask release-check` requires a `### <gate> can fail` record for every gate and audit named in `repo_model::release::GATES`.
 
+### language-1.1 semantic conformance can fail
+
+Planted: the fixed Lean lowering of the generic `prop_and` term was changed
+from propositional conjunction (`/\\`) to propositional disjunction (`\\/`).
+Command: `cargo test -p repo-conformance --test conformance
+conformance_sm_16 -- --exact --nocapture`. Expected: real Lean rejects the
+Boolean-reflection proof because the corrupted proposition is not
+definitionally equal to the independently defined validator proposition.
+
+```text
+the module verifies with real Lean: LexLeanError { class: Language,
+diagnostics: [Diagnostic { code: DiagnosticCode("LLV7002"),
+message: "Lean rejected `SemanticFixture.VariantProofs` (error): 'change' tactic failed, pattern
+  (pair.left.beq 0 && pair.right.beq 1) = true ↔ pair.left = 0 ∧ pair.right = 1
+is not definitionally equal to target
+  validatePair pair = true ↔ pairValid pair" ... }] }
+test conformance_sm_16 ... FAILED
+test result: FAILED. 0 passed; 1 failed
+```
+
+Removed: the lowering was restored to conjunction from immutable implementation
+commit `b52d47148fd30bb667daab244233851ca5029215`; `conformance_sm_16`
+passes and its generated theorems have the exact empty observed axiom set.
+
 ### fmt-check can fail
 
 Planted: `fn   badly_formatted( ) {}` appended to `crates/model/src/release.rs`. Command: `cargo fmt --all -- --check`. Expected: a formatting diff and a nonzero exit.
@@ -106,7 +130,7 @@ Planted: `schemas/coverage.schema.json` re-serialized with indentation (no longe
 gate failed: R10: <root>/schemas/coverage.schema.json is not canonical JSON; regenerate the schema
 ```
 
-Removed: the schema bytes were restored; `audit-generated` reports 10 schemas canonical.
+Removed: the schema bytes were restored; `audit-generated` reports 12 schemas canonical.
 
 ### audit-language-closure can fail
 
