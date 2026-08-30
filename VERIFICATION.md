@@ -431,6 +431,24 @@ gate failed: <root>/tests/negative/unknown-word/expected/command.json differs fr
 
 Removed: the project file was restored; `check-fixtures` reports 34 fixtures equal to their expected files. `conformance_ex_07` runs the same comparison and additionally pins exactly one prescribed diagnostic code per §28.5 rejection class.
 
+### verification path determinism can fail
+
+Observed in the PrismPM integration: the same generated module and pinned Lean
+toolchain were verified from two fresh absolute project roots. Without an
+explicit Lean package root, the two `.olean` files had the same size but
+different SHA-256 digests, and their verification attestation IDs differed.
+The random `.lexlean/verified/.staging-*` source path had been serialized into
+the object file.
+
+Corrected: generated-module compilation now runs `lake env lean -R
+<generated-source-root> -o <olean> <source>`. `conformance_vr_05` verifies a
+second fresh copy of its project and requires the attestation ID and every
+generated `.olean` byte to equal the first run; it also requires each
+normalized Lean process record to contain `-R $STAGING/lean-src`. Removing the
+`-R` pair makes the attestation comparison fail. The restoring commit is
+`d5a3403df3028bb5bd5af06ab725dbb0b7429581`; the targeted regression passed
+after restoration.
+
 ## End-to-end Lean evidence
 
 The literal §29 example verifies against real `leanprover/lean4:v4.32.1`: probe elaboration, module compilation, separate-process `leanchecker` replay, exact `#print axioms` parsing, and the `\noaxioms` policy over an empty observed set (`conformance_ex_01`). The required §29.6 mutations are mechanized: a false proposition fails inside Lean and remaps to the source proof sentence (`conformance_ex_02`, `conformance_pf_18`); an undeclared title word fails lexical closure (`conformance_ex_03`); an indistinguishable same-surface entry is ambiguity, never priority (`conformance_ex_04`); an insufficient axiom allow-list fails policy checking with the observed excess recorded (`conformance_ex_05`, `conformance_vr_16`); and two clean builds in distinct paths publish byte-identical trees (`conformance_ex_06`, plus `just repro`).
