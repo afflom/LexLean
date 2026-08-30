@@ -73,6 +73,10 @@ the repository.
 
 ### Changed
 
+- Generated-module verification passes Lean an explicit package root with
+  `-R`. This removes random staging paths from `.olean` serialization, so a
+  same-platform verification has byte-identical oleans and an identical
+  attestation across absolute project roots.
 - The compiler-semantics ID moves from
   `fa171c7a2d78cf17e6cb49bbec5c1eed8bee20033472b1953211104068589ba7` to
   `95deb33a8d416d7bf60f02a36e251a71c3ee6f046b7e475d7bae2fc5ddc3767d`:

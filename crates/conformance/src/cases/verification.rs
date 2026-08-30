@@ -229,6 +229,41 @@ pub(crate) fn run(id: &str) {
                     unit.lean_module
                 );
             }
+            for record in process_records(&fixture.outcome.root.join("process/lean")) {
+                let argv = record["argv"].as_array().expect("normalized argv");
+                let root = argv
+                    .windows(2)
+                    .find(|pair| pair[0].as_str() == Some("-R"))
+                    .and_then(|pair| pair[1].as_str());
+                assert_eq!(
+                    root,
+                    Some("$STAGING/lean-src"),
+                    "Lean receives a stable package root so olean bytes do not encode the random staging path"
+                );
+            }
+            let second_project = support::P::example();
+            let second = support::verify_ok(&second_project);
+            assert_eq!(
+                fixture.outcome.attestation_id, second.attestation_id,
+                "same-platform verification is independent of the absolute project and random staging roots"
+            );
+            for unit in fixture.outcome.units.values() {
+                let relative = format!("{}.olean", unit.lean_module.replace('.', "/"));
+                assert_eq!(
+                    std::fs::read(
+                        fixture
+                            .outcome
+                            .root
+                            .join("oleans")
+                            .join(&relative)
+                            .as_std_path()
+                    )
+                    .expect("first olean"),
+                    std::fs::read(second.root.join("oleans").join(&relative).as_std_path())
+                        .expect("second olean"),
+                    "{relative} is byte-identical across absolute roots"
+                );
+            }
         }
         // §22.3: no ilean artifacts anywhere.
         "VR-06" => {

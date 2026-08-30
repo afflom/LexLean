@@ -1061,6 +1061,8 @@ pub fn run(
                         argv: vec![
                             "env".to_owned(),
                             "lean".to_owned(),
+                            "-R".to_owned(),
+                            src_root.to_string(),
                             "-o".to_owned(),
                             olean.to_string(),
                             source.to_string(),

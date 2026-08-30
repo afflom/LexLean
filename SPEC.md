@@ -2940,7 +2940,7 @@ lake env <tool> <arguments...>
 
 LexLean locates `lake` from the pinned toolchain, uses an absolute executable path, and verifies its version and digest.
 
-Generated source and `.olean` roots are prepended to `LEAN_PATH` for the invocation. Source and output paths mirror module names, so Lean module discovery is deterministic.
+Generated source and `.olean` roots are prepended to `LEAN_PATH` for the invocation. Every generated-module compilation also passes `-R <generated-source-root>` so Lean derives the module name from a normalized package root rather than embedding a random staging path in `.olean` bytes. Source and output paths mirror module names, so Lean module discovery and same-platform `.olean` bytes are deterministic across absolute project and staging roots.
 
 LexLean does not run `lake update`, fetch dependencies, or modify the user's Lake files.
 
