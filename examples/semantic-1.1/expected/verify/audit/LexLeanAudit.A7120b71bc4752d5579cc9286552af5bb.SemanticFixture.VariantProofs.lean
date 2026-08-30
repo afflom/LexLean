@@ -1,4 +1,0 @@
-module
-import SemanticFixture.VariantProofs
-#print axioms SemanticFixture.VariantProofs.congruence_refl
-#print axioms SemanticFixture.VariantProofs.conjunction_refl

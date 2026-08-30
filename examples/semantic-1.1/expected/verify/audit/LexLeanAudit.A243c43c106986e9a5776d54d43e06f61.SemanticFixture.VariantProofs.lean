@@ -1,0 +1,9 @@
+module
+import SemanticFixture.VariantProofs
+#print axioms SemanticFixture.VariantProofs.ReflectionPair
+#print axioms SemanticFixture.VariantProofs.congruence_refl
+#print axioms SemanticFixture.VariantProofs.conjunction_refl
+#print axioms SemanticFixture.VariantProofs.conjunction_reused
+#print axioms SemanticFixture.VariantProofs.pairValid
+#print axioms SemanticFixture.VariantProofs.pair_sound_complete
+#print axioms SemanticFixture.VariantProofs.validatePair

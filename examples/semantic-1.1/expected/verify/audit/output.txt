@@ -20,9 +20,15 @@
 'SemanticFixture.VariantLogic.boolExcludedMiddle' does not depend on any axioms
 'SemanticFixture.VariantLogic.logicalLaw' does not depend on any axioms
 'SemanticFixture.VariantLogic.ordered' does not depend on any axioms
+'SemanticFixture.VariantLogic.propConjunction' does not depend on any axioms
 'SemanticFixture.VariantLogic.strictlyOrdered' does not depend on any axioms
+'SemanticFixture.VariantProofs.ReflectionPair' does not depend on any axioms
 'SemanticFixture.VariantProofs.congruence_refl' does not depend on any axioms
 'SemanticFixture.VariantProofs.conjunction_refl' does not depend on any axioms
+'SemanticFixture.VariantProofs.conjunction_reused' does not depend on any axioms
+'SemanticFixture.VariantProofs.pairValid' does not depend on any axioms
+'SemanticFixture.VariantProofs.pair_sound_complete' does not depend on any axioms
+'SemanticFixture.VariantProofs.validatePair' does not depend on any axioms
 'SemanticFixture.VariantTerms.boxedZero' does not depend on any axioms
 'SemanticFixture.VariantTerms.chooseNat' does not depend on any axioms
 'SemanticFixture.VariantTerms.leftOf' does not depend on any axioms
