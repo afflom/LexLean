@@ -72,6 +72,10 @@ fn generated_core_source_audit(text: &str) -> Result<(), String> {
     source_audit::audit_core(text)
 }
 
+fn generated_semantic_source_audit(text: &str) -> Result<(), String> {
+    source_audit::audit_semantic(text)
+}
+
 fn write_staged(root: &std::path::Path, relative: &str, bytes: &[u8]) -> Result<(), LexLeanError> {
     let destination = root.join(relative);
     if let Some(parent) = destination.parent() {
@@ -829,8 +833,14 @@ pub fn run(
             .modules
             .get(&module.module)
             .is_some_and(|checked| checked.document.core.is_some());
+        let is_semantic = checked
+            .modules
+            .get(&module.module)
+            .is_some_and(|checked| checked.document.semantic.is_some());
         let audited = if is_core {
             generated_core_source_audit(&module.lean_text)
+        } else if is_semantic {
+            generated_semantic_source_audit(&module.lean_text)
         } else {
             generated_source_audit(&module.lean_text, false)
         };

@@ -1,5 +1,7 @@
 module
 public import Init
+public import SemanticFixture.Portable
+public import SemanticFixture.PortableRecursion
 public import SemanticFixture.Support
 public import SemanticFixture.VariantInstances
 public import SemanticFixture.VariantLogic

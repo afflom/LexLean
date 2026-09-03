@@ -110,3 +110,46 @@ Feature: semantic-ir
     When the public Engine snapshots it twice before and after a build
     Then the snapshot schema validates and contains structure, class, instance, inductive, recursive definition, match, cases, induction, simplify, Boolean term data, and the exact nonempty theorem axiom policy
     And all three snapshot byte strings and IDs are identical and contain no absolute path or generated Lean text
+
+  @SM-17 @build
+  Scenario: Language 1.1 has distinct mathematical Int, fixed-width signed and unsigned integer, UTF-8 string, byte-sequence, Option, and Result semantic types with canonical literals.
+    Given the committed portable semantic-module fixture
+    When its canonical snapshot is inspected through the public owned DTO
+    Then every portable scalar and container type is present as a distinct closed value
+    And every integer and byte literal has its canonical representation
+
+  @SM-18 @build
+  Scenario: Portable arithmetic, conversion, bitwise, bounded-shift, collection, UTF-8, byte-order, split/join, and decimal operations form one closed typed primitive vocabulary.
+    Given the committed portable semantic-module fixture
+    When LexLean checks every registered portable primitive
+    Then each primitive has exactly its declared argument and result types
+    And Boolean equality is available for each closed decidable portable scalar without coercion
+    And no backend-specific operation or open extension is admitted
+
+  @SM-19 @build
+  Scenario: Portable semantic operations generate deterministic Lean 4.32.1 definitions that elaborate and replay with exact declared computational axiom policies.
+    Given the committed portable semantic-module fixture
+    When LexLean builds and verifies it on the pinned toolchain
+    Then the generated runtime and module elaborate and replay
+    And each computational definition reports exactly its source-declared axiom policy
+
+  @SM-20 @build
+  Scenario: Noncanonical, out-of-range, invalid-byte, ill-typed, and unbounded fixed-width values fail before either backend runs.
+    Given portable semantic modules containing one malformed value at a time
+    When LexLean check runs
+    Then the input fails with LLT4001 before Lean or LaTeX rendering
+    And the diagnostic distinguishes syntax, range, byte spelling, and type mismatch
+
+  @SM-21 @build
+  Scenario: Structural recursion admits byte/list values and closed Option and Result inductives while preserving termination and exhaustiveness checks.
+    Given a portable module with list recursion and document-defined Option and Result inductives
+    When LexLean checks the module
+    Then recursive calls are accepted only on a structurally smaller value
+    And missing branches or a non-decreasing recursive call are rejected
+
+  @SM-22 @build
+  Scenario: The public owned snapshot DTO and schemas cover every portable type, literal, primitive, and explicit definition axiom policy without backend text.
+    Given the committed portable semantic-module fixture
+    When it is snapshotted in two absolute roots
+    Then both schemas validate every portable variant and their bytes are identical
+    And the snapshot contains no generated Lean, Rust, or absolute path

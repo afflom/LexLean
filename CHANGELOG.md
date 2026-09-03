@@ -13,6 +13,44 @@ is therefore a §30 release: `cargo xtask release-check` reads the complete
 criterion that does not hold. That refusal is the accurate answer at these
 versions, and the entries below say what each tag does and does not claim.
 
+## 0.2.0
+
+Language 1.1 gains the closed portable data and operation vocabulary required
+by generated application runtimes. This is the immutable PrismPM integration
+line; it does not weaken the separate LexLean 1.0.0 full-spec release gate.
+
+### Implemented
+
+- Distinct mathematical `Int` and fixed-width signed/unsigned integer types,
+  UTF-8 strings, byte sequences, ordering, option, and result values, with
+  canonical checked literals and no implicit host-width conversion.
+- Twenty-eight generic typed operations covering checked arithmetic and
+  conversion, quotient/remainder zero cases, bit operations and bounded
+  shifts, collections and byte ranges, UTF-8, byte ordering, bounded exact
+  split/join, and canonical decimal parse/format.
+- One fixed Lean 4.32.1 runtime lowering and canonical LaTeX rendering for the
+  portable vocabulary. Definitions and theorems both carry exact observed
+  axiom policies; verification still elaborates, replays with `leanchecker`,
+  and audits every policy.
+- `SM-17` through `SM-22`, an all-operation semantic fixture, exhaustive
+  fixed-width bound/signature tests, schema validation, malformed-input cases,
+  and cross-root snapshot identity checks. The register now contains 222
+  implemented capability IDs.
+
+### Compatibility
+
+- Language 1.0 syntax and meaning are unchanged. Language 1.1 and
+  `lexlean/semantic-snapshot/1` are extended in place under the ecosystem's
+  pre-freeze policy; their compiler-semantics digest and affected expected
+  artifacts are regenerated.
+- No Prism-, Holo-, or Calculator-specific node, raw Lean/Rust field, macro,
+  tactic, or backend escape hatch is added.
+
+### Not claimed
+
+- This remains an integration release rather than the complete LexLean §30
+  release, which is intentionally reserved for version 1.0.0.
+
 ## 0.1.1
 
 The UOR Atlas becomes the foundation model of LexLean: every accepted document

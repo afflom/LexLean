@@ -20,6 +20,124 @@ pub struct MemberRef {
     pub name: String,
 }
 
+/// The closed portable integer families admitted by language 1.1.
+///
+/// `Int` is mathematical and unbounded.  The remaining representations are
+/// distinct fixed-width values; their literals are range-checked before a
+/// backend is invoked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticInteger {
+    Int,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    #[serde(rename = "uint8")]
+    UInt8,
+    #[serde(rename = "uint16")]
+    UInt16,
+    #[serde(rename = "uint32")]
+    UInt32,
+    #[serde(rename = "uint64")]
+    UInt64,
+}
+
+/// Closed, backend-independent primitive operations for portable data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticPrimitive {
+    Subtract,
+    Multiply,
+    Quotient,
+    Remainder,
+    Negate,
+    CheckedConvert,
+    CheckedAdd,
+    CheckedSubtract,
+    CheckedMultiply,
+    CheckedNegate,
+    CheckedQuotient,
+    BitAnd,
+    BitOr,
+    BitXor,
+    BitNot,
+    ShiftLeft,
+    ShiftRight,
+    Append,
+    Length,
+    Index,
+    Slice,
+    Utf8Encode,
+    Utf8Decode,
+    CompareBytes,
+    Equal,
+    SplitExact,
+    Join,
+    ParseDecimal,
+    FormatDecimal,
+}
+
+impl SemanticInteger {
+    fn semantic_type(self) -> SemanticType {
+        match self {
+            Self::Int => SemanticType::Int,
+            Self::Int8 => SemanticType::Int8,
+            Self::Int16 => SemanticType::Int16,
+            Self::Int32 => SemanticType::Int32,
+            Self::Int64 => SemanticType::Int64,
+            Self::UInt8 => SemanticType::UInt8,
+            Self::UInt16 => SemanticType::UInt16,
+            Self::UInt32 => SemanticType::UInt32,
+            Self::UInt64 => SemanticType::UInt64,
+        }
+    }
+
+    fn bounds(self) -> Option<(i128, i128)> {
+        Some(match self {
+            Self::Int => return None,
+            Self::Int8 => (i8::MIN.into(), i8::MAX.into()),
+            Self::Int16 => (i16::MIN.into(), i16::MAX.into()),
+            Self::Int32 => (i32::MIN.into(), i32::MAX.into()),
+            Self::Int64 => (i64::MIN.into(), i64::MAX.into()),
+            Self::UInt8 => (0, u8::MAX.into()),
+            Self::UInt16 => (0, u16::MAX.into()),
+            Self::UInt32 => (0, u32::MAX.into()),
+            Self::UInt64 => (0, u64::MAX.into()),
+        })
+    }
+}
+
+fn canonical_integer(value: &str) -> bool {
+    if value == "0" {
+        return true;
+    }
+    let digits = value.strip_prefix('-').unwrap_or(value);
+    !digits.is_empty()
+        && !digits.starts_with('0')
+        && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn check_integer_literal(representation: SemanticInteger, value: &str) -> Result<(), String> {
+    if !canonical_integer(value) {
+        return Err(format!("noncanonical integer literal `{value}`"));
+    }
+    if matches!(representation, SemanticInteger::Int) {
+        return Ok(());
+    }
+    let parsed = value
+        .parse::<i128>()
+        .map_err(|_| format!("integer literal `{value}` is outside the portable parser range"))?;
+    let (minimum, maximum) = representation.bounds().expect("fixed integer bounds");
+    if (minimum..=maximum).contains(&parsed) {
+        Ok(())
+    } else {
+        Err(format!(
+            "integer literal `{value}` is outside {representation:?} [{minimum}, {maximum}]"
+        ))
+    }
+}
+
 /// Closed language-1.1 types.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -37,6 +155,38 @@ pub enum SemanticType {
     Prop,
     /// Unit.
     Unit,
+    /// A mathematical, unbounded integer.
+    Int,
+    /// A signed eight-bit integer.
+    Int8,
+    /// A signed sixteen-bit integer.
+    Int16,
+    /// A signed thirty-two-bit integer.
+    Int32,
+    /// A signed sixty-four-bit integer.
+    Int64,
+    /// An unsigned eight-bit integer.
+    #[serde(rename = "uint8")]
+    UInt8,
+    /// An unsigned sixteen-bit integer.
+    #[serde(rename = "uint16")]
+    UInt16,
+    /// An unsigned thirty-two-bit integer.
+    #[serde(rename = "uint32")]
+    UInt32,
+    /// An unsigned sixty-four-bit integer.
+    #[serde(rename = "uint64")]
+    UInt64,
+    /// A Unicode scalar string whose serialized value is valid UTF-8.
+    String,
+    /// An immutable byte sequence.
+    Bytes,
+    /// The three-way lexicographic order result.
+    Ordering,
+    /// A closed optional value.
+    Option { value: Box<Self> },
+    /// A closed success/error value.
+    Result { ok: Box<Self>, error: Box<Self> },
     /// A list.
     List { element: Box<Self> },
     /// A document-defined type.
@@ -97,6 +247,25 @@ pub enum SemanticTerm {
     },
     Nat {
         value: String,
+    },
+    /// A canonical mathematical or fixed-width integer literal.
+    Integer {
+        representation: SemanticInteger,
+        value: String,
+    },
+    /// A Unicode string literal. Serde guarantees valid UTF-8.
+    String {
+        value: String,
+    },
+    /// A byte sequence represented by canonical lowercase hexadecimal.
+    Bytes {
+        hex: String,
+    },
+    /// A closed portable primitive with explicit arguments and result type.
+    Primitive {
+        operation: SemanticPrimitive,
+        arguments: Vec<Self>,
+        result: SemanticType,
     },
     Bool {
         value: bool,
@@ -325,6 +494,9 @@ pub enum SemanticDeclaration {
         #[serde(skip_serializing_if = "Option::is_none")]
         recursive_argument: Option<String>,
         body: SemanticTerm,
+        /// Exact, sorted axiom set admitted by this computational definition.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        axioms: Vec<String>,
     },
     Theorem {
         name: String,
@@ -365,7 +537,7 @@ impl SemanticDeclaration {
     #[must_use]
     pub fn axioms(&self) -> &[String] {
         match self {
-            Self::Theorem { axioms, .. } => axioms,
+            Self::Definition { axioms, .. } | Self::Theorem { axioms, .. } => axioms,
             _ => &[],
         }
     }
@@ -386,6 +558,208 @@ impl SemanticDeclaration {
 pub struct SemanticModule {
     pub spec: String,
     pub declarations: Vec<SemanticDeclaration>,
+}
+
+fn type_node_count(ty: &SemanticType) -> u64 {
+    1 + match ty {
+        SemanticType::Option { value } => type_node_count(value),
+        SemanticType::Result { ok, error } => type_node_count(ok) + type_node_count(error),
+        SemanticType::List { element } => type_node_count(element),
+        SemanticType::Named { arguments, .. } => arguments.iter().map(type_node_count).sum(),
+        _ => 0,
+    }
+}
+
+fn term_node_count(term: &SemanticTerm) -> u64 {
+    let terms = |values: &[SemanticTerm]| values.iter().map(term_node_count).sum::<u64>();
+    let pair =
+        |left: &SemanticTerm, right: &SemanticTerm| term_node_count(left) + term_node_count(right);
+    1 + match term {
+        SemanticTerm::Var { .. }
+        | SemanticTerm::Nat { .. }
+        | SemanticTerm::Integer { .. }
+        | SemanticTerm::String { .. }
+        | SemanticTerm::Bytes { .. }
+        | SemanticTerm::Bool { .. }
+        | SemanticTerm::Unit => 0,
+        SemanticTerm::Primitive {
+            arguments, result, ..
+        } => terms(arguments) + type_node_count(result),
+        SemanticTerm::Nil { element } => type_node_count(element),
+        SemanticTerm::Cons { head, tail }
+        | SemanticTerm::Eq {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::Le {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::Lt {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::Add {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::Beq {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::Ble {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::Blt {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::And {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::PropAnd {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::Or {
+            left: head,
+            right: tail,
+        }
+        | SemanticTerm::Implies {
+            premise: head,
+            conclusion: tail,
+        }
+        | SemanticTerm::Iff {
+            left: head,
+            right: tail,
+        } => pair(head, tail),
+        SemanticTerm::Record {
+            type_arguments,
+            fields,
+            ..
+        } => {
+            type_arguments.iter().map(type_node_count).sum::<u64>()
+                + fields
+                    .iter()
+                    .map(|field| term_node_count(&field.value))
+                    .sum::<u64>()
+        }
+        SemanticTerm::Constructor {
+            type_arguments,
+            arguments,
+            ..
+        } => type_arguments.iter().map(type_node_count).sum::<u64>() + terms(arguments),
+        SemanticTerm::InstanceValue { arguments, .. } => {
+            arguments.iter().map(type_node_count).sum()
+        }
+        SemanticTerm::Project { value, .. } | SemanticTerm::Not { value } => term_node_count(value),
+        SemanticTerm::Call { arguments, .. } => terms(arguments),
+        SemanticTerm::If {
+            condition,
+            then_value,
+            else_value,
+        } => term_node_count(condition) + term_node_count(then_value) + term_node_count(else_value),
+        SemanticTerm::Match {
+            scrutinee,
+            branches,
+        } => {
+            term_node_count(scrutinee)
+                + branches
+                    .iter()
+                    .map(|branch| term_node_count(&branch.body))
+                    .sum::<u64>()
+        }
+        SemanticTerm::Forall { binder, body } => {
+            type_node_count(&binder.r#type) + term_node_count(body)
+        }
+    }
+}
+
+fn proof_node_count(proof: &SemanticProof) -> u64 {
+    1 + match proof {
+        SemanticProof::Reflexivity
+        | SemanticProof::Decide
+        | SemanticProof::Congruence
+        | SemanticProof::Simplify { .. }
+        | SemanticProof::BooleanReflection { .. } => 0,
+        SemanticProof::Constructor { branches } => branches.iter().map(proof_node_count).sum(),
+        SemanticProof::Cases { branches, .. } | SemanticProof::Induction { branches, .. } => {
+            branches
+                .iter()
+                .map(|branch| proof_node_count(&branch.proof))
+                .sum()
+        }
+        SemanticProof::Apply { arguments, .. } => arguments.iter().map(term_node_count).sum(),
+    }
+}
+
+fn declaration_node_count(declaration: &SemanticDeclaration) -> u64 {
+    let parameters = |values: &[SemanticParameter]| {
+        values
+            .iter()
+            .map(|parameter| type_node_count(&parameter.r#type))
+            .sum::<u64>()
+    };
+    1 + match declaration {
+        SemanticDeclaration::Structure {
+            parameters: values,
+            fields,
+            ..
+        }
+        | SemanticDeclaration::Class {
+            parameters: values,
+            fields,
+            ..
+        } => {
+            parameters(values)
+                + fields
+                    .iter()
+                    .map(|field| type_node_count(&field.r#type))
+                    .sum::<u64>()
+        }
+        SemanticDeclaration::Instance {
+            arguments, fields, ..
+        } => {
+            arguments.iter().map(type_node_count).sum::<u64>()
+                + fields
+                    .iter()
+                    .map(|field| term_node_count(&field.value))
+                    .sum::<u64>()
+        }
+        SemanticDeclaration::Inductive {
+            parameters: values,
+            constructors,
+            ..
+        } => {
+            parameters(values)
+                + constructors
+                    .iter()
+                    .flat_map(|constructor| &constructor.fields)
+                    .map(type_node_count)
+                    .sum::<u64>()
+        }
+        SemanticDeclaration::Definition {
+            parameters: values,
+            result,
+            body,
+            ..
+        } => parameters(values) + type_node_count(result) + term_node_count(body),
+        SemanticDeclaration::Theorem {
+            parameters: values,
+            statement,
+            proof,
+            ..
+        } => parameters(values) + term_node_count(statement) + proof_node_count(proof),
+    }
+}
+
+impl SemanticModule {
+    /// Exact recursive semantic-node count charged to `max_ir_nodes`.
+    pub(crate) fn node_count(&self) -> u64 {
+        self.declarations.iter().map(declaration_node_count).sum()
+    }
 }
 
 #[derive(Default)]
@@ -449,6 +823,13 @@ fn qualify_type(ty: &SemanticType, module: &str) -> SemanticType {
         SemanticType::List { element } => SemanticType::List {
             element: Box::new(qualify_type(element, module)),
         },
+        SemanticType::Option { value } => SemanticType::Option {
+            value: Box::new(qualify_type(value, module)),
+        },
+        SemanticType::Result { ok, error } => SemanticType::Result {
+            ok: Box::new(qualify_type(ok, module)),
+            error: Box::new(qualify_type(error, module)),
+        },
         other => other.clone(),
     }
 }
@@ -511,8 +892,26 @@ fn check_type(ty: &SemanticType, env: &Environment<'_>) -> Result<(), String> {
         | SemanticType::Nat
         | SemanticType::Bool
         | SemanticType::Prop
-        | SemanticType::Unit => Ok(()),
-        SemanticType::List { element } => check_type(element, env),
+        | SemanticType::Unit
+        | SemanticType::Int
+        | SemanticType::Int8
+        | SemanticType::Int16
+        | SemanticType::Int32
+        | SemanticType::Int64
+        | SemanticType::UInt8
+        | SemanticType::UInt16
+        | SemanticType::UInt32
+        | SemanticType::UInt64
+        | SemanticType::String
+        | SemanticType::Bytes
+        | SemanticType::Ordering => Ok(()),
+        SemanticType::List { element } | SemanticType::Option { value: element } => {
+            check_type(element, env)
+        }
+        SemanticType::Result { ok, error } => {
+            check_type(ok, env)?;
+            check_type(error, env)
+        }
         SemanticType::Named { member, arguments } => {
             check_member(member, env)?;
             for argument in arguments {
@@ -543,7 +942,13 @@ fn check_type_parameters(ty: &SemanticType, allowed: &BTreeSet<String>) -> Resul
                 Err(format!("unbound type parameter `{name}`"))
             }
         }
-        SemanticType::List { element } => check_type_parameters(element, allowed),
+        SemanticType::List { element } | SemanticType::Option { value: element } => {
+            check_type_parameters(element, allowed)
+        }
+        SemanticType::Result { ok, error } => {
+            check_type_parameters(ok, allowed)?;
+            check_type_parameters(error, allowed)
+        }
         SemanticType::Named { arguments, .. } => {
             for argument in arguments {
                 check_type_parameters(argument, allowed)?;
@@ -554,7 +959,19 @@ fn check_type_parameters(ty: &SemanticType, allowed: &BTreeSet<String>) -> Resul
         | SemanticType::Nat
         | SemanticType::Bool
         | SemanticType::Prop
-        | SemanticType::Unit => Ok(()),
+        | SemanticType::Unit
+        | SemanticType::Int
+        | SemanticType::Int8
+        | SemanticType::Int16
+        | SemanticType::Int32
+        | SemanticType::Int64
+        | SemanticType::UInt8
+        | SemanticType::UInt16
+        | SemanticType::UInt32
+        | SemanticType::UInt64
+        | SemanticType::String
+        | SemanticType::Bytes
+        | SemanticType::Ordering => Ok(()),
     }
 }
 
@@ -576,6 +993,36 @@ fn is_structural_domain(ty: &SemanticType, env: &Environment<'_>) -> bool {
             .is_some_and(|info| !info.constructors.is_empty() && info.fields.is_empty()),
         _ => false,
     }
+}
+
+fn integer_representation(ty: &SemanticType) -> Option<SemanticInteger> {
+    Some(match ty {
+        SemanticType::Int => SemanticInteger::Int,
+        SemanticType::Int8 => SemanticInteger::Int8,
+        SemanticType::Int16 => SemanticInteger::Int16,
+        SemanticType::Int32 => SemanticInteger::Int32,
+        SemanticType::Int64 => SemanticInteger::Int64,
+        SemanticType::UInt8 => SemanticInteger::UInt8,
+        SemanticType::UInt16 => SemanticInteger::UInt16,
+        SemanticType::UInt32 => SemanticInteger::UInt32,
+        SemanticType::UInt64 => SemanticInteger::UInt64,
+        _ => return None,
+    })
+}
+
+fn fixed_integer(ty: &SemanticType) -> bool {
+    integer_representation(ty).is_some_and(|kind| !matches!(kind, SemanticInteger::Int))
+}
+
+fn signed_integer(ty: &SemanticType) -> bool {
+    matches!(
+        ty,
+        SemanticType::Int
+            | SemanticType::Int8
+            | SemanticType::Int16
+            | SemanticType::Int32
+            | SemanticType::Int64
+    )
 }
 
 fn check_parameters(
@@ -624,6 +1071,17 @@ fn check_assignments(
 }
 
 fn constructor_arity(member: &MemberRef, env: &Environment<'_>) -> Option<usize> {
+    if member.module.is_none() {
+        match member.name.as_str() {
+            "Option.none" | "Result.error" | "Result.ok" => {
+                // Option.some and both Result constructors are polymorphic;
+                // their exact signatures are checked by constructor_signature.
+                return Some(usize::from(member.name != "Option.none"));
+            }
+            "Option.some" => return Some(1),
+            _ => {}
+        }
+    }
     env.types.iter().find_map(|(owner, info)| {
         (member_from_key(owner).module == member.module)
             .then(|| info.constructors.get(&member.name).copied())
@@ -660,7 +1118,34 @@ fn check_term(
                 Err(format!("noncanonical natural literal `{value}`"))
             }
         }
+        SemanticTerm::Integer {
+            representation,
+            value,
+        } => check_integer_literal(*representation, value),
+        SemanticTerm::String { .. } => Ok(()),
+        SemanticTerm::Bytes { hex } => {
+            if hex.len() % 2 == 0
+                && hex
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "byte literal `{hex}` must be even-length lowercase hexadecimal"
+                ))
+            }
+        }
         SemanticTerm::Bool { .. } | SemanticTerm::Unit => Ok(()),
+        SemanticTerm::Primitive {
+            arguments, result, ..
+        } => {
+            check_type(result, env)?;
+            for argument in arguments {
+                check_term(argument, locals, env, recursion, smaller)?;
+            }
+            Ok(())
+        }
         SemanticTerm::Nil { element } => check_type(element, env),
         SemanticTerm::Cons { head, tail }
         | SemanticTerm::Eq {
@@ -758,7 +1243,14 @@ fn check_term(
             } else if constructor.module.is_none()
                 && !matches!(
                     constructor.name.as_str(),
-                    "List.nil" | "List.cons" | "Nat.zero" | "Nat.succ"
+                    "List.nil"
+                        | "List.cons"
+                        | "Nat.zero"
+                        | "Nat.succ"
+                        | "Option.none"
+                        | "Option.some"
+                        | "Result.error"
+                        | "Result.ok"
                 )
             {
                 return Err(format!("unknown constructor `{}`", constructor.name));
@@ -867,6 +1359,8 @@ fn check_term(
                     "List.nil" | "Nat.zero" => 0,
                     "List.cons" => 2,
                     "Nat.succ" => 1,
+                    "Option.none" => 0,
+                    "Option.some" | "Result.error" | "Result.ok" => 1,
                     _ => constructor_arity(&branch.constructor, env).ok_or_else(|| {
                         format!("unknown match constructor `{}`", branch.constructor.name)
                     })?,
@@ -903,11 +1397,18 @@ fn check_term(
             }
             let list = BTreeSet::from(["List.cons".to_owned(), "List.nil".to_owned()]);
             let nat = BTreeSet::from(["Nat.succ".to_owned(), "Nat.zero".to_owned()]);
+            let option = BTreeSet::from(["Option.none".to_owned(), "Option.some".to_owned()]);
+            let result = BTreeSet::from(["Result.error".to_owned(), "Result.ok".to_owned()]);
             let declared = env.types.values().find_map(|info| {
                 let set: BTreeSet<String> = info.constructors.keys().cloned().collect();
                 (set == constructors).then_some(set)
             });
-            if constructors != list && constructors != nat && declared.is_none() {
+            if constructors != list
+                && constructors != nat
+                && constructors != option
+                && constructors != result
+                && declared.is_none()
+            {
                 return Err(format!(
                     "nonexhaustive or mixed match branches {constructors:?}"
                 ));
@@ -937,6 +1438,13 @@ fn substitute_type(
             .unwrap_or_else(|| ty.clone()),
         SemanticType::List { element } => SemanticType::List {
             element: Box::new(substitute_type(element, substitutions)),
+        },
+        SemanticType::Option { value } => SemanticType::Option {
+            value: Box::new(substitute_type(value, substitutions)),
+        },
+        SemanticType::Result { ok, error } => SemanticType::Result {
+            ok: Box::new(substitute_type(ok, substitutions)),
+            error: Box::new(substitute_type(error, substitutions)),
         },
         SemanticType::Named { member, arguments } => SemanticType::Named {
             member: member.clone(),
@@ -972,6 +1480,264 @@ fn require_type(
     Ok(())
 }
 
+fn require_observed(
+    observed: &[Option<SemanticType>],
+    expected: &[SemanticType],
+    operation: SemanticPrimitive,
+) -> Result<(), String> {
+    if observed.len() != expected.len() {
+        return Err(format!(
+            "primitive {operation:?} expects {} argument(s), received {}",
+            expected.len(),
+            observed.len()
+        ));
+    }
+    for (index, (actual, expected)) in observed.iter().zip(expected).enumerate() {
+        require_type(
+            actual.clone(),
+            expected,
+            &format!("primitive {operation:?} argument {index}"),
+        )?;
+    }
+    Ok(())
+}
+
+fn infer_primitive(
+    operation: SemanticPrimitive,
+    arguments: &[Option<SemanticType>],
+    result: &SemanticType,
+) -> Result<SemanticType, String> {
+    use SemanticPrimitive as P;
+    let first = arguments.first().cloned().flatten().ok_or_else(|| {
+        format!("primitive {operation:?} requires a statically typed first argument")
+    })?;
+    let exact_result = |expected: SemanticType| -> Result<SemanticType, String> {
+        if result == &expected {
+            Ok(expected)
+        } else {
+            Err(format!(
+                "primitive {operation:?} result is {result:?}, expected {expected:?}"
+            ))
+        }
+    };
+    match operation {
+        P::Subtract | P::Multiply => {
+            if !matches!(first, SemanticType::Nat | SemanticType::Int) {
+                return Err(format!("primitive {operation:?} requires integer operands"));
+            }
+            require_observed(arguments, &[first.clone(), first.clone()], operation)?;
+            exact_result(first)
+        }
+        P::Quotient | P::Remainder => {
+            if !matches!(first, SemanticType::Nat | SemanticType::Int) {
+                return Err(format!("primitive {operation:?} requires integer operands"));
+            }
+            require_observed(
+                arguments,
+                &[first.clone(), first.clone(), first.clone()],
+                operation,
+            )?;
+            exact_result(first)
+        }
+        P::Negate => {
+            if !matches!(first, SemanticType::Int) {
+                return Err("primitive Negate requires mathematical Int".to_owned());
+            }
+            require_observed(arguments, core::slice::from_ref(&first), operation)?;
+            exact_result(first)
+        }
+        P::CheckedConvert => {
+            if integer_representation(&first).is_none() {
+                return Err("primitive CheckedConvert requires an integer input".to_owned());
+            }
+            let SemanticType::Option { value } = result else {
+                return Err("primitive CheckedConvert returns Option of a fixed integer".to_owned());
+            };
+            if !fixed_integer(value) {
+                return Err("primitive CheckedConvert target must be fixed-width".to_owned());
+            }
+            require_observed(arguments, core::slice::from_ref(&first), operation)?;
+            Ok(result.clone())
+        }
+        P::CheckedAdd | P::CheckedSubtract | P::CheckedMultiply | P::CheckedQuotient => {
+            if !fixed_integer(&first) {
+                return Err(format!(
+                    "primitive {operation:?} requires fixed-width operands"
+                ));
+            }
+            require_observed(arguments, &[first.clone(), first.clone()], operation)?;
+            exact_result(SemanticType::Option {
+                value: Box::new(first),
+            })
+        }
+        P::CheckedNegate => {
+            if !fixed_integer(&first) || !signed_integer(&first) {
+                return Err(
+                    "primitive CheckedNegate requires a signed fixed-width operand".to_owned(),
+                );
+            }
+            require_observed(arguments, core::slice::from_ref(&first), operation)?;
+            exact_result(SemanticType::Option {
+                value: Box::new(first),
+            })
+        }
+        P::BitAnd | P::BitOr | P::BitXor => {
+            if !fixed_integer(&first) {
+                return Err(format!(
+                    "primitive {operation:?} requires fixed-width operands"
+                ));
+            }
+            require_observed(arguments, &[first.clone(), first.clone()], operation)?;
+            exact_result(first)
+        }
+        P::BitNot => {
+            if !fixed_integer(&first) {
+                return Err("primitive BitNot requires a fixed-width operand".to_owned());
+            }
+            require_observed(arguments, core::slice::from_ref(&first), operation)?;
+            exact_result(first)
+        }
+        P::ShiftLeft | P::ShiftRight => {
+            if !fixed_integer(&first) {
+                return Err(format!(
+                    "primitive {operation:?} requires a fixed-width operand"
+                ));
+            }
+            require_observed(arguments, &[first.clone(), SemanticType::UInt32], operation)?;
+            exact_result(SemanticType::Option {
+                value: Box::new(first),
+            })
+        }
+        P::Append => {
+            if !matches!(first, SemanticType::List { .. } | SemanticType::Bytes) {
+                return Err("primitive Append requires lists or bytes".to_owned());
+            }
+            require_observed(arguments, &[first.clone(), first.clone()], operation)?;
+            exact_result(first)
+        }
+        P::Length => {
+            if !matches!(
+                first,
+                SemanticType::List { .. } | SemanticType::Bytes | SemanticType::String
+            ) {
+                return Err("primitive Length requires list, bytes, or string".to_owned());
+            }
+            require_observed(arguments, core::slice::from_ref(&first), operation)?;
+            exact_result(SemanticType::Nat)
+        }
+        P::Index => {
+            let element = match &first {
+                SemanticType::List { element } => element.as_ref().clone(),
+                SemanticType::Bytes => SemanticType::UInt8,
+                _ => return Err("primitive Index requires list or bytes".to_owned()),
+            };
+            require_observed(arguments, &[first, SemanticType::Nat], operation)?;
+            exact_result(SemanticType::Option {
+                value: Box::new(element),
+            })
+        }
+        P::Slice => {
+            if !matches!(first, SemanticType::List { .. } | SemanticType::Bytes) {
+                return Err("primitive Slice requires list or bytes".to_owned());
+            }
+            require_observed(
+                arguments,
+                &[first.clone(), SemanticType::Nat, SemanticType::Nat],
+                operation,
+            )?;
+            exact_result(SemanticType::Option {
+                value: Box::new(first),
+            })
+        }
+        P::Utf8Encode => {
+            require_observed(arguments, &[SemanticType::String], operation)?;
+            exact_result(SemanticType::Bytes)
+        }
+        P::Utf8Decode => {
+            require_observed(arguments, &[SemanticType::Bytes], operation)?;
+            exact_result(SemanticType::Option {
+                value: Box::new(SemanticType::String),
+            })
+        }
+        P::CompareBytes => {
+            require_observed(
+                arguments,
+                &[SemanticType::Bytes, SemanticType::Bytes],
+                operation,
+            )?;
+            exact_result(SemanticType::Ordering)
+        }
+        P::Equal => {
+            if !matches!(
+                first,
+                SemanticType::Nat
+                    | SemanticType::Bool
+                    | SemanticType::Int8
+                    | SemanticType::Int16
+                    | SemanticType::Int32
+                    | SemanticType::Int64
+                    | SemanticType::UInt8
+                    | SemanticType::UInt16
+                    | SemanticType::UInt32
+                    | SemanticType::UInt64
+                    | SemanticType::String
+                    | SemanticType::Bytes
+                    | SemanticType::Ordering
+            ) {
+                return Err("primitive Equal requires a closed decidable scalar type".to_owned());
+            }
+            require_observed(arguments, &[first.clone(), first], operation)?;
+            exact_result(SemanticType::Bool)
+        }
+        P::SplitExact => {
+            require_observed(
+                arguments,
+                &[
+                    SemanticType::String,
+                    SemanticType::String,
+                    SemanticType::UInt32,
+                ],
+                operation,
+            )?;
+            exact_result(SemanticType::Option {
+                value: Box::new(SemanticType::List {
+                    element: Box::new(SemanticType::String),
+                }),
+            })
+        }
+        P::Join => {
+            require_observed(
+                arguments,
+                &[
+                    SemanticType::List {
+                        element: Box::new(SemanticType::String),
+                    },
+                    SemanticType::String,
+                ],
+                operation,
+            )?;
+            exact_result(SemanticType::String)
+        }
+        P::ParseDecimal => {
+            require_observed(arguments, &[SemanticType::String], operation)?;
+            let SemanticType::Option { value } = result else {
+                return Err("primitive ParseDecimal returns Option of an integer".to_owned());
+            };
+            if integer_representation(value).is_none() {
+                return Err("primitive ParseDecimal target must be an integer".to_owned());
+            }
+            Ok(result.clone())
+        }
+        P::FormatDecimal => {
+            if integer_representation(&first).is_none() {
+                return Err("primitive FormatDecimal requires an integer".to_owned());
+            }
+            require_observed(arguments, core::slice::from_ref(&first), operation)?;
+            exact_result(SemanticType::String)
+        }
+    }
+}
+
 fn same_type(
     left: Option<SemanticType>,
     right: Option<SemanticType>,
@@ -992,6 +1758,45 @@ fn constructor_signature(
     type_arguments: &[SemanticType],
     env: &Environment<'_>,
 ) -> Result<Option<(SemanticType, Vec<SemanticType>)>, String> {
+    if constructor.module.is_none()
+        && (constructor.name == "Option.none" || constructor.name == "Option.some")
+    {
+        let [value] = type_arguments else {
+            return Err(format!(
+                "constructor `{}` requires one explicit type argument",
+                constructor.name
+            ));
+        };
+        let result = SemanticType::Option {
+            value: Box::new(value.clone()),
+        };
+        let fields = if constructor.name == "Option.some" {
+            vec![value.clone()]
+        } else {
+            Vec::new()
+        };
+        return Ok(Some((result, fields)));
+    }
+    if constructor.module.is_none()
+        && (constructor.name == "Result.error" || constructor.name == "Result.ok")
+    {
+        let [ok, error] = type_arguments else {
+            return Err(format!(
+                "constructor `{}` requires explicit success and error type arguments",
+                constructor.name
+            ));
+        };
+        let result = SemanticType::Result {
+            ok: Box::new(ok.clone()),
+            error: Box::new(error.clone()),
+        };
+        let fields = if constructor.name == "Result.ok" {
+            vec![ok.clone()]
+        } else {
+            vec![error.clone()]
+        };
+        return Ok(Some((result, fields)));
+    }
     if constructor.module.is_none()
         && (constructor.name == "List.nil" || constructor.name == "List.cons")
     {
@@ -1072,6 +1877,17 @@ fn infer_term(
             .map(Some)
             .ok_or_else(|| format!("unbound typed local `{name}`")),
         SemanticTerm::Nat { .. } => Ok(Some(SemanticType::Nat)),
+        SemanticTerm::Integer { representation, .. } => Ok(Some(representation.semantic_type())),
+        SemanticTerm::String { .. } => Ok(Some(SemanticType::String)),
+        SemanticTerm::Bytes { .. } => Ok(Some(SemanticType::Bytes)),
+        SemanticTerm::Primitive {
+            operation,
+            arguments,
+            result,
+        } => {
+            let argument_types = arguments.iter().map(infer).collect::<Result<Vec<_>, _>>()?;
+            infer_primitive(*operation, &argument_types, result).map(Some)
+        }
         SemanticTerm::Bool { .. } => Ok(Some(SemanticType::Bool)),
         SemanticTerm::Unit => Ok(Some(SemanticType::Unit)),
         SemanticTerm::Nil { element } => Ok(Some(SemanticType::List {
@@ -1213,6 +2029,24 @@ fn infer_term(
                         "Nat.succ" => vec![SemanticType::Nat],
                         _ => return Err("Nat match uses a non-Nat constructor".to_owned()),
                     },
+                    Some(SemanticType::Option { value }) => {
+                        match branch.constructor.name.as_str() {
+                            "Option.none" => Vec::new(),
+                            "Option.some" => vec![value.as_ref().clone()],
+                            _ => {
+                                return Err("Option match uses a non-Option constructor".to_owned())
+                            }
+                        }
+                    }
+                    Some(SemanticType::Result { ok, error }) => {
+                        match branch.constructor.name.as_str() {
+                            "Result.error" => vec![error.as_ref().clone()],
+                            "Result.ok" => vec![ok.as_ref().clone()],
+                            _ => {
+                                return Err("Result match uses a non-Result constructor".to_owned())
+                            }
+                        }
+                    }
                     Some(SemanticType::Named { member, arguments }) => {
                         let Some((owner, fields)) =
                             constructor_signature(&branch.constructor, arguments, env)?
@@ -1999,8 +2833,16 @@ impl SemanticModule {
                     result,
                     recursive_argument,
                     body,
+                    axioms,
                     ..
                 } => {
+                    if axioms.windows(2).any(|pair| pair[0] >= pair[1])
+                        || axioms.iter().any(|axiom| !legal_name(axiom))
+                    {
+                        return Err(format!(
+                            "definition `{name}` axiom policy is not sorted, unique, and qualified"
+                        ));
+                    }
                     let locals = check_parameters(parameters, &env, &BTreeSet::new())?;
                     check_type(result, &env)?;
                     let recursion = if let Some(argument) = recursive_argument {
@@ -2081,9 +2923,12 @@ impl SemanticModule {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
-    use super::SemanticModule;
+    use super::{
+        check_integer_literal, check_term, infer_primitive, Environment, SemanticInteger,
+        SemanticModule, SemanticPrimitive, SemanticTerm, SemanticType,
+    };
 
     const EMPTY_POLICY: &str = r#"{"declarations":[{"kind":"theorem","name":"zero_refl","parameters":[],"proof":{"kind":"reflexivity"},"statement":{"kind":"eq","left":{"kind":"nat","value":"0"},"right":{"kind":"nat","value":"0"}}}],"spec":"lexlean/semantic-module/1"}"#;
 
@@ -2130,6 +2975,225 @@ mod tests {
                 error.contains("not sorted, unique, and qualified"),
                 "{error}"
             );
+        }
+    }
+
+    fn option(value: SemanticType) -> SemanticType {
+        SemanticType::Option {
+            value: Box::new(value),
+        }
+    }
+
+    fn typed(types: &[SemanticType]) -> Vec<Option<SemanticType>> {
+        types.iter().cloned().map(Some).collect()
+    }
+
+    fn accepts(operation: SemanticPrimitive, arguments: &[SemanticType], result: SemanticType) {
+        let arguments = typed(arguments);
+        assert_eq!(
+            infer_primitive(operation, &arguments, &result),
+            Ok(result.clone()),
+            "{operation:?} must accept its registered signature"
+        );
+        assert!(
+            infer_primitive(operation, &arguments[..arguments.len() - 1], &result).is_err(),
+            "{operation:?} must reject the wrong arity"
+        );
+    }
+
+    #[test]
+    fn every_portable_primitive_has_a_positive_and_negative_signature_case() {
+        use SemanticPrimitive as P;
+        use SemanticType as T;
+
+        for operation in [P::Subtract, P::Multiply] {
+            accepts(operation, &[T::Int, T::Int], T::Int);
+        }
+        for operation in [P::Quotient, P::Remainder] {
+            accepts(operation, &[T::Int, T::Int, T::Int], T::Int);
+        }
+        accepts(P::Negate, &[T::Int], T::Int);
+        for operation in [
+            P::CheckedAdd,
+            P::CheckedSubtract,
+            P::CheckedMultiply,
+            P::CheckedQuotient,
+        ] {
+            accepts(operation, &[T::Int64, T::Int64], option(T::Int64));
+        }
+        accepts(P::CheckedNegate, &[T::Int64], option(T::Int64));
+        accepts(P::CheckedConvert, &[T::Int], option(T::UInt64));
+        for operation in [P::BitAnd, P::BitOr, P::BitXor] {
+            accepts(operation, &[T::UInt64, T::UInt64], T::UInt64);
+        }
+        accepts(P::BitNot, &[T::UInt64], T::UInt64);
+        for operation in [P::ShiftLeft, P::ShiftRight] {
+            accepts(operation, &[T::UInt64, T::UInt32], option(T::UInt64));
+        }
+        accepts(P::Append, &[T::Bytes, T::Bytes], T::Bytes);
+        accepts(P::Length, &[T::String], T::Nat);
+        accepts(P::Index, &[T::Bytes, T::Nat], option(T::UInt8));
+        accepts(P::Slice, &[T::Bytes, T::Nat, T::Nat], option(T::Bytes));
+        accepts(P::Utf8Encode, &[T::String], T::Bytes);
+        accepts(P::Utf8Decode, &[T::Bytes], option(T::String));
+        accepts(P::CompareBytes, &[T::Bytes, T::Bytes], T::Ordering);
+        accepts(P::Equal, &[T::Int64, T::Int64], T::Bool);
+        accepts(
+            P::SplitExact,
+            &[T::String, T::String, T::UInt32],
+            option(T::List {
+                element: Box::new(T::String),
+            }),
+        );
+        accepts(
+            P::Join,
+            &[
+                T::List {
+                    element: Box::new(T::String),
+                },
+                T::String,
+            ],
+            T::String,
+        );
+        accepts(P::ParseDecimal, &[T::String], option(T::Int64));
+        accepts(P::FormatDecimal, &[T::Int64], T::String);
+    }
+
+    #[test]
+    fn every_fixed_integer_family_supports_checked_conversion_and_operations() {
+        use SemanticPrimitive as P;
+        use SemanticType as T;
+        let integer_types = [
+            T::Int,
+            T::Int8,
+            T::Int16,
+            T::Int32,
+            T::Int64,
+            T::UInt8,
+            T::UInt16,
+            T::UInt32,
+            T::UInt64,
+        ];
+        let fixed_types = [
+            T::Int8,
+            T::Int16,
+            T::Int32,
+            T::Int64,
+            T::UInt8,
+            T::UInt16,
+            T::UInt32,
+            T::UInt64,
+        ];
+        for source in &integer_types {
+            for target in &fixed_types {
+                accepts(
+                    P::CheckedConvert,
+                    core::slice::from_ref(source),
+                    option(target.clone()),
+                );
+            }
+        }
+        for ty in &fixed_types {
+            for operation in [
+                P::CheckedAdd,
+                P::CheckedSubtract,
+                P::CheckedMultiply,
+                P::CheckedQuotient,
+            ] {
+                accepts(operation, &[ty.clone(), ty.clone()], option(ty.clone()));
+            }
+            for operation in [P::BitAnd, P::BitOr, P::BitXor] {
+                accepts(operation, &[ty.clone(), ty.clone()], ty.clone());
+            }
+            accepts(P::BitNot, core::slice::from_ref(ty), ty.clone());
+            for operation in [P::ShiftLeft, P::ShiftRight] {
+                accepts(operation, &[ty.clone(), T::UInt32], option(ty.clone()));
+            }
+            accepts(P::ParseDecimal, &[T::String], option(ty.clone()));
+            accepts(P::FormatDecimal, core::slice::from_ref(ty), T::String);
+            accepts(P::Equal, &[ty.clone(), ty.clone()], T::Bool);
+        }
+        for ty in [T::Int8, T::Int16, T::Int32, T::Int64] {
+            accepts(
+                P::CheckedNegate,
+                core::slice::from_ref(&ty),
+                option(ty.clone()),
+            );
+        }
+        for ty in [T::UInt8, T::UInt16, T::UInt32, T::UInt64] {
+            assert!(infer_primitive(
+                P::CheckedNegate,
+                &typed(core::slice::from_ref(&ty)),
+                &option(ty)
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn every_fixed_integer_literal_checks_both_bounds_and_canonical_spelling() {
+        use SemanticInteger as I;
+        for (representation, minimum, maximum, below, above) in [
+            (I::Int8, "-128", "127", "-129", "128"),
+            (I::Int16, "-32768", "32767", "-32769", "32768"),
+            (
+                I::Int32,
+                "-2147483648",
+                "2147483647",
+                "-2147483649",
+                "2147483648",
+            ),
+            (
+                I::Int64,
+                "-9223372036854775808",
+                "9223372036854775807",
+                "-9223372036854775809",
+                "9223372036854775808",
+            ),
+            (I::UInt8, "0", "255", "-1", "256"),
+            (I::UInt16, "0", "65535", "-1", "65536"),
+            (I::UInt32, "0", "4294967295", "-1", "4294967296"),
+            (
+                I::UInt64,
+                "0",
+                "18446744073709551615",
+                "-1",
+                "18446744073709551616",
+            ),
+        ] {
+            assert!(check_integer_literal(representation, minimum).is_ok());
+            assert!(check_integer_literal(representation, maximum).is_ok());
+            assert!(check_integer_literal(representation, below).is_err());
+            assert!(check_integer_literal(representation, above).is_err());
+        }
+        assert!(check_integer_literal(
+            I::Int,
+            "-1000000000000000000000000000000000000000000000000000000000000000000"
+        )
+        .is_ok());
+        for value in ["", "-0", "+1", "00", "01", "-01", "1_000", " 1"] {
+            assert!(check_integer_literal(I::Int, value).is_err(), "{value:?}");
+        }
+    }
+
+    #[test]
+    fn byte_literals_require_even_lowercase_hexadecimal() {
+        let check = |hex: &str| {
+            check_term(
+                &SemanticTerm::Bytes {
+                    hex: hex.to_owned(),
+                },
+                &BTreeSet::new(),
+                &Environment::default(),
+                None,
+                &BTreeSet::new(),
+            )
+        };
+        for valid in ["", "00", "aabb7fff"] {
+            assert!(check(valid).is_ok(), "{valid:?}");
+        }
+        for invalid in ["0", "A0", "ag", "00ff0"] {
+            assert!(check(invalid).is_err(), "{invalid:?}");
         }
     }
 }

@@ -136,7 +136,7 @@ pub(crate) fn run(id: &str) {
         "RP-01" => {
             let workspace = root_file("Cargo.toml");
             for required in [
-                "version = \"0.1.1\"",
+                "version = \"0.2.0\"",
                 "edition = \"2021\"",
                 "rust-version = \"1.97\"",
                 "license = \"MIT OR Apache-2.0\"",
@@ -169,7 +169,7 @@ pub(crate) fn run(id: &str) {
             let (exit, stdout, _) = support::cli_in(&root, &["--version"]);
             assert_eq!(exit, 0);
             assert!(
-                stdout.starts_with("lexlean 0.1.1\n"),
+                stdout.starts_with("lexlean 0.2.0\n"),
                 "§30.3: the binary reports the lexlean identity, got {stdout:?}"
             );
         }
@@ -407,7 +407,7 @@ pub(crate) fn run(id: &str) {
             let model = repo_model::Model::load(&root.join("model").into_std_path_buf())
                 .expect("the model loads");
             let table = spec_table();
-            assert_eq!(table.len(), 216, "§31 has 216 rows");
+            assert_eq!(table.len(), 222, "§31 has 222 rows");
             assert_eq!(model.ids.id.len(), table.len(), "register row count");
             for ((spec_id, spec_suite, spec_statement), row) in
                 table.iter().zip(model.ids.id.iter())
@@ -660,7 +660,7 @@ pub(crate) fn run(id: &str) {
                 "no workspace test is ignored or cfg-hidden: {hidden_tests:?}"
             );
             let unmet = repo_model::release::check(root.as_std_path(), &hidden_tests)
-                .expect_err("a 0.1.1 tree must refuse release (§2.3, §30.4)");
+                .expect_err("a 0.2.0 tree must refuse release (§2.3, §30.4)");
             // The criterion reads the attribute-block scan, so a hidden test
             // is unmet whatever attribute form hides it (§30.4).
             let planted: BTreeSet<String> = ["conformance_rp_12".to_owned()].into_iter().collect();

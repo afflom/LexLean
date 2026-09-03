@@ -1,0 +1,60 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\begin{document}
+\section*{Semantic declarations}
+\subsection*{\texttt{PortableOptionByte}}
+\noindent Kind: \texttt{inductive}.\par
+\subsection*{\texttt{PortableResultByte}}
+\noindent Kind: \texttt{inductive}.\par
+\subsection*{\texttt{byteListLength}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Nat}.\par
+\noindent Definition: \texttt{(match bytes with | List.nil => 0 | List.cons \_ tail => (1 + byteListLength (tail)))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{echoBytes}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{List (UInt8)}.\par
+\noindent Definition: \texttt{(match bytes with | List.nil => ([] : List (UInt8)) | List.cons head tail => (head :: echoBytes (tail)))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{optionIsSome}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Bool}.\par
+\noindent Definition: \texttt{(match value with | PortableOptionByte.none => false | PortableOptionByte.some \_ => true)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{resultIsOk}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Bool}.\par
+\noindent Definition: \texttt{(match value with | PortableResultByte.error \_ => false | PortableResultByte.ok \_ => true)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{builtinOptionSome}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (UInt8)}.\par
+\noindent Definition: \texttt{Option.some ((7 : UInt8))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{builtinOptionNone}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (UInt8)}.\par
+\noindent Definition: \texttt{Option.none}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{builtinOptionIsSome}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Bool}.\par
+\noindent Definition: \texttt{(match value with | Option.none => false | Option.some \_ => true)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{builtinResultOk}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Except (String) (UInt8)}.\par
+\noindent Definition: \texttt{Except.ok ((9 : UInt8))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{builtinResultError}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Except (String) (UInt8)}.\par
+\noindent Definition: \texttt{Except.error ("failed")}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{builtinResultIsOk}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Bool}.\par
+\noindent Definition: \texttt{(match value with | Except.error \_ => false | Except.ok \_ => true)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\end{document}

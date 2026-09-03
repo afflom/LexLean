@@ -17,18 +17,22 @@
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Component}.\par
 \noindent Definition: \texttt{(\{ index := 0, kind := ComponentKind.service \} : Component)}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{allConsecutive}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Bool}.\par
 \noindent Definition: \texttt{(match values with | List.nil => true | List.cons value rest => ((Nat.beq (expected) (value)) \&\& allConsecutive ((expected + 1)) (rest)))}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{supportIsEnabled}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Bool}.\par
 \noindent Definition: \texttt{SemanticFixture.Support.remoteEnabled}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{Consecutive}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Prop}.\par
 \noindent Definition: \texttt{(allConsecutive (0) (values) = true)}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{allConsecutive\_sound\_complete}}
 \noindent Kind: \texttt{theorem}.\par
 \noindent Statement: \texttt{((allConsecutive (0) (values) = true) <-> Consecutive (values))}.\par

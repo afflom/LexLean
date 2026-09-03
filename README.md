@@ -23,8 +23,8 @@ published container image carries both and is the shortest path to a run that
 can actually verify:
 
 ```text
-docker pull ghcr.io/afflom/lexlean:0.1.1
-docker run --rm -v "$PWD:/work" ghcr.io/afflom/lexlean:0.1.1 verify
+docker pull ghcr.io/afflom/lexlean:0.2.0
+docker run --rm -v "$PWD:/work" ghcr.io/afflom/lexlean:0.2.0 verify
 ```
 
 The image is around 4 GB, nearly all of it the pinned toolchain's compiled
@@ -108,7 +108,7 @@ Every directory under [examples/](examples/) is discovered by the example gate (
 | [peano-arithmetic](examples/peano-arithmetic/) | Five modules with explicit imports, a local path glossary of proof constants from `Init` (`Nat.add_comm`, `Nat.le_trans`, `Eq.symm`, universe-polymorphic `rfl`, ...), label words, document-denoted definitions of all three kinds (`count`, `double`, `even`, `positive`, `divides`), noun-of and binary-noun-of frames (`the successor of`, `the sum of ... and ...`), sections with inherited parameters and references to parameterized declarations, and every §16 proof form: `Assume`, `Apply`, `Close the goal with`/`by reflexivity`, witnesses, left/right, multi-rule `rewrite` at the goal, `constructor`, `cases` on naturals and on hypotheses (`And`, `Exists`), `induction`, and `calculate`; theorems under `\noaxioms`, `\allowaxioms{propext}`, and `\exactaxioms{Classical.choice;Quot.sound;propext}` whose observed axiom sets are audited exactly. |
 | [propositional-logic](examples/propositional-logic/) | Reasoning over `Prop`-typed locals with a `proposition` type noun defined as the sort: commutativity and associativity of conjunction and disjunction, disjunction elimination, double negation, De Morgan, explosion, biconditionals, and classical double-negation elimination under an exact axiom policy — through cases on `And`/`Or`/`Iff` hypotheses, `constructor`, and `Apply`. |
 | [list-induction](examples/list-induction/) | Universe-polymorphic `List` with an eliminator descriptor: type-valued section parameters, `List.nil`/`List.cons`, an infix `⧺` for `List.append`, structural induction over lists using earlier document lemmas as rewrite rules, and nested noun phrases (`the length of ... equals the sum of the length of ... and the length of ...`). |
-| [semantic-1.1](examples/semantic-1.1/) | A source-Lean-free, seven-module language-1.1 project covering every closed type, declaration, term, instance, structural-recursion, match, Boolean/Nat validation, and proof variant. |
+| [semantic-1.1](examples/semantic-1.1/) | A source-Lean-free, eight-module language-1.1 project covering every closed type, declaration, term, instance, structural-recursion, match, Boolean/Nat validation, proof variant, portable integer width, byte/string form, and primitive operation. |
 | [uor-atlas](examples/uor-atlas/) | The complete native Atlas declaration and proof graph, including the census/group chain, `S37`, `S38`, and the authoritative integer-uniqueness statement `S43`; no handwritten Atlas module is a generated dependency. |
 
 ## Building and running the gate
@@ -120,7 +120,7 @@ just vv        # the complete normative acceptance gate (SPEC.md §9.2)
 just release   # vv, then the §30 release criterion; refused until 1.0.0
 ```
 
-All 216 registered conformance IDs are implemented and pass; `just vv` runs clean from a checkout with the pinned toolchain installed.
+All 222 registered conformance IDs are implemented and pass; `just vv` runs clean from a checkout with the pinned toolchain installed.
 
 `just vv` is the Linux x86-64 gate. On the other four supported hosts (§8.3) the crate builds and every test runs. A case whose assertions need something the host does not have runs its platform-independent assertions and prints which ones it skipped: the pinned toolchain, a `#!/bin/sh` program for the external-provider cases, a filesystem that distinguishes two names differing only in case, or one that accepts a name that is not valid UTF-8. Each is detected at run time rather than assumed from the target triple, and on Linux x86-64 the toolchain gate is mandatory, so nothing there passes vacuously.
 
@@ -135,7 +135,7 @@ Every row is validated by `just vv`; the IDs link the claim to its register row,
 | Total lexical closure: every accepted atom is covered by exactly one declared origin | `LX-01`..`LX-14` | `build` |
 | Versioned lexicon packages with closed schemas, denotations, and renderer tokens | `GL-01`..`GL-16` | `build` |
 | Fixed structural, mathematical, and proposition grammar with closed ambiguity handling | `GR-01`..`GR-16` | `build` |
-| Typed closed IR with canonical serialization, native core modules, language-1.1 semantic snapshots, and content identities | `SM-01`..`SM-16` | `build` |
+| Typed closed IR with canonical serialization, native core modules, portable language-1.1 application data and operations, semantic snapshots, and content identities | `SM-01`..`SM-22` | `build` |
 | Document and generic semantic declarations with exact self-application, type checking, structural recursion, and acyclicity rules | `DF-01`..`DF-11` | `build` |
 | The structured proof language with pinned Lean lowerings | `PF-01`..`PF-18` | `build` |
 | Prose-free deterministic generated Lean with complete token traceability | `LN-01`..`LN-12` | `build` |

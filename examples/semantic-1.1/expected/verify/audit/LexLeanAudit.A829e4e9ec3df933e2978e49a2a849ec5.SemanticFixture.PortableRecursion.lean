@@ -1,0 +1,14 @@
+module
+import SemanticFixture.PortableRecursion
+#print axioms SemanticFixture.PortableRecursion.PortableOptionByte
+#print axioms SemanticFixture.PortableRecursion.PortableResultByte
+#print axioms SemanticFixture.PortableRecursion.builtinOptionIsSome
+#print axioms SemanticFixture.PortableRecursion.builtinOptionNone
+#print axioms SemanticFixture.PortableRecursion.builtinOptionSome
+#print axioms SemanticFixture.PortableRecursion.builtinResultError
+#print axioms SemanticFixture.PortableRecursion.builtinResultIsOk
+#print axioms SemanticFixture.PortableRecursion.builtinResultOk
+#print axioms SemanticFixture.PortableRecursion.byteListLength
+#print axioms SemanticFixture.PortableRecursion.echoBytes
+#print axioms SemanticFixture.PortableRecursion.optionIsSome
+#print axioms SemanticFixture.PortableRecursion.resultIsOk

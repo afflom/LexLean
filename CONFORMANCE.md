@@ -285,6 +285,12 @@ the error registry does not sanction (R5, `ERRORS.md`).
 | `SM-14` | `build` | A numeral without a unique expected type is rejected rather than defaulted. |
 | `SM-15` | `build` | A native core module is closed typed DAG data shared by both backends, carries explicit declaration policies, and accepts no backend source text. |
 | `SM-16` | `build` | The language-1.1 semantic snapshot contains every closed declaration, term, recursion, match, instance, proof variant, and exact theorem axiom policy without paths or backend text. |
+| `SM-17` | `build` | Language 1.1 has distinct mathematical Int, fixed-width signed and unsigned integer, UTF-8 string, byte-sequence, Option, and Result semantic types with canonical literals. |
+| `SM-18` | `build` | Portable arithmetic, conversion, bitwise, bounded-shift, collection, UTF-8, byte-order, split/join, and decimal operations form one closed typed primitive vocabulary. |
+| `SM-19` | `build` | Portable semantic operations generate deterministic Lean 4.32.1 definitions that elaborate and replay with exact declared computational axiom policies. |
+| `SM-20` | `build` | Noncanonical, out-of-range, invalid-byte, ill-typed, and unbounded fixed-width values fail before either backend runs. |
+| `SM-21` | `build` | Structural recursion admits byte/list values and closed Option and Result inductives while preserving termination and exhaustiveness checks. |
+| `SM-22` | `build` | The public owned snapshot DTO and schemas cover every portable type, literal, primitive, and explicit definition axiom policy without backend text. |
 
 ## verification
 

@@ -1,0 +1,24 @@
+\begin{lexlean}{PortableRecursion}
+\useglossary{lexlean.std.bool@1.1.0}
+\useglossary{lexlean.std.nat@1.1.0}
+\title{Boolean}
+\begin{semanticmodule}
+\semanticdata{{
+  "declarations": [
+    {"constructors":[{"fields":[],"name":"none"},{"fields":[{"kind":"uint8"}],"name":"some"}],"kind":"inductive","name":"PortableOptionByte","parameters":[],"type_parameters":[]},
+    {"constructors":[{"fields":[{"kind":"string"}],"name":"error"},{"fields":[{"kind":"uint8"}],"name":"ok"}],"kind":"inductive","name":"PortableResultByte","parameters":[],"type_parameters":[]},
+    {"body":{"branches":[{"binders":[],"body":{"kind":"nat","value":"0"},"constructor":{"name":"List.nil"}},{"binders":["head","tail"],"body":{"kind":"add","left":{"kind":"nat","value":"1"},"right":{"arguments":[{"kind":"var","name":"tail"}],"function":{"name":"byteListLength"},"kind":"call"}},"constructor":{"name":"List.cons"}}],"kind":"match","scrutinee":{"kind":"var","name":"bytes"}},"kind":"definition","name":"byteListLength","parameters":[{"name":"bytes","type":{"element":{"kind":"uint8"},"kind":"list"}}],"recursive_argument":"bytes","result":{"kind":"nat"}},
+    {"body":{"branches":[{"binders":[],"body":{"element":{"kind":"uint8"},"kind":"nil"},"constructor":{"name":"List.nil"}},{"binders":["head","tail"],"body":{"head":{"kind":"var","name":"head"},"kind":"cons","tail":{"arguments":[{"kind":"var","name":"tail"}],"function":{"name":"echoBytes"},"kind":"call"}},"constructor":{"name":"List.cons"}}],"kind":"match","scrutinee":{"kind":"var","name":"bytes"}},"kind":"definition","name":"echoBytes","parameters":[{"name":"bytes","type":{"element":{"kind":"uint8"},"kind":"list"}}],"recursive_argument":"bytes","result":{"element":{"kind":"uint8"},"kind":"list"}},
+    {"body":{"branches":[{"binders":[],"body":{"kind":"bool","value":false},"constructor":{"name":"PortableOptionByte.none"}},{"binders":["payload"],"body":{"kind":"bool","value":true},"constructor":{"name":"PortableOptionByte.some"}}],"kind":"match","scrutinee":{"kind":"var","name":"value"}},"kind":"definition","name":"optionIsSome","parameters":[{"name":"value","type":{"arguments":[],"kind":"named","member":{"name":"PortableOptionByte"}}}],"recursive_argument":"value","result":{"kind":"bool"}},
+    {"body":{"branches":[{"binders":["message"],"body":{"kind":"bool","value":false},"constructor":{"name":"PortableResultByte.error"}},{"binders":["payload"],"body":{"kind":"bool","value":true},"constructor":{"name":"PortableResultByte.ok"}}],"kind":"match","scrutinee":{"kind":"var","name":"value"}},"kind":"definition","name":"resultIsOk","parameters":[{"name":"value","type":{"arguments":[],"kind":"named","member":{"name":"PortableResultByte"}}}],"recursive_argument":"value","result":{"kind":"bool"}},
+    {"body":{"arguments":[{"kind":"integer","representation":"uint8","value":"7"}],"constructor":{"name":"Option.some"},"kind":"constructor","type_arguments":[{"kind":"uint8"}]},"kind":"definition","name":"builtinOptionSome","parameters":[],"result":{"kind":"option","value":{"kind":"uint8"}}},
+    {"body":{"arguments":[],"constructor":{"name":"Option.none"},"kind":"constructor","type_arguments":[{"kind":"uint8"}]},"kind":"definition","name":"builtinOptionNone","parameters":[],"result":{"kind":"option","value":{"kind":"uint8"}}},
+    {"body":{"branches":[{"binders":[],"body":{"kind":"bool","value":false},"constructor":{"name":"Option.none"}},{"binders":["payload"],"body":{"kind":"bool","value":true},"constructor":{"name":"Option.some"}}],"kind":"match","scrutinee":{"kind":"var","name":"value"}},"kind":"definition","name":"builtinOptionIsSome","parameters":[{"name":"value","type":{"kind":"option","value":{"kind":"uint8"}}}],"result":{"kind":"bool"}},
+    {"body":{"arguments":[{"kind":"integer","representation":"uint8","value":"9"}],"constructor":{"name":"Result.ok"},"kind":"constructor","type_arguments":[{"kind":"uint8"},{"kind":"string"}]},"kind":"definition","name":"builtinResultOk","parameters":[],"result":{"error":{"kind":"string"},"kind":"result","ok":{"kind":"uint8"}}},
+    {"body":{"arguments":[{"kind":"string","value":"failed"}],"constructor":{"name":"Result.error"},"kind":"constructor","type_arguments":[{"kind":"uint8"},{"kind":"string"}]},"kind":"definition","name":"builtinResultError","parameters":[],"result":{"error":{"kind":"string"},"kind":"result","ok":{"kind":"uint8"}}},
+    {"body":{"branches":[{"binders":["message"],"body":{"kind":"bool","value":false},"constructor":{"name":"Result.error"}},{"binders":["payload"],"body":{"kind":"bool","value":true},"constructor":{"name":"Result.ok"}}],"kind":"match","scrutinee":{"kind":"var","name":"value"}},"kind":"definition","name":"builtinResultIsOk","parameters":[{"name":"value","type":{"error":{"kind":"string"},"kind":"result","ok":{"kind":"uint8"}}}],"result":{"kind":"bool"}}
+  ],
+  "spec": "lexlean/semantic-module/1"
+}}
+\end{semanticmodule}
+\end{lexlean}

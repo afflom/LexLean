@@ -549,6 +549,42 @@ suite = "semantic-ir"
 statement = "The language-1.1 semantic snapshot contains every closed declaration, term, recursion, match, instance, proof variant, and exact theorem axiom policy without paths or backend text."
 
 [[id]]
+id = "SM-17"
+level = "build"
+suite = "semantic-ir"
+statement = "Language 1.1 has distinct mathematical Int, fixed-width signed and unsigned integer, UTF-8 string, byte-sequence, Option, and Result semantic types with canonical literals."
+
+[[id]]
+id = "SM-18"
+level = "build"
+suite = "semantic-ir"
+statement = "Portable arithmetic, conversion, bitwise, bounded-shift, collection, UTF-8, byte-order, split/join, and decimal operations form one closed typed primitive vocabulary."
+
+[[id]]
+id = "SM-19"
+level = "build"
+suite = "semantic-ir"
+statement = "Portable semantic operations generate deterministic Lean 4.32.1 definitions that elaborate and replay with exact declared computational axiom policies."
+
+[[id]]
+id = "SM-20"
+level = "build"
+suite = "semantic-ir"
+statement = "Noncanonical, out-of-range, invalid-byte, ill-typed, and unbounded fixed-width values fail before either backend runs."
+
+[[id]]
+id = "SM-21"
+level = "build"
+suite = "semantic-ir"
+statement = "Structural recursion admits byte/list values and closed Option and Result inductives while preserving termination and exhaustiveness checks."
+
+[[id]]
+id = "SM-22"
+level = "build"
+suite = "semantic-ir"
+statement = "The public owned snapshot DTO and schemas cover every portable type, literal, primitive, and explicit definition axiom policy without backend text."
+
+[[id]]
 id = "DF-01"
 level = "build"
 suite = "declarations"

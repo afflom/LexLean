@@ -279,6 +279,14 @@ pub fn audit_core(text: &str) -> Result<(), String> {
     audit_with_options(text, false, true)
 }
 
+/// Audit a generated closed semantic module. String values are admitted
+/// because language 1.1 now has a typed string literal; the semantic parser
+/// has already validated and escaped the value, while comments, commands,
+/// characters, IO, and forbidden declarations remain rejected.
+pub fn audit_semantic(text: &str) -> Result<(), String> {
+    audit_with_options(text, false, true)
+}
+
 fn audit_with_options(
     text: &str,
     allow_print_axioms: bool,
@@ -340,7 +348,7 @@ fn audit_with_options(
 
 #[cfg(test)]
 mod tests {
-    use super::forbidden_words;
+    use super::{audit_semantic, forbidden_words};
     use crate::backend::lean_tokens::is_reserved;
 
     /// §18.2 and §17.8 name overlapping sets of Lean words. Where they
@@ -372,6 +380,22 @@ mod tests {
                 !is_reserved(&tactic),
                 "`{tactic}` is a tactic identifier, not a reserved token"
             );
+        }
+    }
+
+    #[test]
+    fn semantic_audit_admits_data_strings_but_keeps_code_prohibitions() {
+        audit_semantic(
+            "module\npublic import Init\nset_option autoImplicit false\nnamespace Portable\npublic def value : String := \"safe data\"\nend Portable\n",
+        )
+        .expect("typed semantic string data is allowed");
+        for forbidden in [
+            "module\n-- comment\n",
+            "module\n#eval 1\n",
+            "module\npublic axiom escape : Nat\n",
+            "module\npublic def escape : IO Nat := pure 0\n",
+        ] {
+            assert!(audit_semantic(forbidden).is_err(), "{forbidden:?}");
         }
     }
 }

@@ -1,6 +1,7 @@
-//! The `semantic-ir` suite: SM-01..SM-16.
+//! The `semantic-ir` suite: SM-01..SM-22.
 
 use std::collections::BTreeSet;
+use std::process::Command;
 
 use sha2::Digest;
 
@@ -788,6 +789,414 @@ pub(crate) fn run(id: &str) {
             assert!(!bytes.contains(project.root.as_str()));
             assert!(!bytes.contains("public structure"));
             assert!(!bytes.contains("namespace SemanticFixture"));
+        }
+        "SM-17" => {
+            let project = support::semantic_project();
+            let snapshot = project
+                .engine()
+                .snapshot(lexlean::CheckRequest {
+                    selection: lexlean::Selection::Entrypoints,
+                })
+                .expect("portable snapshot");
+            let value: serde_json::Value =
+                serde_json::from_slice(&snapshot.canonical_bytes()).expect("snapshot JSON");
+            let mut kinds = BTreeSet::new();
+            collect_tags(&value, "kind", &mut kinds);
+            for expected in [
+                "int", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
+                "string", "bytes", "option", "result",
+            ] {
+                assert!(kinds.contains(expected), "missing portable type {expected}");
+            }
+            let text = String::from_utf8(snapshot.canonical_bytes()).expect("utf8 snapshot");
+            for representation in [
+                "int", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
+            ] {
+                assert!(
+                    text.contains(&format!("\"representation\":\"{representation}\"")),
+                    "missing literal representation {representation}"
+                );
+            }
+            assert!(text.contains("\"hex\":\"aabb7fff\""));
+        }
+        "SM-18" => {
+            let project = support::semantic_project();
+            let snapshot = project
+                .engine()
+                .snapshot(lexlean::CheckRequest {
+                    selection: lexlean::Selection::Entrypoints,
+                })
+                .expect("portable snapshot");
+            let value: serde_json::Value =
+                serde_json::from_slice(&snapshot.canonical_bytes()).expect("snapshot JSON");
+            fn operations(value: &serde_json::Value, out: &mut BTreeSet<String>) {
+                match value {
+                    serde_json::Value::Object(map) => {
+                        if let Some(serde_json::Value::String(operation)) = map.get("operation") {
+                            out.insert(operation.clone());
+                        }
+                        for child in map.values() {
+                            operations(child, out);
+                        }
+                    }
+                    serde_json::Value::Array(items) => {
+                        for child in items {
+                            operations(child, out);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut found = BTreeSet::new();
+            operations(&value, &mut found);
+            let expected = BTreeSet::from([
+                "append",
+                "bit_and",
+                "bit_not",
+                "bit_or",
+                "bit_xor",
+                "checked_add",
+                "checked_convert",
+                "checked_multiply",
+                "checked_negate",
+                "checked_quotient",
+                "checked_subtract",
+                "compare_bytes",
+                "equal",
+                "format_decimal",
+                "index",
+                "join",
+                "length",
+                "multiply",
+                "negate",
+                "parse_decimal",
+                "quotient",
+                "remainder",
+                "shift_left",
+                "shift_right",
+                "slice",
+                "split_exact",
+                "subtract",
+                "utf8_decode",
+                "utf8_encode",
+            ])
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+            assert_eq!(
+                found, expected,
+                "every closed portable primitive is exercised"
+            );
+            let lean = project.build_ok();
+            let generated = std::fs::read_to_string(
+                project
+                    .build_dir(&lean.build_id.expect("build id"))
+                    .join("modules/SemanticFixture/Portable.lean")
+                    .as_std_path(),
+            )
+            .expect("portable generated Lean");
+            assert!(generated.contains("public def isZeroInt64"));
+            assert!(generated.contains("\"portable ✓\""));
+
+            let mismatched = support::semantic_project();
+            mismatched.edit(
+                "src/Portable.lex.tex",
+                "\"representation\":\"int64\",\"value\":\"0\"",
+                "\"representation\":\"uint64\",\"value\":\"0\"",
+            );
+            let error = mismatched.check_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("has type UInt64, expected Int64"),
+                "unexpected mismatch diagnostic: {error}"
+            );
+        }
+        "SM-19" => {
+            let project = support::semantic_project();
+            let built = project.build_ok();
+            let root = project.build_dir(&built.build_id.expect("build id"));
+            let lean = std::fs::read_to_string(
+                root.join("modules/SemanticFixture/Portable.lean")
+                    .as_std_path(),
+            )
+            .expect("portable generated Lean");
+            for needle in [
+                "public class Fixed",
+                "public def checkedAdd",
+                "public def utf8Decode",
+                "public def parseDecimal",
+                "public def checkedAddInt64",
+            ] {
+                assert!(lean.contains(needle), "generated Lean is missing {needle}");
+            }
+            let _ = support::verify_ok_backed("SM-19", &project);
+            if support::lean_backed("SM-19") {
+                let evaluations = r#"open SemanticFixture.Portable
+#eval subtractInt 5 8 == -3
+#eval multiplyInt (-7) 6 == -42
+#eval quotientInt (-7) 2 99 == -3
+#eval quotientInt 1 0 99 == 99
+#eval remainderInt (-7) 2 99 == -1
+#eval negateInt 42 == -42
+#eval isZeroInt64 0
+#eval !(isZeroInt64 1)
+#eval convertInt64 42 == some 42
+#eval checkedAddInt64 40 2 == some 42
+#eval checkedSubtractInt64 40 2 == some 38
+#eval checkedMultiplyInt64 6 7 == some 42
+#eval checkedNegateInt64 42 == some (-42)
+#eval checkedQuotientInt64 (-7) 2 == some (-3)
+#eval andUInt64 12 10 == 8
+#eval orUInt64 12 10 == 14
+#eval xorUInt64 12 10 == 6
+#eval notUInt64 0 == 18446744073709551615
+#eval shiftUInt64 1 3 == some 8
+#eval shiftRightUInt64 8 3 == some 1
+#eval appendBytes (ByteArray.mk #[1]) (ByteArray.mk #[2]) == ByteArray.mk #[1, 2]
+#eval byteLength (ByteArray.mk #[1, 2]) == 2
+#eval byteAt (ByteArray.mk #[1, 2]) 1 == some 2
+#eval sliceBytes (ByteArray.mk #[1, 2, 3]) 1 2 == some (ByteArray.mk #[2, 3])
+#eval encodeUtf8 "A" == ByteArray.mk #[65]
+#eval decodeUtf8 (ByteArray.mk #[65]) == some "A"
+#eval compareByteStrings (ByteArray.mk #[1]) (ByteArray.mk #[2]) == Ordering.lt
+#eval splitBounded "a::b" "::" 2 == some ["a", "b"]
+#eval joinStrings ["a", "b"] "::" == "a::b"
+#eval parseInt64 "-42" == some (-42)
+#eval formatInt64 (-42) == "-42"
+#eval checkedAddInt64 9223372036854775807 1 == none
+#eval checkedQuotientInt64 (-9223372036854775808) (-1) == none
+#eval shiftUInt64 1 64 == none
+#eval byteAt (ByteArray.mk #[1, 2]) 2 == none
+#eval sliceBytes (ByteArray.mk #[1, 2, 3]) 2 2 == none
+#eval decodeUtf8 (ByteArray.mk #[255]) == none
+#eval splitBounded "a::b" "::" 1 == none
+#eval parseInt64 "01" == none
+"#;
+                let directory = tempfile::Builder::new()
+                    .prefix("lexlean-portable-runtime-")
+                    .tempdir()
+                    .expect("runtime fixture tempdir");
+                let path = directory.path().join("PortableRuntime.lean");
+                std::fs::write(&path, format!("{lean}\n{evaluations}"))
+                    .expect("write runtime evaluation module");
+                let binary = support::real_elan_home()
+                    .join("toolchains")
+                    .join(support::mangled_toolchain_name())
+                    .join("bin")
+                    .join(if cfg!(windows) { "lean.exe" } else { "lean" });
+                let output = Command::new(binary)
+                    .arg(&path)
+                    .current_dir(directory.path())
+                    .env("LEAN_PATH", "")
+                    .output()
+                    .expect("pinned Lean evaluates portable runtime vectors");
+                assert!(
+                    output.status.success(),
+                    "portable runtime evaluation failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let stdout = String::from_utf8(output.stdout).expect("Lean output is UTF-8");
+                let expected = evaluations
+                    .lines()
+                    .filter(|line| line.starts_with("#eval"))
+                    .count();
+                assert_eq!(stdout.lines().count(), expected);
+                assert!(
+                    stdout.lines().all(|line| line == "true"),
+                    "portable runtime vector failed: {stdout}"
+                );
+            }
+        }
+        "SM-20" => {
+            let range = support::semantic_project();
+            range.edit(
+                "src/Portable.lex.tex",
+                "\"representation\":\"uint8\",\"value\":\"255\"",
+                "\"representation\":\"uint8\",\"value\":\"256\"",
+            );
+            let error = range.check_err();
+            assert!(error.to_string().contains("outside UInt8"));
+
+            let bytes = support::semantic_project();
+            bytes.edit(
+                "src/Portable.lex.tex",
+                "\"hex\":\"aabb7fff\"",
+                "\"hex\":\"AAbb7fff\"",
+            );
+            let error = bytes.check_err();
+            assert!(error.to_string().contains("lowercase hexadecimal"));
+
+            let typing = support::semantic_project();
+            typing.edit(
+                "src/Portable.lex.tex",
+                "\"operation\":\"checked_add\",\"result\":{\"kind\":\"option\",\"value\":{\"kind\":\"int64\"}}",
+                "\"operation\":\"checked_add\",\"result\":{\"kind\":\"int64\"}",
+            );
+            let error = typing.check_err();
+            assert!(error.to_string().contains("result is Int64"));
+        }
+        "SM-21" => {
+            let project = support::semantic_project();
+            project.check_ok();
+            let bad = support::semantic_project();
+            bad.edit(
+                "src/PortableRecursion.lex.tex",
+                "{\"kind\":\"var\",\"name\":\"tail\"}],\"function\":{\"name\":\"byteListLength\"}",
+                "{\"kind\":\"var\",\"name\":\"bytes\"}],\"function\":{\"name\":\"byteListLength\"}",
+            );
+            let error = bad.check_err();
+            assert!(error.to_string().contains("structurally smaller"));
+
+            let missing_option_branch = support::semantic_project();
+            missing_option_branch.edit(
+                "src/PortableRecursion.lex.tex",
+                ",{\"binders\":[\"payload\"],\"body\":{\"kind\":\"bool\",\"value\":true},\"constructor\":{\"name\":\"PortableOptionByte.some\"}}",
+                "",
+            );
+            let error = missing_option_branch.check_err();
+            assert!(error.to_string().contains("exhaustive"));
+
+            let missing_result_branch = support::semantic_project();
+            missing_result_branch.edit(
+                "src/PortableRecursion.lex.tex",
+                ",{\"binders\":[\"payload\"],\"body\":{\"kind\":\"bool\",\"value\":true},\"constructor\":{\"name\":\"PortableResultByte.ok\"}}",
+                "",
+            );
+            let error = missing_result_branch.check_err();
+            assert!(error.to_string().contains("exhaustive"));
+        }
+        "SM-22" => {
+            use lexlean::{
+                SnapshotInteger as I, SnapshotPrimitive as O, SnapshotTerm as Term,
+                SnapshotType as T,
+            };
+
+            let integers = [
+                I::Int,
+                I::Int8,
+                I::Int16,
+                I::Int32,
+                I::Int64,
+                I::UInt8,
+                I::UInt16,
+                I::UInt32,
+                I::UInt64,
+            ];
+            let primitives = [
+                O::Subtract,
+                O::Multiply,
+                O::Quotient,
+                O::Remainder,
+                O::Negate,
+                O::CheckedConvert,
+                O::CheckedAdd,
+                O::CheckedSubtract,
+                O::CheckedMultiply,
+                O::CheckedNegate,
+                O::CheckedQuotient,
+                O::BitAnd,
+                O::BitOr,
+                O::BitXor,
+                O::BitNot,
+                O::ShiftLeft,
+                O::ShiftRight,
+                O::Append,
+                O::Length,
+                O::Index,
+                O::Slice,
+                O::Utf8Encode,
+                O::Utf8Decode,
+                O::CompareBytes,
+                O::Equal,
+                O::SplitExact,
+                O::Join,
+                O::ParseDecimal,
+                O::FormatDecimal,
+            ];
+            let types = vec![
+                T::Int,
+                T::Int8,
+                T::Int16,
+                T::Int32,
+                T::Int64,
+                T::UInt8,
+                T::UInt16,
+                T::UInt32,
+                T::UInt64,
+                T::String,
+                T::Bytes,
+                T::Ordering,
+                T::Option {
+                    value: Box::new(T::Int64),
+                },
+                T::Result {
+                    ok: Box::new(T::Int64),
+                    error: Box::new(T::String),
+                },
+            ];
+            let terms = [
+                Term::Integer {
+                    representation: I::Int64,
+                    value: "-1".to_owned(),
+                },
+                Term::String {
+                    value: "portable".to_owned(),
+                },
+                Term::Bytes {
+                    hex: "00ff".to_owned(),
+                },
+                Term::Primitive {
+                    operation: O::CheckedAdd,
+                    arguments: Vec::new(),
+                    result: T::Option {
+                        value: Box::new(T::Int64),
+                    },
+                },
+            ];
+            assert_eq!(integers.len(), 9, "downstream integer DTO variants");
+            assert_eq!(primitives.len(), 29, "downstream primitive DTO variants");
+            assert_eq!(types.len(), 14, "downstream portable type DTO variants");
+            assert_eq!(terms.len(), 4, "downstream portable term DTO variants");
+
+            let bounded = support::semantic_project();
+            bounded.edit(
+                "lexlean.toml",
+                "max_ir_nodes = 2000000",
+                "max_ir_nodes = 100",
+            );
+            bounded.relock();
+            let error = bounded.check_fails_with("LLS8002");
+            assert!(
+                error
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains("max_ir_nodes exceeded")),
+                "portable semantic terms are recursively charged to max_ir_nodes"
+            );
+
+            let left = support::semantic_project();
+            let right = support::semantic_project();
+            let snapshot = |project: &P| {
+                project
+                    .engine()
+                    .snapshot(lexlean::CheckRequest {
+                        selection: lexlean::Selection::Entrypoints,
+                    })
+                    .expect("portable snapshot")
+            };
+            let first = snapshot(&left);
+            let second = snapshot(&right);
+            assert_eq!(first.canonical_bytes(), second.canonical_bytes());
+            assert_eq!(first.snapshot_id(), second.snapshot_id());
+            let value: serde_json::Value =
+                serde_json::from_slice(&first.canonical_bytes()).expect("snapshot JSON");
+            support::assert_schema("semantic-snapshot", "portable snapshot", &value);
+            let bytes = String::from_utf8(first.canonical_bytes()).expect("utf8");
+            assert!(!bytes.contains(left.root.as_str()));
+            assert!(!bytes.contains("public def"));
+            assert!(!bytes.contains("generated Rust"));
+            assert!(bytes.contains("\"axioms\":[\"Quot.sound\",\"propext\"]"));
         }
         other => panic!("no semantic-ir case is wired for {other}"),
     }

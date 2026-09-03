@@ -1,0 +1,208 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\begin{document}
+\section*{Semantic declarations}
+\subsection*{\texttt{PortableContainers}}
+\noindent Kind: \texttt{structure}.\par
+\subsection*{\texttt{minimumInt8}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int8}.\par
+\noindent Definition: \texttt{(-128 : Int8)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{minimumInt16}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int16}.\par
+\noindent Definition: \texttt{(-32768 : Int16)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{minimumInt32}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int32}.\par
+\noindent Definition: \texttt{(-2147483648 : Int32)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{minimumInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int64}.\par
+\noindent Definition: \texttt{(-9223372036854775808 : Int64)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{maximumUInt8}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{UInt8}.\par
+\noindent Definition: \texttt{(255 : UInt8)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{maximumUInt16}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{UInt16}.\par
+\noindent Definition: \texttt{(65535 : UInt16)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{maximumUInt32}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{UInt32}.\par
+\noindent Definition: \texttt{(4294967295 : UInt32)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{maximumUInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{UInt64}.\par
+\noindent Definition: \texttt{(18446744073709551615 : UInt64)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{unboundedInteger}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int}.\par
+\noindent Definition: \texttt{(-123456789012345678901234567890 : Int)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{isZeroInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Bool}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.equal (value) ((0 : Int64)) : Bool)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{checkedAddInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (Int64)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.checkedAddInt64 (left) (right) : Option (Int64))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{checkedQuotientInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (Int64)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.checkedQuotientInt64 (left) (right) : Option (Int64))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{parseInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (Int64)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.parseDecimal (value) : Option (Int64))}.\par
+\noindent Axiom policy: \texttt{exact [Classical.choice, Quot.sound, propext]}.\par
+\subsection*{\texttt{formatInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{String}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.formatDecimal (value) : String)}.\par
+\noindent Axiom policy: \texttt{exact [Classical.choice, Quot.sound, propext]}.\par
+\subsection*{\texttt{byteFixture}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{ByteArray}.\par
+\noindent Definition: \texttt{ByteArray.mk \#[170, 187, 127, 255]}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{encodeUtf8}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{ByteArray}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.utf8Encode (value) : ByteArray)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{decodeUtf8}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (String)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.utf8Decode (value) : Option (String))}.\par
+\noindent Axiom policy: \texttt{exact [Classical.choice, Quot.sound, propext]}.\par
+\subsection*{\texttt{shiftUInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (UInt64)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.shiftLeft (value) (amount) : Option (UInt64))}.\par
+\noindent Axiom policy: \texttt{exact [Quot.sound, propext]}.\par
+\subsection*{\texttt{subtractInt}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.subtract (left) (right) : Int)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{multiplyInt}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.multiply (left) (right) : Int)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{quotientInt}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.quotient (left) (right) (zeroCase) : Int)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{remainderInt}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.remainder (left) (right) (zeroCase) : Int)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{negateInt}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Int}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.negate (value) : Int)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{convertInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (Int64)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.checkedConvert (value) : Option (Int64))}.\par
+\noindent Axiom policy: \texttt{exact [Quot.sound, propext]}.\par
+\subsection*{\texttt{checkedSubtractInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (Int64)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.checkedSubtractInt64 (left) (right) : Option (Int64))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{checkedMultiplyInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (Int64)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.checkedMultiplyInt64 (left) (right) : Option (Int64))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{checkedNegateInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (Int64)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.checkedNegateInt64 (value) : Option (Int64))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{andUInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{UInt64}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.bitAnd (left) (right) : UInt64)}.\par
+\noindent Axiom policy: \texttt{exact [Quot.sound, propext]}.\par
+\subsection*{\texttt{orUInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{UInt64}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.bitOr (left) (right) : UInt64)}.\par
+\noindent Axiom policy: \texttt{exact [Quot.sound, propext]}.\par
+\subsection*{\texttt{xorUInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{UInt64}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.bitXor (left) (right) : UInt64)}.\par
+\noindent Axiom policy: \texttt{exact [Quot.sound, propext]}.\par
+\subsection*{\texttt{notUInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{UInt64}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.bitNot (value) : UInt64)}.\par
+\noindent Axiom policy: \texttt{exact [Quot.sound, propext]}.\par
+\subsection*{\texttt{shiftRightUInt64}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (UInt64)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.shiftRight (value) (amount) : Option (UInt64))}.\par
+\noindent Axiom policy: \texttt{exact [Quot.sound, propext]}.\par
+\subsection*{\texttt{appendBytes}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{ByteArray}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.append (left) (right) : ByteArray)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{byteLength}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Nat}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.length (value) : Nat)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{byteAt}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (UInt8)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.index (value) (offset) : Option (UInt8))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{sliceBytes}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (ByteArray)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.slice (value) (start) (count) : Option (ByteArray))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{compareByteStrings}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Ordering}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.compareBytes (left) (right) : Ordering)}.\par
+\noindent Axiom policy: \texttt{exact [propext]}.\par
+\subsection*{\texttt{splitBounded}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Option (List (String))}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.splitExact (value) (delimiter) (maximum) : Option (List (String)))}.\par
+\noindent Axiom policy: \texttt{exact [Classical.choice, Quot.sound, propext]}.\par
+\subsection*{\texttt{joinStrings}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{String}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.join (values) (delimiter) : String)}.\par
+\noindent Axiom policy: \texttt{exact [propext]}.\par
+\subsection*{\texttt{unicodeFixture}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{String}.\par
+\noindent Definition: \texttt{"portable <U+2713>"}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\end{document}

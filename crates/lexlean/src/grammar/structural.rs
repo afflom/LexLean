@@ -455,20 +455,34 @@ impl<'a> Parser<'a> {
 
     /// Capture one `{ ... }` argument with balanced inner braces.
     fn brace_arg(&mut self) -> PResult<BraceArg> {
+        self.brace_arg_impl(false)
+    }
+
+    /// Capture a data payload without deleting whitespace inside JSON string
+    /// literals. JSON itself ignores insignificant whitespace; deleting every
+    /// whitespace atom changed values such as `"portable ✓"` into
+    /// `"portable✓"`, which is a semantic corruption before validation.
+    fn brace_arg_verbatim(&mut self) -> PResult<BraceArg> {
+        self.brace_arg_impl(true)
+    }
+
+    fn brace_arg_impl(&mut self, preserve_whitespace: bool) -> PResult<BraceArg> {
         self.expect_delim("{")?;
         let start = self.at;
         let mut depth = 0usize;
         let mut text = String::new();
+        let mut in_json_string = false;
+        let mut escaped = false;
         loop {
             let Some(atom) = self.atoms.get(self.at) else {
                 return Err(self.fail(code!("LLP2003"), "unclosed `{` argument".to_owned()));
             };
-            match (atom.class, atom.text.as_str()) {
-                (AtomClass::Delimiter, "{") => {
+            match (atom.class, atom.text.as_str(), in_json_string) {
+                (AtomClass::Delimiter, "{", false) => {
                     depth += 1;
                     text.push('{');
                 }
-                (AtomClass::Delimiter, "}") => {
+                (AtomClass::Delimiter, "}", false) => {
                     if depth == 0 {
                         let end = self.at;
                         self.at += 1;
@@ -481,8 +495,19 @@ impl<'a> Parser<'a> {
                     depth -= 1;
                     text.push('}');
                 }
-                (AtomClass::Whitespace, _) => {}
+                (AtomClass::Whitespace, _, false) => {}
                 _ => text.push_str(&atom.text),
+            }
+            if preserve_whitespace {
+                for character in atom.text.chars() {
+                    if escaped {
+                        escaped = false;
+                    } else if in_json_string && character == '\\' {
+                        escaped = true;
+                    } else if character == '"' {
+                        in_json_string = !in_json_string;
+                    }
+                }
             }
             self.at += 1;
         }
@@ -1080,7 +1105,7 @@ pub fn parse_module(
         let (begin, name) = parser.begin_env()?;
         debug_assert_eq!(name, "coremodule");
         parser.expect_control("\\coredata")?;
-        let data = parser.brace_arg()?;
+        let data = parser.brace_arg_verbatim()?;
         parser.cover_payload(data.range, "coredata");
         parser.expect_end("coremodule")?;
         parser.expect_end("lexlean")?;
@@ -1089,7 +1114,7 @@ pub fn parse_module(
         let (begin, name) = parser.begin_env()?;
         debug_assert_eq!(name, "semanticmodule");
         parser.expect_control("\\semanticdata")?;
-        let data = parser.brace_arg()?;
+        let data = parser.brace_arg_verbatim()?;
         parser.cover_payload(data.range, "semanticdata");
         parser.expect_end("semanticmodule")?;
         parser.expect_end("lexlean")?;

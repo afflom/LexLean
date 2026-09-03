@@ -64,7 +64,7 @@ The root workspace metadata MUST be:
 
 ```toml
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.97"
 license = "MIT OR Apache-2.0"
@@ -2244,17 +2244,73 @@ resolved prior instance. Linking recomputes that unique resolution and rejects
 a missing, different, forward, self-referential, or cyclic instance instead of
 delegating synthesis to Lean.
 
-The closed term variants are locals, canonical natural and Boolean literals,
-unit, list nil/cons, record construction, positional construction, field
+The closed type variants include `Type`, type parameters, `Nat`, `Bool`,
+`Prop`, `Unit`, mathematical unbounded `Int`, the distinct fixed-width types
+`Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, and `UInt64`,
+UTF-8 `String`, immutable `Bytes`, three-way `Ordering`, `Option`, `Result`,
+`List`, and document-named types. `Option` and `Result` carry their complete
+closed value/error types. They are not aliases for a sentinel, exception, or
+host-width integer. JSON decoding guarantees that a `String` literal is valid
+UTF-8. A byte literal is an even-length lower-case hexadecimal string.
+Integer literals use one canonical base-ten spelling: zero is `0`; any other
+value has no leading zero; only signed representations admit a leading minus;
+and every fixed-width literal is rejected unless it is within the exact range
+of its named type. `Int` is not range-limited or lowered through a host-sized
+integer.
+
+The closed term variants are locals, canonical natural, integer, string,
+byte, and Boolean literals, unit, list nil/cons, record construction,
+positional construction, field
 projection, document calls, conditional, exhaustive match, equality and
 natural comparison, arithmetic, Boolean connectives, propositional
 conjunction, implication,
 bi-implication, universal binding, and deterministically resolved instance
-values. Members are qualified logical
+values. They additionally contain one typed `primitive` node whose
+`operation`, ordered `arguments`, and explicit `result` select exactly one of:
+`subtract`, `multiply`, `quotient`, `remainder`, `negate`, `checked_convert`,
+`checked_add`, `checked_subtract`, `checked_multiply`, `checked_negate`,
+`checked_quotient`, `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `shift_left`,
+`shift_right`, `append`, `length`, `index`, `slice`, `utf8_encode`,
+`utf8_decode`, `compare_bytes`, `equal`, `split_exact`, `join`,
+`parse_decimal`, or `format_decimal`. This list is closed and
+backend-independent.
+
+Unbounded subtraction and multiplication accept only equal `Nat` or `Int`
+operands; unbounded negation accepts `Int`. Quotient and remainder accept two
+equal `Nat` or `Int` operands and an explicit same-typed zero-divisor result.
+Fixed-width conversion produces `Option` of the explicit target type. Fixed
+addition, subtraction, multiplication, signed negation, and quotient produce
+`Option` and return none for overflow or, for quotient, a zero divisor.
+Bitwise operations preserve one fixed-width type. A shift amount is `UInt32`,
+and the result is none unless it is less than the width. Append preserves an
+equal list or byte type. Length returns `Nat`; index and slice return `Option`.
+UTF-8 decode returns `Option String`; byte comparison is unsigned
+lexicographic `Ordering`. `equal` accepts two operands of exactly the same
+`Nat`, `Bool`, fixed-width integer, `String`, `Bytes`, or `Ordering` type and
+uses that type's fixed decidable equality without coercion; mathematical
+`Int`, containers, and document types are rejected. Exact split rejects an empty delimiter or more than
+the explicit `UInt32` maximum number of fields. Join is its deterministic
+delimiter intercalation. Decimal parsing accepts a value exactly when parsing,
+range checking, and formatting reproduce the input byte-for-byte; formatting
+is canonical base ten. No operation wraps, saturates, defaults a numeric type,
+uses a host exception, or delegates its meaning to a backend-specific payload.
+
+Members are qualified logical
 module/name pairs. Arity, owner, ordered fields, local scope, match binder
-count, and exhaustiveness are checked before rendering. There is no source
+count, primitive signature, result type, integer range, byte spelling, and
+exhaustiveness are checked before rendering. There is no source
 variant for a raw command, expression, tactic, macro, unsafe/partial/
 noncomputable definition, termination annotation, or backend extension.
+
+Structural recursion admits `Nat`, `List`, and a document-defined finite
+inductive such as the closed stdlib `Option` and `Result` declarations. For
+lists of bytes and byte sequences represented by such lists, the same
+top-level-match, complete-constructor, and structurally-smaller recursive-call
+rules apply. Native `ByteArray` is intentionally accessed through the total
+index and slice primitives rather than through an open backend pattern-match.
+Every semantic declaration, nested type, term, primitive argument/result,
+match branch, and proof is charged recursively to `max_ir_nodes`; counting
+only the top-level declaration array is forbidden.
 
 The closed proof variants are reflexivity, decidable Boolean bridging,
 `simp only` over a nonempty sorted unique set of document definitions,
@@ -2282,12 +2338,18 @@ An `apply` proof names one prior theorem and supplies exactly its ordered,
 type-checked semantic arguments; it lowers to one `exact` application and
 cannot carry a proof-term or tactic string.
 
-Every theorem has an exact axiom policy. An
-omitted `axioms` member means the exact empty set; a present member is a
-strictly sorted, duplicate-free list of Lean names and means exact equality
-with that set. Non-theorem semantic declarations always use the exact empty
-set. Verification rejects a missing, additional, or unlisted observed axiom
-and records the declared and observed sets in the attestation.
+Every definition and theorem has an exact axiom policy. An omitted `axioms`
+member means the exact empty set; a present member is a strictly sorted,
+duplicate-free list of Lean names and means exact equality with that set.
+Structures, classes, instances, and inductives always use the exact empty set.
+Computational definitions may declare a nonempty exact policy only to account
+for trusted dependencies observed in their fixed Lean implementation; this
+does not authorize source axioms, proof holes, raw Lean, or an unchecked
+backend. Verification rejects a missing, additional, or unlisted observed
+axiom for every declaration and records the declared and observed sets in the
+attestation. A theorem that unfolds or otherwise depends on a computational
+definition inherits every dependency Lean observes; separating declaration
+policies never erases or masks that dependency.
 
 Both fixed backends consume the same owned `SemanticModule`. Lean emits public
 structures, classes, fixed-priority instances, inductives, exposed total
@@ -4125,6 +4187,12 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `SM-14` | `semantic-ir` | A numeral without a unique expected type is rejected rather than defaulted. | §15.5 |
 | `SM-15` | `semantic-ir` | A native core module is closed typed DAG data shared by both backends, carries explicit declaration policies, and accepts no backend source text. | §17.10 |
 | `SM-16` | `semantic-ir` | The language-1.1 semantic snapshot contains every closed declaration, term, recursion, match, instance, proof variant, and exact theorem axiom policy without paths or backend text. | §17.11 |
+| `SM-17` | `semantic-ir` | Language 1.1 has distinct mathematical Int, fixed-width signed and unsigned integer, UTF-8 string, byte-sequence, Option, and Result semantic types with canonical literals. | §17.11 |
+| `SM-18` | `semantic-ir` | Portable arithmetic, conversion, bitwise, bounded-shift, collection, UTF-8, byte-order, split/join, and decimal operations form one closed typed primitive vocabulary. | §17.11 |
+| `SM-19` | `semantic-ir` | Portable semantic operations generate deterministic Lean 4.32.1 definitions that elaborate and replay with exact declared computational axiom policies. | §17.11, §18, §22.6 |
+| `SM-20` | `semantic-ir` | Noncanonical, out-of-range, invalid-byte, ill-typed, and unbounded fixed-width values fail before either backend runs. | §17.11 |
+| `SM-21` | `semantic-ir` | Structural recursion admits byte/list values and closed Option and Result inductives while preserving termination and exhaustiveness checks. | §17.11 |
+| `SM-22` | `semantic-ir` | The public owned snapshot DTO and schemas cover every portable type, literal, primitive, and explicit definition axiom policy without backend text. | §17.11, §21 |
 | `DF-01` | `declarations` | A valid type-definition sentence emits one nonrecursive sort-valued Lean def linked to its document entry. | §15.7, §18.6 |
 | `DF-02` | `declarations` | A valid term-definition sentence emits one nonrecursive explicitly typed Lean def. | §15.7, §18.6 |
 | `DF-03` | `declarations` | A valid predicate-definition sentence emits one nonrecursive Prop-valued Lean def. | §15.7, §18.6 |
@@ -4252,7 +4320,7 @@ Every row below is normative, has honesty level `build`, and MUST be copied byte
 | `EX-07` | `examples` | The negative fixture suite covers every required rejection class and prescribed diagnostic family. | §28.5 |
 | `EX-08` | `examples` | Every example directory is discovered automatically and must satisfy the full example gate. | §28.6 |
 
-**Total required capability IDs:** 216.
+**Total required capability IDs:** 222.
 
 No row may be downgraded to `some-true` or `open`. Upstream Lean facts are ledger/authority rows, not substitutions for these build behaviors.
 

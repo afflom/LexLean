@@ -62,8 +62,14 @@ fn declaration(value: &SnapshotSemanticDeclaration) -> usize {
 fn ty(value: &SnapshotType) -> usize {
     match value {
         SnapshotType::Type | SnapshotType::Nat | SnapshotType::Bool
-        | SnapshotType::Prop | SnapshotType::Unit => 1,
+        | SnapshotType::Prop | SnapshotType::Unit | SnapshotType::Int
+        | SnapshotType::Int8 | SnapshotType::Int16 | SnapshotType::Int32
+        | SnapshotType::Int64 | SnapshotType::UInt8 | SnapshotType::UInt16
+        | SnapshotType::UInt32 | SnapshotType::UInt64 | SnapshotType::String
+        | SnapshotType::Bytes | SnapshotType::Ordering => 1,
         SnapshotType::Parameter { name } => name.len(),
+        SnapshotType::Option { value } => ty(value),
+        SnapshotType::Result { ok, error } => ty(ok) + ty(error),
         SnapshotType::List { element } => ty(element),
         SnapshotType::Named { arguments, .. } => arguments.iter().map(ty).sum(),
     }
@@ -72,6 +78,10 @@ fn ty(value: &SnapshotType) -> usize {
 fn term(value: &SnapshotTerm) -> usize {
     match value {
         SnapshotTerm::Var { name } | SnapshotTerm::Nat { value: name } => name.len(),
+        SnapshotTerm::Integer { value, .. } | SnapshotTerm::String { value } => value.len(),
+        SnapshotTerm::Bytes { hex } => hex.len() / 2,
+        SnapshotTerm::Primitive { arguments, result, .. } =>
+            arguments.iter().map(term).sum::<usize>() + ty(result),
         SnapshotTerm::Bool { value } => usize::from(*value),
         SnapshotTerm::Unit => 0,
         SnapshotTerm::Nil { element } => ty(element),

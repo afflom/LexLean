@@ -7,36 +7,45 @@
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{SemanticFixture.VariantTypes.Box (Nat)}.\par
 \noindent Definition: \texttt{(\{ value := 0 \} : SemanticFixture.VariantTypes.Box (Nat))}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{pairZeroOne}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{SemanticFixture.VariantTypes.PairNat}.\par
 \noindent Definition: \texttt{(\{ left := 0, right := 1 \} : SemanticFixture.VariantTypes.PairNat)}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{leftOf}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Nat}.\par
 \noindent Definition: \texttt{(pair).left}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{someZero}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{SemanticFixture.VariantTypes.MaybeNat}.\par
 \noindent Definition: \texttt{SemanticFixture.VariantTypes.MaybeNat.some (0)}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{chooseNat}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Nat}.\par
 \noindent Definition: \texttt{(if flag then 0 else 1)}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{lessEqualBool}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Bool}.\par
 \noindent Definition: \texttt{(Nat.ble (left) (right))}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{strictlyLessBool}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Bool}.\par
 \noindent Definition: \texttt{(Nat.blt (left) (right))}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{natDepth}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Nat}.\par
 \noindent Definition: \texttt{(match value with | Nat.zero => 0 | Nat.succ prior => (1 + natDepth (prior)))}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \subsection*{\texttt{maybeIsSome}}
 \noindent Kind: \texttt{definition}.\par
 \noindent Type: \texttt{Bool}.\par
 \noindent Definition: \texttt{(match maybeValue with | SemanticFixture.VariantTypes.MaybeNat.none => false | SemanticFixture.VariantTypes.MaybeNat.some \_ => true)}.\par
+\noindent Axiom policy: \texttt{none}.\par
 \end{document}

@@ -12,6 +12,59 @@
 'SemanticFixture.Main.list_refl' does not depend on any axioms
 'SemanticFixture.Main.sampleComponent' does not depend on any axioms
 'SemanticFixture.Main.supportIsEnabled' does not depend on any axioms
+'SemanticFixture.Portable.PortableContainers' does not depend on any axioms
+'SemanticFixture.Portable.andUInt64' depends on axioms: [propext, Quot.sound]
+'SemanticFixture.Portable.appendBytes' does not depend on any axioms
+'SemanticFixture.Portable.byteAt' does not depend on any axioms
+'SemanticFixture.Portable.byteFixture' does not depend on any axioms
+'SemanticFixture.Portable.byteLength' does not depend on any axioms
+'SemanticFixture.Portable.checkedAddInt64' does not depend on any axioms
+'SemanticFixture.Portable.checkedMultiplyInt64' does not depend on any axioms
+'SemanticFixture.Portable.checkedNegateInt64' does not depend on any axioms
+'SemanticFixture.Portable.checkedQuotientInt64' does not depend on any axioms
+'SemanticFixture.Portable.checkedSubtractInt64' does not depend on any axioms
+'SemanticFixture.Portable.compareByteStrings' depends on axioms: [propext]
+'SemanticFixture.Portable.convertInt64' depends on axioms: [propext, Quot.sound]
+'SemanticFixture.Portable.decodeUtf8' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SemanticFixture.Portable.encodeUtf8' does not depend on any axioms
+'SemanticFixture.Portable.formatInt64' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SemanticFixture.Portable.isZeroInt64' does not depend on any axioms
+'SemanticFixture.Portable.joinStrings' depends on axioms: [propext]
+'SemanticFixture.Portable.maximumUInt16' does not depend on any axioms
+'SemanticFixture.Portable.maximumUInt32' does not depend on any axioms
+'SemanticFixture.Portable.maximumUInt64' does not depend on any axioms
+'SemanticFixture.Portable.maximumUInt8' does not depend on any axioms
+'SemanticFixture.Portable.minimumInt16' does not depend on any axioms
+'SemanticFixture.Portable.minimumInt32' does not depend on any axioms
+'SemanticFixture.Portable.minimumInt64' does not depend on any axioms
+'SemanticFixture.Portable.minimumInt8' does not depend on any axioms
+'SemanticFixture.Portable.multiplyInt' does not depend on any axioms
+'SemanticFixture.Portable.negateInt' does not depend on any axioms
+'SemanticFixture.Portable.notUInt64' depends on axioms: [propext, Quot.sound]
+'SemanticFixture.Portable.orUInt64' depends on axioms: [propext, Quot.sound]
+'SemanticFixture.Portable.parseInt64' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SemanticFixture.Portable.quotientInt' does not depend on any axioms
+'SemanticFixture.Portable.remainderInt' does not depend on any axioms
+'SemanticFixture.Portable.shiftRightUInt64' depends on axioms: [propext, Quot.sound]
+'SemanticFixture.Portable.shiftUInt64' depends on axioms: [propext, Quot.sound]
+'SemanticFixture.Portable.sliceBytes' does not depend on any axioms
+'SemanticFixture.Portable.splitBounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SemanticFixture.Portable.subtractInt' does not depend on any axioms
+'SemanticFixture.Portable.unboundedInteger' does not depend on any axioms
+'SemanticFixture.Portable.unicodeFixture' does not depend on any axioms
+'SemanticFixture.Portable.xorUInt64' depends on axioms: [propext, Quot.sound]
+'SemanticFixture.PortableRecursion.PortableOptionByte' does not depend on any axioms
+'SemanticFixture.PortableRecursion.PortableResultByte' does not depend on any axioms
+'SemanticFixture.PortableRecursion.builtinOptionIsSome' does not depend on any axioms
+'SemanticFixture.PortableRecursion.builtinOptionNone' does not depend on any axioms
+'SemanticFixture.PortableRecursion.builtinOptionSome' does not depend on any axioms
+'SemanticFixture.PortableRecursion.builtinResultError' does not depend on any axioms
+'SemanticFixture.PortableRecursion.builtinResultIsOk' does not depend on any axioms
+'SemanticFixture.PortableRecursion.builtinResultOk' does not depend on any axioms
+'SemanticFixture.PortableRecursion.byteListLength' does not depend on any axioms
+'SemanticFixture.PortableRecursion.echoBytes' does not depend on any axioms
+'SemanticFixture.PortableRecursion.optionIsSome' does not depend on any axioms
+'SemanticFixture.PortableRecursion.resultIsOk' does not depend on any axioms
 'SemanticFixture.Support.RemoteFlag' does not depend on any axioms
 'SemanticFixture.Support.remoteEnabled' does not depend on any axioms
 'SemanticFixture.VariantInstances.UsesDefault' does not depend on any axioms

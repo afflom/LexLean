@@ -1580,7 +1580,7 @@ fn count_ir_nodes(document: &DocumentModule) -> u64 {
     let semantic = document
         .semantic
         .as_ref()
-        .map_or(0, |module| module.declarations.len() as u64);
+        .map_or(0, crate::ir::semantic::SemanticModule::node_count);
     prose.saturating_add(core).saturating_add(semantic)
 }
 
