@@ -898,13 +898,13 @@ public instance : Quotient Int where
 public class Appendable (α : Type) where append : α -> α -> α
 public instance {α : Type} : Appendable (List α) where append := List.append
 public instance : Appendable ByteArray where append := ByteArray.append
-@[noinline] public def append {α : Type} [Appendable α] (left right : α) : α := Appendable.append left right
+@[expose] public def append {α : Type} [Appendable α] (left right : α) : α := Appendable.append left right
 
 public class Lengthable (α : Type) where length : α -> Nat
 public instance {α : Type} : Lengthable (List α) where length := List.length
 public instance : Lengthable ByteArray where length := ByteArray.size
 public instance : Lengthable String where length := String.length
-@[noinline] public def length {α : Type} [Lengthable α] (value : α) : Nat := Lengthable.length value
+@[expose] public def length {α : Type} [Lengthable α] (value : α) : Nat := Lengthable.length value
 
 @[expose] public def listIndex {α : Type} : List α -> Nat -> Option α
   | [], _ => none
