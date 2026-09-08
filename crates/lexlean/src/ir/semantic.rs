@@ -1073,6 +1073,7 @@ fn check_assignments(
 fn constructor_arity(member: &MemberRef, env: &Environment<'_>) -> Option<usize> {
     if member.module.is_none() {
         match member.name.as_str() {
+            "Bool.false" | "Bool.true" => return Some(0),
             "Option.none" | "Result.error" | "Result.ok" => {
                 // Option.some and both Result constructors are polymorphic;
                 // their exact signatures are checked by constructor_signature.
@@ -1243,7 +1244,9 @@ fn check_term(
             } else if constructor.module.is_none()
                 && !matches!(
                     constructor.name.as_str(),
-                    "List.nil"
+                    "Bool.false"
+                        | "Bool.true"
+                        | "List.nil"
                         | "List.cons"
                         | "Nat.zero"
                         | "Nat.succ"
@@ -1356,7 +1359,7 @@ fn check_term(
                     ));
                 }
                 let expected = match branch.constructor.name.as_str() {
-                    "List.nil" | "Nat.zero" => 0,
+                    "Bool.false" | "Bool.true" | "List.nil" | "Nat.zero" => 0,
                     "List.cons" => 2,
                     "Nat.succ" => 1,
                     "Option.none" => 0,
@@ -1396,6 +1399,7 @@ fn check_term(
                 )?;
             }
             let list = BTreeSet::from(["List.cons".to_owned(), "List.nil".to_owned()]);
+            let bool_ = BTreeSet::from(["Bool.false".to_owned(), "Bool.true".to_owned()]);
             let nat = BTreeSet::from(["Nat.succ".to_owned(), "Nat.zero".to_owned()]);
             let option = BTreeSet::from(["Option.none".to_owned(), "Option.some".to_owned()]);
             let result = BTreeSet::from(["Result.error".to_owned(), "Result.ok".to_owned()]);
@@ -1403,7 +1407,8 @@ fn check_term(
                 let set: BTreeSet<String> = info.constructors.keys().cloned().collect();
                 (set == constructors).then_some(set)
             });
-            if constructors != list
+            if constructors != bool_
+                && constructors != list
                 && constructors != nat
                 && constructors != option
                 && constructors != result
@@ -2012,6 +2017,10 @@ fn infer_term(
             for branch in branches {
                 let mut branch_locals = locals.clone();
                 let binder_types = match &scrutinee_type {
+                    Some(SemanticType::Bool) => match branch.constructor.name.as_str() {
+                        "Bool.false" | "Bool.true" => Vec::new(),
+                        _ => return Err("Bool match uses a non-Bool constructor".to_owned()),
+                    },
                     Some(SemanticType::List { element }) => {
                         match branch.constructor.name.as_str() {
                             "List.nil" => Vec::new(),
@@ -2931,11 +2940,27 @@ mod tests {
     };
 
     const EMPTY_POLICY: &str = r#"{"declarations":[{"kind":"theorem","name":"zero_refl","parameters":[],"proof":{"kind":"reflexivity"},"statement":{"kind":"eq","left":{"kind":"nat","value":"0"},"right":{"kind":"nat","value":"0"}}}],"spec":"lexlean/semantic-module/1"}"#;
+    const BOOL_MATCH: &str = r#"{"declarations":[{"axioms":[],"body":{"branches":[{"binders":[],"body":{"kind":"nat","value":"0"},"constructor":{"name":"Bool.false"}},{"binders":[],"body":{"kind":"nat","value":"1"},"constructor":{"name":"Bool.true"}}],"kind":"match","scrutinee":{"kind":"var","name":"value"}},"kind":"definition","name":"boolToNat","parameters":[{"name":"value","type":{"kind":"bool"}}],"result":{"kind":"nat"}}],"spec":"lexlean/semantic-module/1"}"#;
 
     fn theorem_with_axioms(axioms: &str) -> String {
         format!(
             r#"{{"declarations":[{{"axioms":{axioms},"kind":"theorem","name":"zero_refl","parameters":[],"proof":{{"kind":"reflexivity"}},"statement":{{"kind":"eq","left":{{"kind":"nat","value":"0"}},"right":{{"kind":"nat","value":"0"}}}}}}],"spec":"lexlean/semantic-module/1"}}"#
         )
+    }
+
+    #[test]
+    fn semantic_bool_match_is_typed_and_exhaustive() {
+        SemanticModule::parse(BOOL_MATCH, &[], &BTreeMap::new())
+            .expect("both Boolean constructors form a typed exhaustive match");
+
+        let nonexhaustive = BOOL_MATCH.replace(
+            r#",{"binders":[],"body":{"kind":"nat","value":"1"},"constructor":{"name":"Bool.true"}}"#,
+            "",
+        );
+        assert!(SemanticModule::parse(&nonexhaustive, &[], &BTreeMap::new())
+            .expect_err("one Boolean branch is not exhaustive")
+            .to_string()
+            .contains("nonexhaustive or mixed match branches"));
     }
 
     #[test]
