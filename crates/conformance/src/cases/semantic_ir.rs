@@ -693,7 +693,11 @@ pub(crate) fn run(id: &str) {
             assert_eq!(first.snapshot_id(), second.snapshot_id());
             assert_eq!(first.snapshot_id(), third.snapshot_id());
             assert_eq!(first.language(), "1.1");
-            let module = first.modules().first().expect("one module");
+            let module = first
+                .modules()
+                .iter()
+                .find(|module| module.name() == "Main")
+                .expect("the all-declaration-variant Main module");
             assert!(module.core().is_none());
             let semantic = module.semantic().expect("typed semantic module");
             let typed_kinds = semantic

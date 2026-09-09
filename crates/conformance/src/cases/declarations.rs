@@ -451,12 +451,7 @@ pub(crate) fn run(id: &str) {
                 );
             }
             assert!(!lean.contains("sorry") && !lean.contains("axiom"));
-            let tex_path = rendered
-                .files
-                .iter()
-                .find(|(path, _)| path.ends_with(".tex"))
-                .map(|(_, bytes)| String::from_utf8(bytes.clone()).expect("utf8"))
-                .expect("LaTeX");
+            let tex_path = support::tex_text(&rendered, "Main");
             for expected in ["ComponentKind", "Validatable", "allConsecutive"] {
                 assert!(tex_path.contains(expected), "LaTeX contains {expected}");
             }
