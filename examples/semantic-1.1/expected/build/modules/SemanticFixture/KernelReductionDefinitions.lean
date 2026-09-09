@@ -1,7 +1,7 @@
 module
 public import Init
 set_option autoImplicit false
-namespace SemanticFixture.Portable
+namespace SemanticFixture.KernelReductionDefinitions
 
 namespace LexLeanRuntime
 
@@ -286,88 +286,8 @@ public instance {α : Type} [Fixed α] [ToString α] : Decimal α where
 
 end LexLeanRuntime
 
-public structure PortableContainers where
-  optional : Option (Int64)
-  fallible : Except (String) (Int64)
+@[expose] public def importedAppend : List (Nat) := (LexLeanRuntime.append ((0 :: (1 :: ([] : List (Nat))))) ((2 :: (3 :: ([] : List (Nat))))) : List (Nat))
 
-@[expose] public def minimumInt8 : Int8 := (-128 : Int8)
+@[expose] public def importedLength : Nat := (LexLeanRuntime.length (importedAppend) : Nat)
 
-@[expose] public def minimumInt16 : Int16 := (-32768 : Int16)
-
-@[expose] public def minimumInt32 : Int32 := (-2147483648 : Int32)
-
-@[expose] public def minimumInt64 : Int64 := (-9223372036854775808 : Int64)
-
-@[expose] public def maximumUInt8 : UInt8 := (255 : UInt8)
-
-@[expose] public def maximumUInt16 : UInt16 := (65535 : UInt16)
-
-@[expose] public def maximumUInt32 : UInt32 := (4294967295 : UInt32)
-
-@[expose] public def maximumUInt64 : UInt64 := (18446744073709551615 : UInt64)
-
-@[expose] public def unboundedInteger : Int := (-123456789012345678901234567890 : Int)
-
-@[expose] public def isZeroInt64 (value : Int64) : Bool := (LexLeanRuntime.equal (value) ((0 : Int64)) : Bool)
-
-@[expose] public def checkedAddInt64 (left : Int64) (right : Int64) : Option (Int64) := (LexLeanRuntime.checkedAddInt64 (left) (right) : Option (Int64))
-
-@[expose] public def checkedQuotientInt64 (left : Int64) (right : Int64) : Option (Int64) := (LexLeanRuntime.checkedQuotientInt64 (left) (right) : Option (Int64))
-
-@[expose] public def parseInt64 (value : String) : Option (Int64) := (LexLeanRuntime.parseDecimal (value) : Option (Int64))
-
-@[expose] public def formatInt64 (value : Int64) : String := (LexLeanRuntime.formatDecimal (value) : String)
-
-@[expose] public def byteFixture : ByteArray := ByteArray.mk #[170, 187, 127, 255]
-
-@[expose] public def encodeUtf8 (value : String) : ByteArray := (LexLeanRuntime.utf8Encode (value) : ByteArray)
-
-@[expose] public def decodeUtf8 (value : ByteArray) : Option (String) := (LexLeanRuntime.utf8Decode (value) : Option (String))
-
-@[expose] public def shiftUInt64 (value : UInt64) (amount : UInt32) : Option (UInt64) := (LexLeanRuntime.shiftLeft (value) (amount) : Option (UInt64))
-
-@[expose] public def subtractInt (left : Int) (right : Int) : Int := (LexLeanRuntime.subtract (left) (right) : Int)
-
-@[expose] public def multiplyInt (left : Int) (right : Int) : Int := (LexLeanRuntime.multiply (left) (right) : Int)
-
-@[expose] public def quotientInt (left : Int) (right : Int) (zeroCase : Int) : Int := (LexLeanRuntime.quotient (left) (right) (zeroCase) : Int)
-
-@[expose] public def remainderInt (left : Int) (right : Int) (zeroCase : Int) : Int := (LexLeanRuntime.remainder (left) (right) (zeroCase) : Int)
-
-@[expose] public def negateInt (value : Int) : Int := (LexLeanRuntime.negate (value) : Int)
-
-@[expose] public def convertInt64 (value : Int) : Option (Int64) := (LexLeanRuntime.checkedConvert (value) : Option (Int64))
-
-@[expose] public def checkedSubtractInt64 (left : Int64) (right : Int64) : Option (Int64) := (LexLeanRuntime.checkedSubtractInt64 (left) (right) : Option (Int64))
-
-@[expose] public def checkedMultiplyInt64 (left : Int64) (right : Int64) : Option (Int64) := (LexLeanRuntime.checkedMultiplyInt64 (left) (right) : Option (Int64))
-
-@[expose] public def checkedNegateInt64 (value : Int64) : Option (Int64) := (LexLeanRuntime.checkedNegateInt64 (value) : Option (Int64))
-
-@[expose] public def andUInt64 (left : UInt64) (right : UInt64) : UInt64 := (LexLeanRuntime.bitAnd (left) (right) : UInt64)
-
-@[expose] public def orUInt64 (left : UInt64) (right : UInt64) : UInt64 := (LexLeanRuntime.bitOr (left) (right) : UInt64)
-
-@[expose] public def xorUInt64 (left : UInt64) (right : UInt64) : UInt64 := (LexLeanRuntime.bitXor (left) (right) : UInt64)
-
-@[expose] public def notUInt64 (value : UInt64) : UInt64 := (LexLeanRuntime.bitNot (value) : UInt64)
-
-@[expose] public def shiftRightUInt64 (value : UInt64) (amount : UInt32) : Option (UInt64) := (LexLeanRuntime.shiftRight (value) (amount) : Option (UInt64))
-
-@[expose] public def appendBytes (left : ByteArray) (right : ByteArray) : ByteArray := (LexLeanRuntime.append (left) (right) : ByteArray)
-
-@[expose] public def byteLength (value : ByteArray) : Nat := (LexLeanRuntime.length (value) : Nat)
-
-@[expose] public def byteAt (value : ByteArray) (offset : Nat) : Option (UInt8) := (LexLeanRuntime.index (value) (offset) : Option (UInt8))
-
-@[expose] public def sliceBytes (value : ByteArray) (start : Nat) (count : Nat) : Option (ByteArray) := (LexLeanRuntime.slice (value) (start) (count) : Option (ByteArray))
-
-@[expose] public def compareByteStrings (left : ByteArray) (right : ByteArray) : Ordering := (LexLeanRuntime.compareBytes (left) (right) : Ordering)
-
-@[expose] public def splitBounded (value : String) (delimiter : String) (maximum : UInt32) : Option (List (String)) := (LexLeanRuntime.splitExact (value) (delimiter) (maximum) : Option (List (String)))
-
-@[expose] public def joinStrings (values : List (String)) (delimiter : String) : String := (LexLeanRuntime.join (values) (delimiter) : String)
-
-@[expose] public def unicodeFixture : String := "portable ✓"
-
-end SemanticFixture.Portable
+end SemanticFixture.KernelReductionDefinitions

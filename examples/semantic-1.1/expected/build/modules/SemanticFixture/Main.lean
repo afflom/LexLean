@@ -1,5 +1,6 @@
 module
 public import Init
+public import SemanticFixture.KernelReductionProofs
 public import SemanticFixture.Portable
 public import SemanticFixture.PortableRecursion
 public import SemanticFixture.Support

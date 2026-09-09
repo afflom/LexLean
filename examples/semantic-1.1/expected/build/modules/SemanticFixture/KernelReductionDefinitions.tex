@@ -1,0 +1,16 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\begin{document}
+\section*{Semantic declarations}
+\subsection*{\texttt{importedAppend}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{List (Nat)}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.append ((0 :: (1 :: ([] : List (Nat))))) ((2 :: (3 :: ([] : List (Nat))))) : List (Nat))}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\subsection*{\texttt{importedLength}}
+\noindent Kind: \texttt{definition}.\par
+\noindent Type: \texttt{Nat}.\par
+\noindent Definition: \texttt{(LexLeanRuntime.length (importedAppend) : Nat)}.\par
+\noindent Axiom policy: \texttt{none}.\par
+\end{document}

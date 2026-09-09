@@ -1,3 +1,6 @@
+'SemanticFixture.KernelReductionDefinitions.importedAppend' does not depend on any axioms
+'SemanticFixture.KernelReductionDefinitions.importedLength' does not depend on any axioms
+'SemanticFixture.KernelReductionProofs.importedAppendLengthIsFour' does not depend on any axioms
 'SemanticFixture.Main.Box' does not depend on any axioms
 'SemanticFixture.Main.Component' does not depend on any axioms
 'SemanticFixture.Main.ComponentKind' does not depend on any axioms
