@@ -13,7 +13,9 @@
 # the container image: `ghcr.io/<owner>/lexlean`, carrying the compiler and the
 # pinned Lean toolchain its `verify` command needs. The host binaries, the
 # packaged crate, the software bill of materials, the checksums, and the gate
-# evidence are attached to the GitHub Release.
+# evidence are attached to the GitHub Release; the byte-identical verified
+# crate is also published to crates.io through short-lived trusted-publisher
+# credentials.
 name: release
 
 on:
@@ -262,8 +264,10 @@ jobs:
     # Only a tag is a release. A manual run has already proved the gate, the
     # binaries, and the image by reaching here.
     if: needs.identity.outputs.tagged == 'true' 
+    environment: crates.io
     permissions:
       contents: write
+      id-token: write
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -352,6 +356,33 @@ jobs:
         run: tar -czf "release/lexlean-${VERSION}-binaries.tar.gz" -C release bin
       - name: Checksum every assembled file
         run: cargo xtask release-artifacts
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18
+        id: crates-auth
+      - name: Publish the exact verified crate to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+          VERSION: ${{ needs.identity.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          packaged="release/lexlean.crate"
+          test -f "$packaged"
+          expected="$(sha256sum "$packaged" | cut -d' ' -f1)"
+          cargo publish --locked --package lexlean
+          for attempt in $(seq 1 30); do
+            printf 'checking crates.io visibility (attempt %s/30)\n' "$attempt"
+            response="$(curl --fail --location --silent --show-error \
+              "https://crates.io/api/v1/crates/lexlean/${VERSION}/download" \
+              --output "${RUNNER_TEMP}/lexlean-public.crate" && printf ok || true)"
+            if [ "$response" = ok ]; then
+              actual="$(sha256sum "${RUNNER_TEMP}/lexlean-public.crate" | cut -d' ' -f1)"
+              test "$actual" = "$expected"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::lexlean ${VERSION} did not become publicly downloadable" >&2
+          exit 1
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
