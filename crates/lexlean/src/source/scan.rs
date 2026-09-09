@@ -161,13 +161,17 @@ pub fn scan(path: &str, text: &str, max_primitive_atoms: u64) -> Result<Vec<Atom
 /// its span, before any lexical resolution; a standalone numeral with a
 /// redundant leading zero is noncanonical decimal source (`LLL1003`, with a
 /// fix-it), because §13.8 decimals and the numeral constructor share one
-/// canonical spelling. A numeral byte-adjacent after identifier material
-/// (`x01`, `add-01`) is part of a composed identifier and is not a numeral.
+/// canonical spelling. JSON numbers are checked independently by the
+/// semantic-module decoder; digit runs inside a `semanticdata` JSON string
+/// are exact string bytes, not LexLean numerals. A numeral byte-adjacent after
+/// identifier material (`x01`, `add-01`) is part of a composed identifier and
+/// is not a numeral.
 pub fn reject_forbidden_atoms(
     path: &str,
     atoms: &[Atom],
     forbidden_controls: &[String],
 ) -> Result<(), Diagnostic> {
+    let mut semantic = SemanticDataContext::default();
     for (index, atom) in atoms.iter().enumerate() {
         match atom.class {
             AtomClass::Control => {
@@ -186,20 +190,20 @@ pub fn reject_forbidden_atoms(
                 }
             }
             AtomClass::Numeral if atom.text.len() > 1 && atom.text.starts_with('0') => {
-                let continues_identifier = index
+                let previous = index
                     .checked_sub(1)
-                    .and_then(|previous| atoms.get(previous))
-                    .is_some_and(|previous| {
-                        previous.byte_end == atom.byte_start
-                            && match previous.class {
-                                AtomClass::Word => true,
-                                AtomClass::AsciiSymbol => {
-                                    matches!(previous.text.as_str(), "_" | "'" | "-")
-                                }
-                                _ => false,
+                    .and_then(|previous| atoms.get(previous));
+                let continues_identifier = previous.is_some_and(|previous| {
+                    previous.byte_end == atom.byte_start
+                        && match previous.class {
+                            AtomClass::Word => true,
+                            AtomClass::AsciiSymbol => {
+                                matches!(previous.text.as_str(), "_" | "'" | "-")
                             }
-                    });
-                if !continues_identifier {
+                            _ => false,
+                        }
+                });
+                if !continues_identifier && !semantic.quoted {
                     let canonical = atom.text.trim_start_matches('0');
                     let canonical = if canonical.is_empty() { "0" } else { canonical };
                     return Err(Diagnostic::new(
@@ -215,8 +219,56 @@ pub fn reject_forbidden_atoms(
             }
             _ => {}
         }
+        semantic.consume(atom);
     }
     Ok(())
+}
+
+/// Track payload strings in one pass over the primitive atoms. Recognizing
+/// actual controls prevents a control-shaped string or escaped backslash from
+/// reopening a payload; processing each byte once keeps large digests linear.
+#[derive(Default)]
+struct SemanticDataContext {
+    awaiting_open: bool,
+    depth: usize,
+    quoted: bool,
+    escaped: bool,
+}
+
+impl SemanticDataContext {
+    fn consume(&mut self, atom: &Atom) {
+        if self.depth == 0 {
+            if atom.class == AtomClass::Whitespace {
+                return;
+            }
+            if self.awaiting_open && atom.text == "{" {
+                self.depth = 1;
+                self.awaiting_open = false;
+            } else {
+                self.awaiting_open =
+                    atom.class == AtomClass::Control && atom.text == "\\semanticdata";
+            }
+            return;
+        }
+        for byte in atom.text.bytes() {
+            if self.quoted {
+                if self.escaped {
+                    self.escaped = false;
+                } else if byte == b'\\' {
+                    self.escaped = true;
+                } else if byte == b'"' {
+                    self.quoted = false;
+                }
+                continue;
+            }
+            match byte {
+                b'"' => self.quoted = true,
+                b'{' => self.depth += 1,
+                b'}' => self.depth -= 1,
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Compose a metadata/math identifier (§12.2 class 3) starting at atom
@@ -388,6 +440,44 @@ mod tests {
         for bad in ["(01)", "00", "1.05"] {
             let atoms = scan("m", bad, 10).expect("scans");
             assert!(reject_forbidden_atoms("m", &atoms, &[]).is_err(), "{bad}");
+        }
+
+        let exact = r#"\semanticdata{{"value":"sha256:007abc"}}"#;
+        let atoms = scan("m", exact, 100).expect("scans");
+        assert!(reject_forbidden_atoms("m", &atoms, &[]).is_ok());
+        let numeric = r#"\semanticdata{{"value":007}}"#;
+        let atoms = scan("m", numeric, 100).expect("scans");
+        assert!(reject_forbidden_atoms("m", &atoms, &[]).is_err());
+        for outside in [r#"\semanticdata{{"value":"ok"}} "007""#, "sha256:007abc"] {
+            let atoms = scan("m", outside, 100).expect("scans");
+            assert!(reject_forbidden_atoms("m", &atoms, &[]).is_err());
+        }
+        let escaped = r#"\semanticdata{{"value":"escaped \" and 007"}}"#;
+        let atoms = scan("m", escaped, 100).expect("scans");
+        assert!(reject_forbidden_atoms("m", &atoms, &[]).is_ok());
+    }
+
+    #[test]
+    fn semantic_string_context_tracks_controls_braces_and_whitespace() {
+        for source in [
+            "\\semanticdata \n {{\"value\":\"007\"}}",
+            r#"\semanticdata{{"value":"escaped \\semanticdata{ 007"}}"#,
+            r#"\semanticdata{{"value":"} 007 {"}}"#,
+            r#"\semanticdata{{"value":"007"}} \semanticdata{{"next":"008"}}"#,
+        ] {
+            let atoms = scan("m", source, 100).expect("scans");
+            assert!(reject_forbidden_atoms("m", &atoms, &[]).is_ok(), "{source}");
+        }
+        for source in [
+            r#"\semanticdataOther{{"value":"007"}}"#,
+            r#"\\semanticdata{{"value":"007"}}"#,
+            r#"\semanticdata{{"value":"007"}} 008"#,
+        ] {
+            let atoms = scan("m", source, 100).expect("scans");
+            assert!(
+                reject_forbidden_atoms("m", &atoms, &[]).is_err(),
+                "{source}"
+            );
         }
     }
 }

@@ -24,6 +24,7 @@ Feature: lexical-closure
     Then the percent comment fails with LLL1002
     And the tab fails with LLL1002
     And the trailing space and the non-ASCII space fail with LLL1001
+    And a digit-prefixed content identity inside semantic JSON string data remains exact string content
 
   @LX-04 @build
   Scenario: The primitive scanner recognizes exactly the specified atom classes and records exact spans.

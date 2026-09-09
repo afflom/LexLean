@@ -953,6 +953,33 @@ end LexLeanRuntime
 "#
 }
 
+fn contains_lean_comment_outside_string(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0_usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+        } else if byte == b'"' {
+            in_string = true;
+        } else if index + 1 < bytes.len()
+            && matches!((byte, bytes[index + 1]), (b'-', b'-') | (b'/', b'-'))
+        {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
 /// Render one semantic module as prose-free Lean.
 pub fn render_lean(
     checked: &CheckedModule,
@@ -1106,7 +1133,7 @@ pub fn render_lean(
     text.push_str("\nend ");
     text.push_str(&document.lean_module);
     text.push('\n');
-    if text.contains("--") {
+    if contains_lean_comment_outside_string(&text) {
         return Err(Diagnostic::new(
             code!("LLI9001"),
             "phase lean-backend: semantic lowering produced a comment token",
@@ -1192,4 +1219,35 @@ pub fn render_latex(
     }
     text.push_str("\\end{document}\n");
     Ok(emit(checked, &text, "semantic-latex-module"))
+}
+
+#[cfg(test)]
+mod comment_tests {
+    #[test]
+    fn imported_list_construction_remains_kernel_reducible() {
+        let runtime = super::portable_runtime();
+        for declaration in ["append", "length"] {
+            assert!(runtime.contains(&format!("@[expose] public def {declaration}")));
+            assert!(!runtime.contains(&format!("@[noinline] public def {declaration}")));
+        }
+    }
+
+    #[test]
+    fn comment_tokens_in_generated_string_literals_are_data() {
+        assert!(!super::contains_lean_comment_outside_string(
+            r#"def value := "--config=locked /- literal""#
+        ));
+        assert!(!super::contains_lean_comment_outside_string(
+            r#"def value := "escaped \" /- literal \\""#
+        ));
+        assert!(super::contains_lean_comment_outside_string(
+            r#"def value := "safe \\" -- generated comment"#
+        ));
+        assert!(super::contains_lean_comment_outside_string(
+            "def value := true -- generated comment\n"
+        ));
+        assert!(super::contains_lean_comment_outside_string(
+            "def value := /- generated comment -/ true\n"
+        ));
+    }
 }

@@ -13,6 +13,20 @@ is therefore a §30 release: `cargo xtask release-check` reads the complete
 criterion that does not hold. That refusal is the accurate answer at these
 versions, and the entries below say what each tag does and does not claim.
 
+## 0.3.0
+
+- Support exhaustive Boolean matches and keep imported list construction
+  definitions exposed for kernel reduction across generated modules.
+- Preserve digit runs inside `semanticdata` JSON string values as exact string
+  content. Exact content identities beginning with zero no longer trigger the
+  standalone LexLean numeral canonicalization diagnostic; JSON numeric tokens
+  and ordinary source numerals retain their existing leading-zero rejection.
+  Payload tracking is linear in source size and respects whitespace, escaped
+  quotes, and control-shaped bytes inside strings.
+- Treat Lean comment delimiters inside generated string literals as data while
+  retaining the backend invariant that generated Lean syntax contains no line
+  or block comments.
+
 ## 0.2.0
 
 Language 1.1 gains the closed portable data and operation vocabulary required

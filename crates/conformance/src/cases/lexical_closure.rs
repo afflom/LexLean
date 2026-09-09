@@ -159,6 +159,11 @@ pub(crate) fn run(id: &str) {
             let text = zeros.read("src/Main.lex.tex");
             assert_eq!(&text[span.byte_start..span.byte_end], "007");
             assert!(diagnostic.help.iter().any(|h| h.contains("`7`")));
+            let exact = r#"\semanticdata{{"value":"sha256:007abc"}}"#;
+            let atoms = lexlean::source::scan::scan("semantic.lex.tex", exact, 100)
+                .expect("semantic string scans");
+            lexlean::source::scan::reject_forbidden_atoms("semantic.lex.tex", &atoms, &[])
+                .expect("exact semantic string bytes are not numerals");
         }
         // §12.2: the exact atom classes with exact spans.
         "LX-04" => {

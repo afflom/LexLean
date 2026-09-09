@@ -23,8 +23,8 @@ published container image carries both and is the shortest path to a run that
 can actually verify:
 
 ```text
-docker pull ghcr.io/afflom/lexlean:0.2.0
-docker run --rm -v "$PWD:/work" ghcr.io/afflom/lexlean:0.2.0 verify
+docker pull ghcr.io/afflom/lexlean:0.3.0
+docker run --rm -v "$PWD:/work" ghcr.io/afflom/lexlean:0.3.0 verify
 ```
 
 The image is around 4 GB, nearly all of it the pinned toolchain's compiled

@@ -64,7 +64,7 @@ The root workspace metadata MUST be:
 
 ```toml
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.97"
 license = "MIT OR Apache-2.0"
@@ -2251,7 +2251,14 @@ UTF-8 `String`, immutable `Bytes`, three-way `Ordering`, `Option`, `Result`,
 `List`, and document-named types. `Option` and `Result` carry their complete
 closed value/error types. They are not aliases for a sentinel, exception, or
 host-width integer. JSON decoding guarantees that a `String` literal is valid
-UTF-8. A byte literal is an even-length lower-case hexadecimal string.
+UTF-8. Digit runs within `semanticdata` JSON string values are preserved as
+string bytes and are never reclassified as source numerals; this permits exact
+content identities whose first hexadecimal digit is zero. JSON number tokens
+remain subject to the JSON decoder's grammar. A byte literal is an even-length
+lower-case hexadecimal string.
+Generated Lean forbids line and block comment tokens in syntax, while the same
+byte sequences inside a generated Lean string literal remain exact string
+data.
 Integer literals use one canonical base-ten spelling: zero is `0`; any other
 value has no leading zero; only signed representations admit a leading minus;
 and every fixed-width literal is rejected unless it is within the exact range

@@ -39,6 +39,22 @@ Outside `vv`:
 
 Each gate below was made to fail by planting a defect, running the gate's command, recording the failure, and removing the defect. The observed lines are verbatim gate output (paths abbreviated to the repository root). `cargo xtask release-check` requires a `### <gate> can fail` record for every gate and audit named in `repo_model::release::GATES`.
 
+### semantic string context can fail
+
+Observed: the initial payload detector searched for the literal adjacent bytes
+`\semanticdata{`. A legal space or newline before the payload brace caused
+`"007"` inside JSON string data to fail as a source numeral. The targeted test
+`cargo test -p lexlean --lib semantic_string_context_tracks_controls_braces_and_whitespace -- --nocapture`
+failed on `\semanticdata` followed by a newline and `{{"value":"007"}}`.
+
+Corrected: payload scope follows the primitive control and delimiter atoms in
+one linear pass. The same test passes with whitespace, braces inside strings,
+escaped control-shaped string data, and successive payloads, and rejects
+leading-zero numerals outside the payload, prefixed control names, and escaped
+backslashes that do not introduce a control. JSON numeric tokens retain their
+existing rejection. The Lean comment detector separately tests literal
+delimiters and escaped quotes while rejecting actual line and block comments.
+
 ### language-1.1 semantic conformance can fail
 
 Planted: the fixed Lean lowering of the generic `prop_and` term was changed
